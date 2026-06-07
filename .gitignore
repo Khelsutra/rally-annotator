@@ -1,0 +1,8 @@
+# Rally label outputs (user data, not source)
+*.rallies.csv
+rally_labels.csv
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
