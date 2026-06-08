@@ -32,16 +32,31 @@ pausing to the exact frame before each mark — turning "watch a match" into "pr
 Requires **VLC 3.0.x**. (VLC 4.0 changed the Lua input/listener API; targeting 3.x for now.)
 
 ## Use
-1. Pick the **Sport** in the dropdown.
-2. Play the match. When a rally begins, click **Mark START** (snapshots the current time — pause/scrub first for frame accuracy).
-3. Choose the **Ending reason** (winner / forced_error / unforced_error / service_fault / let / other).
-4. When the rally ends, click **Mark END** → one row is appended immediately.
-5. **Undo last** removes an uncommitted START or the last written row (one level).
-6. The status panel shows the current time, whether a START is armed, rallies written, and the **output CSV path**.
+1. Pick the **Sport** (it stays set across rallies).
+2. When a rally begins, click **Mark START** — it snapshots the current playback time into the **Start** field
+   (pause/scrub first for frame accuracy; you can also edit the field by hand).
+3. When the rally ends, click **Mark END** (fills the **End** field). This *arms* the rally; nothing is written yet.
+4. Choose the **Ending reason** — it is **required** — and click **Save Rally** to write one CSV row.
+   The reason **resets after every save**, so it can't silently reuse the previous rally's reason.
+5. **Recent rallies** list: select a row, then **Edit selected** (loads it back into the fields to fix
+   start/end/reason/sport → **Save changes**) or **Delete selected**. **Undo last** removes the most recent row —
+   the button shows which one, e.g. `Undo last (#7)`, and the status panel shows that row's details — or clears an
+   in-progress mark, or cancels an edit.
+6. **Help** button → usage + an [ending-reason decision guide](docs/ENDING_REASONS.md), rendered inside the dialog.
 
 **Output:** `<video-stem>.rallies.csv` next to the video (falls back to your home dir if the path can't be
-resolved). Re-opening the extension **continues** rally numbering from the existing file — no duplicate IDs,
-no overwrite.
+resolved). Re-opening the extension **continues** rally numbering from the existing file — no duplicate IDs.
+
+**Resuming a half-finished video:** labels are saved to that CSV as you go. Open the **same video** and enable the
+extension and it **reloads your existing rallies** (shown in the Recent list) and continues numbering — so you can
+stop and pick up later. Easiest flow: **open the video first, then enable the extension.** If you switch videos with
+the dialog already open, click **Refresh** to point at the current video and load its rallies. (Playback *position*
+isn't restored — scrub to where you stopped.)
+
+> **Where's the help / "About" text?** The empty *"About …lua"* box under **Tools → Plugins and extensions →
+> Add-ons** is VLC's own add-on info dialog; its body ("Lua script") is a constant baked into VLC and **can't be
+> set by an extension**. Use the **Help** button inside the Rally Annotator dialog instead. (The descriptor's
+> description does show in the *Active Extensions* tab's **"More information"** dialog.)
 
 ## Sports & taxonomy
 Net-separated racquet sports share a forced/unforced-error point-stop taxonomy, so one tool covers them all:
@@ -57,8 +72,27 @@ Net-separated racquet sports share a forced/unforced-error point-stop taxonomy, 
 `ending_reason` ∈ `{winner, forced_error, unforced_error, service_fault, let, other}` — a shared vocabulary
 across these sports. Keep to these values for clean downstream aggregation.
 
+### What the ending reasons mean
+Every reason **except `winner`** is charged to the side that **lost** the rally.
+
+| Reason | When the rally ended because… |
+|---|---|
+| `winner` | the last shot landed **in** and went unreturned (opponent couldn't reach it / only waved). A clean ace counts here. |
+| `forced_error` | the loser **missed** (out or into the net) while **under pressure** — stretched, rushed, jammed, handling the opponent's pace/spin/depth. |
+| `unforced_error` | the loser **missed a routine shot** they had time **and** position to make, with little or no pressure. |
+| `service_fault` | the point ended **on the serve** — into the net, out of the service box, illegal action/foot fault, or a double fault. |
+| `let` | the rally is **replayed** under the rules, no point scored (e.g. a tennis/table-tennis serve net-cord that's otherwise good, outside interference). |
+| `other` | none of the above — occluded footage, injury/retirement, penalty, hindrance. Use sparingly. |
+
+**The cases people ask about:** a ball/shuttle landing **out** is the *hitter's* error → `forced_error` only if they
+were under pressure, otherwise `unforced_error` (it's **never** automatically forced, and never a winner for the
+opponent). **Into the net** during a rally is the same; a **serve** into the net is `service_fault`. When unsure
+forced-vs-unforced, **default to `unforced_error`**. See the full decision guide with examples and per-sport rules
+in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the in-plugin **Help** button).
+
 ## Roadmap
-- [ ] Validate v1.2 multi-sport build live in VLC across all five sports.
+- [ ] Live-test the v1.3 dialog in VLC (two-step Save, required/non-sticky reason, editable times, Recent-rallies
+      Edit/Delete) across all five sports.
 - [ ] Optional per-sport reason presets / hotkeys.
 - [ ] Alternative front-ends for power users / remote raters: a `python-vlc` + Tk/Qt app with global keyboard
       shortcuts (S/E/1–6/U), and a zero-install HTML5 `<video>` page that exports the same CSV.
