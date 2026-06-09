@@ -14,7 +14,8 @@ lua5.1 test/dialog_test.lua        # from the repo root
 ```
 
 Exit code is `0` if all assertions pass, `1` otherwise — so it drops straight into CI or a
-pre-commit hook.
+pre-commit hook. **GitHub Actions runs it on every push and PR** ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+it syntax-checks the extension with `luac5.1 -p`, then runs this suite (logic **+ the layout snapshot**).
 
 ### Installing Lua 5.1
 
