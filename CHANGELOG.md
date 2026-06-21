@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.7 — 2026-06-22
+- **Localized dialog chrome** into 7 languages — English, Hindi, Kannada, Telugu, Spanish, Danish,
+  Indonesian (the [Khelsutra](https://khelsutra.guru) set + Telugu). A new **Language** selector (with a
+  `✓` apply button) rebuilds the dialog in the chosen language, and the choice **persists across sessions**
+  in a small config file (`~/.rally_annotator_lang`). Labels, buttons, and the reason/sport dropdown
+  **display labels** are translated; **status messages and the in-dialog HELP guide stay English for now**
+  (a documented next phase — see [docs/LOCALIZATION.md](docs/LOCALIZATION.md)). The translations are
+  **machine drafts pending native-speaker review**.
+- **CSV stays canonical:** the reason/sport values written to the CSV are mapped from the selected
+  dropdown *id* back to canonical English, so output is byte-identical regardless of interface language.
+- **Tests:** the headless suite exposes the string table and asserts **key-parity** across all 7 locales,
+  plus an end-to-end language-switch test; the layout snapshot is regenerated for the language row +
+  localized dropdowns. **88 assertions**, green via `lua5.1 test/dialog_test.lua`.
+
 ## v1.6.4 — 2026-06-18
 - **Guard unsaved work against silent loss (golden-data safety).** Once a rally is fully marked (**START + END**)
   but not yet saved, the two ways you could *accidentally* throw it away are now blocked with a clear prompt instead

@@ -95,7 +95,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "1.6.4")
+eq("descriptor version", descriptor().version, "1.7")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -207,6 +207,24 @@ ok("Mark START button wired",    buttonWithCb(mark_start) ~= nil)
 ok("Save Rally button wired",    buttonWithCb(save_rally) ~= nil)
 ok("reason dropdown present",    find('dropdown',3,6) ~= nil)
 ok("Number of shots input present", find('text_input',4,4) ~= nil)
+
+--------------------------------------------------------------------------------
+-- i18n: every locale defines EXACTLY the en key set (catches a missing/extra/typo'd key).
+-- STRINGS is exposed as a global precisely so this parity gate can run headless.
+--------------------------------------------------------------------------------
+do
+  ok("STRINGS table is exposed", type(STRINGS) == "table" and type(STRINGS.en) == "table")
+  local enKeys, nEn = {}, 0
+  for k in pairs(STRINGS.en) do enKeys[k] = true; nEn = nEn + 1 end
+  for _, code in ipairs({ "kn", "hi", "te", "es", "da", "id" }) do
+    local n, missing, extra = 0, nil, nil
+    for k in pairs(STRINGS[code] or {}) do n = n + 1; if not enKeys[k] then extra = k end end
+    for k in pairs(enKeys) do if not (STRINGS[code] or {})[k] then missing = k end end
+    eq("i18n " .. code .. ": key count matches en (" .. nEn .. ")", n, nEn)
+    ok("i18n " .. code .. ": no missing key vs en (" .. tostring(missing) .. ")", missing == nil)
+    ok("i18n " .. code .. ": no extra key vs en (" .. tostring(extra) .. ")", extra == nil)
+  end
+end
 
 --------------------------------------------------------------------------------
 -- Help toggle (dedicated panel add/remove)
@@ -389,6 +407,29 @@ do
   eq("after cancel Mark START label restored", markBtn(mark_start).text, "Mark START")
   eq("after cancel Mark END label restored",   markBtn(mark_end).text,   "Mark END")
   os.remove(CSV)
+end
+
+--------------------------------------------------------------------------------
+-- Language switch: picking a locale + change_language() rebuilds the dialog localized;
+-- switching back restores English. (The CSV stays canonical regardless -- the save path
+-- maps the selected dropdown id back to the canonical value, exercised above.)
+--------------------------------------------------------------------------------
+do
+  local LANGCFG = (TMP:sub(-1) == sep and TMP or TMP .. sep) .. ".rally_annotator_lang"
+  os.remove(LANGCFG); os.remove(CSV)
+  MEDIA_URI = nil; PB.state = "stopped"
+  activate()
+  local function lbl(c, r) for _, w in ipairs(DIALOG.widgets) do if w.kind=='label' and w.col==c and w.row==r and not w.deleted then return w end end end
+  local function langDrop() for _, w in ipairs(DIALOG.widgets) do if w.kind=='dropdown' and w.col==2 and w.row==15 and not w.deleted then return w end end end
+  eq("sport label English before switch", lbl(1,1) and lbl(1,1).text, "Sport:")
+  ok("language dropdown present at (2,15)", langDrop() ~= nil)
+  langDrop().sel_id = 2            -- kn = LOCALES[2]
+  change_language()
+  ok("sport label localized (non-English) after switch to kn", lbl(1,1) ~= nil and lbl(1,1).text ~= "Sport:")
+  langDrop().sel_id = 1            -- en = LOCALES[1]
+  change_language()
+  eq("sport label English again after switch back", lbl(1,1) and lbl(1,1).text, "Sport:")
+  os.remove(LANGCFG); os.remove(CSV)
 end
 
 --------------------------------------------------------------------------------
