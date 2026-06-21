@@ -1,0 +1,10 @@
+node_modules/
+.output/
+.wxt/
+stats.html
+*.zip
+coverage/
+e2e-results/
+e2e-report/
+test-results/
+playwright/.cache/

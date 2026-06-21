@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Rally Annotator E2E fixture</title>
+  </head>
+  <body style="margin: 0; background: #111; color: #ccc; font-family: system-ui">
+    <h3 style="padding: 8px">E2E fixture — a real seekable &lt;video&gt;</h3>
+    <video id="vid" src="sample.webm" width="640" height="480" controls preload="auto"></video>
+    <script>
+      // Signal readiness so the test waits for a seekable video before marking.
+      const v = document.getElementById("vid");
+      v.addEventListener("loadeddata", () => {
+        window.__videoReady = true;
+      });
+    </script>
+  </body>
+</html>
