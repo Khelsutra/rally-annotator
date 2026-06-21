@@ -1,9 +1,18 @@
 # Rally Annotator
 
-[![tests](https://github.com/avidullu/rally-annotator/actions/workflows/ci.yml/badge.svg)](https://github.com/avidullu/rally-annotator/actions/workflows/ci.yml)
+[![VLC dialog suite](https://github.com/Khelsutra/rally-annotator/actions/workflows/ci.yml/badge.svg)](https://github.com/Khelsutra/rally-annotator/actions/workflows/ci.yml)
+[![web extension CI](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml/badge.svg)](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml)
 
-A tiny **VLC plugin** to hand-label rally **start/end + point-stop reason** while you watch a match,
-for **net-separated racquet sports** — badminton, tennis, table tennis, pickleball, padel.
+> **Part of [Khelsutra](https://khelsutra.guru) — _“Every rally, indexed. The dead time, gone.”_**
+> Khelsutra turns full match videos into rally-indexed highlights. **Rally Annotator is its open
+> labeling tool**: the ground-truth rally CSVs produced here are what the Khelsutra pipeline trains and
+> evaluates its rally-segmentation models against. This repo is the public, open-source piece of that stack.
+
+Hand-label rally **start/end + point-stop reason** while you watch a match, for **net-separated racquet
+sports** — badminton, tennis, table tennis, pickleball, padel. Two front-ends, **same CSV**:
+
+- 🎬 **VLC plugin** — label **local video files** inside VLC (this README).
+- 🌐 **Browser extension** _(new)_ — label **web video, including YouTube**, right in the page. See **[web/](web/)**.
 
 You watch the video in VLC, pause/scrub freely, and click **Mark START** / **Mark END** (with a
 reason). It writes one CSV row per rally — clean ground-truth labels for training/evaluating rally
@@ -17,6 +26,18 @@ rally_number,start_time,end_time,ending_reason,sport,shots_count
 
 Times are **decimal seconds**; `shots_count` is an **optional** rally shot/stroke count (blank if you skip it).
 See [docs/CSV_FORMAT.md](docs/CSV_FORMAT.md).
+
+## Generating rally annotations — pick your front-end
+
+| You're labeling… | Use | Output |
+|---|---|---|
+| a **local video file** | the **VLC plugin** (install + use below) | `<video>.rallies.csv` next to the file |
+| **web video / YouTube** (`youtube.com/watch`) | the **browser extension** → [web/](web/) | the full CSV downloaded on each save |
+
+Both write the **identical CSV schema**, so labels from either path feed the same Khelsutra pipeline. The
+VLC flow is documented below; the browser extension has its own [README](web/README.md), a
+[design doc with locked decisions](web/DESIGN.md), and a [testing strategy](web/TESTING.md). Either way the
+workflow is the same: **Mark START → Mark END → pick the reason → Save**, one CSV row per rally.
 
 ## Why
 Labeling rally boundaries is the slow, expensive prerequisite for any rally-detection model. Most tools
@@ -109,8 +130,10 @@ in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the 
 - [ ] Live-test the v1.6 dialog in VLC (single Play / Pause toggle, optional Number of shots, two-step Save,
       `unknown`-default reason, editable times, Next rally #, Recent-rallies Edit/Delete) across all five sports.
 - [ ] Optional per-sport reason presets / hotkeys.
-- [ ] Alternative front-ends for power users / remote raters: a `python-vlc` + Tk/Qt app with global keyboard
-      shortcuts (S/E/1–6/U), and a zero-install HTML5 `<video>` page that exports the same CSV.
+- [x] **Browser front-end for web video incl. YouTube** — Chrome MV3 extension emitting the same CSV
+      ([web/](web/)). Firefox/Safari build legs and embedded-iframe (`youtube.com/embed`) support are
+      documented follow-ups (see [web/DESIGN.md](web/DESIGN.md)).
+- [ ] A `python-vlc` + Tk/Qt app with global keyboard shortcuts (S/E/1–6/U) for power users / remote raters.
 - [x] Optional `shots_count` column (v1.6). Further extra columns (e.g. server/receiver) still TBD behind a toggle.
 
 ## Tests
@@ -126,9 +149,11 @@ are checked by loading in VLC with `vlc -vv --file-logging` (must scan with no `
 click-through. See [test/README.md](test/README.md).
 
 ## Contributing
-Issues and PRs welcome — especially live test reports per sport/OS and small UX fixes. The plugin is a single
-self-contained Lua file (`vlc/rally_annotator.lua`) using only documented VLC 3.x Lua APIs; please keep
-`test/dialog_test.lua` green (`lua5.1 test/dialog_test.lua`) and add a case for new dialog logic.
+Issues and PRs welcome — live test reports per sport/OS, browser-extension features, and UX fixes. Every
+change is gated by tests (which is what lets us merge outside PRs with confidence): keep the VLC suite
+(`lua5.1 test/dialog_test.lua`) and the web suite (`cd web && npm test`) green and add a case for new logic.
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full dev setup, the rigorous merge bar each PR must
+pass, and how to add tests for a change.
 
 ## License
 MIT — see [LICENSE](LICENSE).

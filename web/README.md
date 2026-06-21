@@ -3,7 +3,11 @@
 A Manifest V3 browser extension that brings the [VLC rally annotator](../vlc/rally_annotator.lua)
 to **web video**: open a page with a playing HTML5 `<video>`, mark each rally's START/END +
 ending reason, and get the **same CSV** (`rally_number,start_time,end_time,ending_reason,sport,shots_count`)
-that feeds the `sports-data-collector` → `badminton-highlight-indexer` pipeline.
+that feeds the Khelsutra rally-segmentation pipeline.
+
+> Part of **[Khelsutra](https://khelsutra.guru)** — _“Every rally, indexed. The dead time, gone.”_ This is
+> the web front-end of Khelsutra's open rally-labeling tool. **Docs:** [DESIGN.md](DESIGN.md) (architecture +
+> locked decisions) · [TESTING.md](TESTING.md) (test strategy + per-browser proof) · [../CONTRIBUTING.md](../CONTRIBUTING.md).
 
 **Chrome-first, loaded unpacked.** Built as one cross-browser-ready codebase (WXT); Firefox + Safari
 + store publishing are the north star (low-rework follow-ups), not yet wired.
