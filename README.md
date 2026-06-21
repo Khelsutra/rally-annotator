@@ -4,9 +4,10 @@
 [![web extension CI](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml/badge.svg)](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml)
 
 > **Part of [Khelsutra](https://khelsutra.guru) — _“Every rally, indexed. The dead time, gone.”_**
-> Khelsutra turns full match videos into rally-indexed highlights. **Rally Annotator is its open
-> labeling tool**: the ground-truth rally CSVs produced here are what the Khelsutra pipeline trains and
-> evaluates its rally-segmentation models against. This repo is the public, open-source piece of that stack.
+> Khelsutra turns a full badminton match into a clean index of rallies with the dead time stripped out —
+> a highlight reel you can watch and download. **Rally Annotator is its open labeling tool**: the
+> ground-truth rally CSVs produced here are what the Khelsutra pipeline trains and evaluates its
+> rally-segmentation models against. This repo is the public, open-source piece of that stack.
 
 Hand-label rally **start/end + point-stop reason** while you watch a match, for **net-separated racquet
 sports** — badminton, tennis, table tennis, pickleball, padel. Two front-ends, **same CSV**:
@@ -147,6 +148,17 @@ lua5.1 test/dialog_test.lua        # exit 0 = pass; covers reason reset, shots c
 It covers all the logic but not VLC's GUI rendering or real playback (there's no headless VLC UI automation) — those
 are checked by loading in VLC with `vlc -vv --file-logging` (must scan with no `Error loading` line) plus a manual
 click-through. See [test/README.md](test/README.md).
+
+## About Khelsutra
+[Khelsutra](https://khelsutra.guru) turns a full **badminton** match into a clean **index of rallies** with
+the dead time stripped out — a highlight reel you can watch and download, plus a summary. It's an
+**invite-only alpha** (Bengaluru) aimed at **academies and players**, with privacy built in (your footage
+stays yours; minors are protected) and a roadmap toward shot detection, deeper match analysis, per-match
+history, and an AI **assistant coach** — expanding to more sports and languages over time.
+
+**Rally Annotator is the open-source labeling tool of that stack.** The rally CSVs you produce here are the
+ground truth its rally-segmentation models learn from — so better labels directly mean better auto-generated
+reels. _“Every rally, indexed. The dead time, gone.”_
 
 ## Contributing
 Issues and PRs welcome — live test reports per sport/OS, browser-extension features, and UX fixes. Every
