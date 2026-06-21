@@ -1,0 +1,67 @@
+name: web-extension CI
+
+# Proof-and-validation pipeline for the browser extension (web/). Runs on changes
+# under web/. Unit + coverage (enforced thresholds), typecheck, build, then a REAL
+# Chromium E2E that loads the built extension and drives it on a real <video> — the
+# recorded screencast and coverage are uploaded as artifacts.
+on:
+  push:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests + coverage (enforced thresholds)
+        run: npm run coverage
+
+      - name: Build extension (chrome-mv3)
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E in real Chromium (records a screencast)
+        run: xvfb-run -a npm run e2e
+        env:
+          CI: "true"
+
+      - name: Upload E2E screencast + report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chromium-e2e-screencast
+          path: |
+            web/e2e-results/videos
+            web/e2e-report
+          if-no-files-found: warn
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: web/coverage
+          if-no-files-found: warn
