@@ -12,8 +12,10 @@
 Hand-label rally **start/end + point-stop reason** while you watch a match, for **net-separated racquet
 sports** — badminton, tennis, table tennis, pickleball, padel. Two front-ends, **same CSV**:
 
-- 🎬 **VLC plugin** — label **local video files** inside VLC (this README).
-- 🌐 **Browser extension** _(new)_ — label **web video, including YouTube**, right in the page. See **[web/](web/)**.
+- 🎬 **VLC plugin** — label **local video files** inside VLC (this README); the dialog is **localized**
+  (English, Hindi, Kannada, Telugu, Spanish, Danish, Indonesian) via a Language selector.
+- 🌐 **Browser extension** _(new)_ — label **web video, including YouTube**, right in the page;
+  **localized into English, Hindi, Kannada, Telugu, Spanish, Danish & Indonesian**. See **[web/](web/)**.
 
 You watch the video in VLC, pause/scrub freely, and click **Mark START** / **Mark END** (with a
 reason). It writes one CSV row per rally — clean ground-truth labels for training/evaluating rally
@@ -130,6 +132,10 @@ in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the 
 ## Roadmap
 - [ ] Live-test the v1.6 dialog in VLC (single Play / Pause toggle, optional Number of shots, two-step Save,
       `unknown`-default reason, editable times, Next rally #, Recent-rallies Edit/Delete) across all five sports.
+- [x] **Localization** into Khelsutra's languages + Telugu (en/hi/kn/te/es/da/id): the browser
+      extension is fully localized; the VLC dialog **chrome** is localized (status messages + the
+      ending-reason guide are the next phase). Machine drafts pending native review — see
+      [docs/LOCALIZATION.md](docs/LOCALIZATION.md).
 - [ ] Optional per-sport reason presets / hotkeys.
 - [x] **Browser front-end for web video incl. YouTube** — Chrome MV3 extension emitting the same CSV
       ([web/](web/)). Firefox/Safari build legs and embedded-iframe (`youtube.com/embed`) support are

@@ -85,7 +85,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "1.6.4"
+local VERSION = "1.7"
 
 function descriptor()
   return {
@@ -168,6 +168,354 @@ Click <b>Hide help</b> to return to the status panel.
 ]==]
 
 --------------------------------------------------------------------------------
+-- i18n -- the dialog CHROME (labels, buttons, reason/sport display, language picker)
+-- is localized into en/kn/hi/te/es/da/id. Status messages and the HELP guide stay
+-- English for now (the large prose block is a documented later phase; see
+-- docs/LOCALIZATION.md). reason/sport DISPLAY labels are localized, but the CSV always
+-- stores the CANONICAL English value (mapped from the selected dropdown id), so output
+-- stays byte-compatible regardless of interface language.
+--
+-- STRINGS is GLOBAL (like the callbacks below) so the headless test can assert key-parity.
+-- Machine-draft translations, pending native review.
+--------------------------------------------------------------------------------
+-- AUTO-GENERATED chrome translations (machine drafts, pending native review). See docs/LOCALIZATION.md.
+-- Global (not local) so the headless test suite can assert key-parity. reason/sport are DISPLAY
+-- labels; the CSV always stores the canonical English value (mapped via the dropdown id).
+STRINGS = {
+  ["en"] = {
+    ["label.sport"] = "Sport:",
+    ["label.start"] = "Start (s):",
+    ["label.end"] = "End (s):",
+    ["label.next"] = "Next rally #:",
+    ["label.shots"] = "Number of shots:",
+    ["label.reason"] = "Ending reason:",
+    ["label.recent"] = "Recent rallies (select one, then Edit/Delete):",
+    ["label.language"] = "Language:",
+    ["btn.help"] = "Help",
+    ["btn.hideHelp"] = "Hide help",
+    ["btn.back5"] = "Back 5s",
+    ["btn.playPause"] = "Play / Pause",
+    ["btn.fwd5"] = "Fwd 5s",
+    ["btn.markStart"] = "Mark START",
+    ["btn.markEnd"] = "Mark END",
+    ["btn.reMarkStart"] = "Re-mark START (#{n})",
+    ["btn.reMarkEnd"] = "Re-mark END (#{n})",
+    ["btn.saveRally"] = "Save Rally",
+    ["btn.saveRallyN"] = "Save Rally (#{n})",
+    ["btn.saveChangesN"] = "Save changes (#{n})",
+    ["btn.edit"] = "Edit selected",
+    ["btn.delete"] = "Delete selected",
+    ["btn.undo"] = "Undo last",
+    ["btn.undoCancelEdit"] = "Undo last (cancel edit)",
+    ["btn.undoClearMark"] = "Undo last (clear mark)",
+    ["btn.undoN"] = "Undo last (#{n})",
+    ["btn.refresh"] = "Refresh",
+    ["reason.unknown"] = "unknown",
+    ["reason.winner"] = "winner",
+    ["reason.forced_error"] = "forced error",
+    ["reason.unforced_error"] = "unforced error",
+    ["reason.service_fault"] = "service fault",
+    ["reason.let"] = "let",
+    ["reason.other"] = "other",
+    ["sport.badminton"] = "badminton",
+    ["sport.tennis"] = "tennis",
+    ["sport.table_tennis"] = "table tennis",
+    ["sport.pickleball"] = "pickleball",
+    ["sport.padel"] = "padel",
+  },
+  ["kn"] = {
+    ["label.sport"] = "ಕ್ರೀಡೆ:",
+    ["label.start"] = "ಆರಂಭ (ಸೆ):",
+    ["label.end"] = "ಅಂತ್ಯ (ಸೆ):",
+    ["label.next"] = "ಮುಂದಿನ ರ್ಯಾಲಿ #:",
+    ["label.shots"] = "ಹೊಡೆತಗಳ ಸಂಖ್ಯೆ:",
+    ["label.reason"] = "ಮುಗಿದ ಕಾರಣ:",
+    ["label.recent"] = "ಇತ್ತೀಚಿನ ರ್ಯಾಲಿಗಳು (ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ಸಂಪಾದಿಸಿ/ಅಳಿಸಿ):",
+    ["label.language"] = "ಭಾಷೆ:",
+    ["btn.help"] = "ಸಹಾಯ",
+    ["btn.hideHelp"] = "ಸಹಾಯ ಮರೆಮಾಡಿ",
+    ["btn.back5"] = "5ಸೆ ಹಿಂದೆ",
+    ["btn.playPause"] = "ಪ್ಲೇ / ವಿರಾಮ",
+    ["btn.fwd5"] = "5ಸೆ ಮುಂದೆ",
+    ["btn.markStart"] = "ಆರಂಭ ಗುರುತಿಸಿ",
+    ["btn.markEnd"] = "ಅಂತ್ಯ ಗುರುತಿಸಿ",
+    ["btn.reMarkStart"] = "ಆರಂಭ ಮರುಗುರುತಿಸಿ (#{n})",
+    ["btn.reMarkEnd"] = "ಅಂತ್ಯ ಮರುಗುರುತಿಸಿ (#{n})",
+    ["btn.saveRally"] = "ರ್ಯಾಲಿ ಉಳಿಸಿ",
+    ["btn.saveRallyN"] = "ರ್ಯಾಲಿ ಉಳಿಸಿ (#{n})",
+    ["btn.saveChangesN"] = "ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ (#{n})",
+    ["btn.edit"] = "ಆಯ್ದದ್ದನ್ನು ಸಂಪಾದಿಸಿ",
+    ["btn.delete"] = "ಆಯ್ದದ್ದನ್ನು ಅಳಿಸಿ",
+    ["btn.undo"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ",
+    ["btn.undoCancelEdit"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (ಸಂಪಾದನೆ ರದ್ದು)",
+    ["btn.undoClearMark"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (ಗುರುತು ತೆರವು)",
+    ["btn.undoN"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (#{n})",
+    ["btn.refresh"] = "ರಿಫ್ರೆಶ್",
+    ["reason.unknown"] = "ಗೊತ್ತಿಲ್ಲ",
+    ["reason.winner"] = "ವಿನ್ನರ್",
+    ["reason.forced_error"] = "ಒತ್ತಡದ ತಪ್ಪು",
+    ["reason.unforced_error"] = "ಸ್ವಯಂ ತಪ್ಪು",
+    ["reason.service_fault"] = "ಸರ್ವಿಸ್ ಫಾಲ್ಟ್",
+    ["reason.let"] = "ಲೆಟ್",
+    ["reason.other"] = "ಇತರೆ",
+    ["sport.badminton"] = "ಬ್ಯಾಡ್ಮಿಂಟನ್",
+    ["sport.tennis"] = "ಟೆನಿಸ್",
+    ["sport.table_tennis"] = "ಟೇಬಲ್ ಟೆನಿಸ್",
+    ["sport.pickleball"] = "ಪಿಕಲ್‌ಬಾಲ್",
+    ["sport.padel"] = "ಪ್ಯಾಡೆಲ್",
+  },
+  ["hi"] = {
+    ["label.sport"] = "खेल:",
+    ["label.start"] = "शुरू (से):",
+    ["label.end"] = "समाप्त (से):",
+    ["label.next"] = "अगली रैली #:",
+    ["label.shots"] = "शॉट्स की संख्या:",
+    ["label.reason"] = "समाप्ति का कारण:",
+    ["label.recent"] = "हाल की रैलियाँ (एक चुनें, फिर संपादित/हटाएँ):",
+    ["label.language"] = "भाषा:",
+    ["btn.help"] = "मदद",
+    ["btn.hideHelp"] = "मदद छिपाएँ",
+    ["btn.back5"] = "5सै पीछे",
+    ["btn.playPause"] = "चलाएँ / रोकें",
+    ["btn.fwd5"] = "5सै आगे",
+    ["btn.markStart"] = "शुरू चिह्नित करें",
+    ["btn.markEnd"] = "समाप्त चिह्नित करें",
+    ["btn.reMarkStart"] = "शुरू फिर चिह्नित करें (#{n})",
+    ["btn.reMarkEnd"] = "समाप्त फिर चिह्नित करें (#{n})",
+    ["btn.saveRally"] = "रैली सहेजें",
+    ["btn.saveRallyN"] = "रैली सहेजें (#{n})",
+    ["btn.saveChangesN"] = "बदलाव सहेजें (#{n})",
+    ["btn.edit"] = "चयनित संपादित करें",
+    ["btn.delete"] = "चयनित हटाएँ",
+    ["btn.undo"] = "पिछला पूर्ववत करें",
+    ["btn.undoCancelEdit"] = "पिछला पूर्ववत करें (संपादन रद्द)",
+    ["btn.undoClearMark"] = "पिछला पूर्ववत करें (चिह्न हटाएँ)",
+    ["btn.undoN"] = "पिछला पूर्ववत करें (#{n})",
+    ["btn.refresh"] = "ताज़ा करें",
+    ["reason.unknown"] = "अज्ञात",
+    ["reason.winner"] = "विनर",
+    ["reason.forced_error"] = "दबाव में गलती",
+    ["reason.unforced_error"] = "बेवजह गलती",
+    ["reason.service_fault"] = "सर्विस फॉल्ट",
+    ["reason.let"] = "लेट",
+    ["reason.other"] = "अन्य",
+    ["sport.badminton"] = "बैडमिंटन",
+    ["sport.tennis"] = "टेनिस",
+    ["sport.table_tennis"] = "टेबल टेनिस",
+    ["sport.pickleball"] = "पिकलबॉल",
+    ["sport.padel"] = "पैडल",
+  },
+  ["te"] = {
+    ["label.sport"] = "క్రీడ:",
+    ["label.start"] = "ప్రారంభం (s):",
+    ["label.end"] = "ముగింపు (s):",
+    ["label.next"] = "తదుపరి ర్యాలీ #:",
+    ["label.shots"] = "షాట్ల సంఖ్య:",
+    ["label.reason"] = "ముగింపు కారణం:",
+    ["label.recent"] = "ఇటీవలి ర్యాలీలు (ఒకటి ఎంచుకుని, ఆపై సవరించు/తొలగించు):",
+    ["label.language"] = "భాష:",
+    ["btn.help"] = "సహాయం",
+    ["btn.hideHelp"] = "సహాయం దాచు",
+    ["btn.back5"] = "వెనక్కి 5s",
+    ["btn.playPause"] = "ప్లే / పాజ్",
+    ["btn.fwd5"] = "ముందుకు 5s",
+    ["btn.markStart"] = "ప్రారంభం గుర్తించు",
+    ["btn.markEnd"] = "ముగింపు గుర్తించు",
+    ["btn.reMarkStart"] = "ప్రారంభం మళ్లీ గుర్తించు (#{n})",
+    ["btn.reMarkEnd"] = "ముగింపు మళ్లీ గుర్తించు (#{n})",
+    ["btn.saveRally"] = "ర్యాలీ సేవ్ చేయి",
+    ["btn.saveRallyN"] = "ర్యాలీ సేవ్ చేయి (#{n})",
+    ["btn.saveChangesN"] = "మార్పులు సేవ్ చేయి (#{n})",
+    ["btn.edit"] = "ఎంచుకున్నది సవరించు",
+    ["btn.delete"] = "ఎంచుకున్నది తొలగించు",
+    ["btn.undo"] = "చివరిది రద్దు చేయి",
+    ["btn.undoCancelEdit"] = "చివరిది రద్దు చేయి (సవరణ రద్దు)",
+    ["btn.undoClearMark"] = "చివరిది రద్దు చేయి (గుర్తు తొలగించు)",
+    ["btn.undoN"] = "చివరిది రద్దు చేయి (#{n})",
+    ["btn.refresh"] = "రిఫ్రెష్",
+    ["reason.unknown"] = "తెలియదు",
+    ["reason.winner"] = "విన్నర్",
+    ["reason.forced_error"] = "ఒత్తిడి తప్పు",
+    ["reason.unforced_error"] = "సొంత తప్పు",
+    ["reason.service_fault"] = "సర్వీస్ ఫాల్ట్",
+    ["reason.let"] = "లెట్",
+    ["reason.other"] = "ఇతరం",
+    ["sport.badminton"] = "బ్యాడ్మింటన్",
+    ["sport.tennis"] = "టెన్నిస్",
+    ["sport.table_tennis"] = "టేబుల్ టెన్నిస్",
+    ["sport.pickleball"] = "పికిల్‌బాల్",
+    ["sport.padel"] = "పాడెల్",
+  },
+  ["es"] = {
+    ["label.sport"] = "Deporte:",
+    ["label.start"] = "Inicio (s):",
+    ["label.end"] = "Fin (s):",
+    ["label.next"] = "Próximo rally #:",
+    ["label.shots"] = "Número de golpes:",
+    ["label.reason"] = "Motivo de cierre:",
+    ["label.recent"] = "Rallies recientes (selecciona uno, luego Editar/Eliminar):",
+    ["label.language"] = "Idioma:",
+    ["btn.help"] = "Ayuda",
+    ["btn.hideHelp"] = "Ocultar ayuda",
+    ["btn.back5"] = "Atrás 5s",
+    ["btn.playPause"] = "Reproducir / Pausar",
+    ["btn.fwd5"] = "Adelante 5s",
+    ["btn.markStart"] = "Marcar INICIO",
+    ["btn.markEnd"] = "Marcar FIN",
+    ["btn.reMarkStart"] = "Re-marcar INICIO (#{n})",
+    ["btn.reMarkEnd"] = "Re-marcar FIN (#{n})",
+    ["btn.saveRally"] = "Guardar rally",
+    ["btn.saveRallyN"] = "Guardar rally (#{n})",
+    ["btn.saveChangesN"] = "Guardar cambios (#{n})",
+    ["btn.edit"] = "Editar seleccionado",
+    ["btn.delete"] = "Eliminar seleccionado",
+    ["btn.undo"] = "Deshacer último",
+    ["btn.undoCancelEdit"] = "Deshacer último (cancelar edición)",
+    ["btn.undoClearMark"] = "Deshacer último (borrar marca)",
+    ["btn.undoN"] = "Deshacer último (#{n})",
+    ["btn.refresh"] = "Actualizar",
+    ["reason.unknown"] = "desconocido",
+    ["reason.winner"] = "ganador",
+    ["reason.forced_error"] = "error forzado",
+    ["reason.unforced_error"] = "error no forzado",
+    ["reason.service_fault"] = "falta de servicio",
+    ["reason.let"] = "let",
+    ["reason.other"] = "otro",
+    ["sport.badminton"] = "bádminton",
+    ["sport.tennis"] = "tenis",
+    ["sport.table_tennis"] = "tenis de mesa",
+    ["sport.pickleball"] = "pickleball",
+    ["sport.padel"] = "pádel",
+  },
+  ["da"] = {
+    ["label.sport"] = "Sportsgren:",
+    ["label.start"] = "Start (s):",
+    ["label.end"] = "Slut (s):",
+    ["label.next"] = "Næste dueloptræk #:",
+    ["label.shots"] = "Antal slag:",
+    ["label.reason"] = "Afslutningsårsag:",
+    ["label.recent"] = "Seneste dueller (vælg én, derefter Rediger/Slet):",
+    ["label.language"] = "Sprog:",
+    ["btn.help"] = "Hjælp",
+    ["btn.hideHelp"] = "Skjul hjælp",
+    ["btn.back5"] = "Tilbage 5s",
+    ["btn.playPause"] = "Afspil / Pause",
+    ["btn.fwd5"] = "Frem 5s",
+    ["btn.markStart"] = "Markér START",
+    ["btn.markEnd"] = "Markér SLUT",
+    ["btn.reMarkStart"] = "Markér START igen (#{n})",
+    ["btn.reMarkEnd"] = "Markér SLUT igen (#{n})",
+    ["btn.saveRally"] = "Gem duel",
+    ["btn.saveRallyN"] = "Gem duel (#{n})",
+    ["btn.saveChangesN"] = "Gem ændringer (#{n})",
+    ["btn.edit"] = "Rediger valgte",
+    ["btn.delete"] = "Slet valgte",
+    ["btn.undo"] = "Fortryd seneste",
+    ["btn.undoCancelEdit"] = "Fortryd seneste (annullér redigering)",
+    ["btn.undoClearMark"] = "Fortryd seneste (ryd markering)",
+    ["btn.undoN"] = "Fortryd seneste (#{n})",
+    ["btn.refresh"] = "Opdater",
+    ["reason.unknown"] = "ukendt",
+    ["reason.winner"] = "vinderbold",
+    ["reason.forced_error"] = "fremtvunget fejl",
+    ["reason.unforced_error"] = "uprovokeret fejl",
+    ["reason.service_fault"] = "servefejl",
+    ["reason.let"] = "omserv",
+    ["reason.other"] = "andet",
+    ["sport.badminton"] = "badminton",
+    ["sport.tennis"] = "tennis",
+    ["sport.table_tennis"] = "bordtennis",
+    ["sport.pickleball"] = "pickleball",
+    ["sport.padel"] = "padel",
+  },
+  ["id"] = {
+    ["label.sport"] = "Olahraga:",
+    ["label.start"] = "Mulai (d):",
+    ["label.end"] = "Akhir (d):",
+    ["label.next"] = "Reli berikutnya #:",
+    ["label.shots"] = "Jumlah pukulan:",
+    ["label.reason"] = "Alasan berakhir:",
+    ["label.recent"] = "Reli terbaru (pilih satu, lalu Edit/Hapus):",
+    ["label.language"] = "Bahasa:",
+    ["btn.help"] = "Bantuan",
+    ["btn.hideHelp"] = "Sembunyikan bantuan",
+    ["btn.back5"] = "Mundur 5d",
+    ["btn.playPause"] = "Putar / Jeda",
+    ["btn.fwd5"] = "Maju 5d",
+    ["btn.markStart"] = "Tandai MULAI",
+    ["btn.markEnd"] = "Tandai AKHIR",
+    ["btn.reMarkStart"] = "Tandai ulang MULAI (#{n})",
+    ["btn.reMarkEnd"] = "Tandai ulang AKHIR (#{n})",
+    ["btn.saveRally"] = "Simpan Reli",
+    ["btn.saveRallyN"] = "Simpan Reli (#{n})",
+    ["btn.saveChangesN"] = "Simpan perubahan (#{n})",
+    ["btn.edit"] = "Edit yang dipilih",
+    ["btn.delete"] = "Hapus yang dipilih",
+    ["btn.undo"] = "Urungkan terakhir",
+    ["btn.undoCancelEdit"] = "Urungkan terakhir (batalkan edit)",
+    ["btn.undoClearMark"] = "Urungkan terakhir (hapus tanda)",
+    ["btn.undoN"] = "Urungkan terakhir (#{n})",
+    ["btn.refresh"] = "Segarkan",
+    ["reason.unknown"] = "tidak diketahui",
+    ["reason.winner"] = "poin langsung",
+    ["reason.forced_error"] = "kesalahan terpaksa",
+    ["reason.unforced_error"] = "kesalahan sendiri",
+    ["reason.service_fault"] = "kesalahan servis",
+    ["reason.let"] = "let",
+    ["reason.other"] = "lainnya",
+    ["sport.badminton"] = "bulu tangkis",
+    ["sport.tennis"] = "tenis",
+    ["sport.table_tennis"] = "tenis meja",
+    ["sport.pickleball"] = "pickleball",
+    ["sport.padel"] = "padel",
+  },
+}
+
+local LOCALES = { "en", "kn", "hi", "te", "es", "da", "id" }
+local LOCALE_LABELS = { en = "English", kn = "ಕನ್ನಡ", hi = "हिन्दी", te = "తెలుగు",
+                        es = "Español", da = "Dansk", id = "Bahasa Indonesia" }
+local LANG = "en"
+
+-- t(key, vars): current locale -> en -> raw key, with {var} interpolation. (gsub/ipairs
+-- live in function bodies, never at top level, so the descriptor() scan sandbox is fine.)
+local function t(key, vars)
+  local tbl = STRINGS[LANG] or STRINGS.en
+  local s = (tbl and tbl[key]) or (STRINGS.en and STRINGS.en[key]) or key
+  if vars then
+    s = s:gsub("{(%w+)}", function(k)
+      local v = vars[k]
+      if v == nil then return "{" .. k .. "}" end
+      return tostring(v)
+    end)
+  end
+  return s
+end
+
+local function lang_index(code)
+  for i, c in ipairs(LOCALES) do if c == code then return i end end
+  return 1
+end
+
+-- Persist the chosen language in a tiny config file (extensions have no settings API).
+local function lang_config_path()
+  local home = os.getenv("USERPROFILE") or os.getenv("HOME") or "."
+  local sep = home:find("\\") and "\\" or "/"
+  if home:sub(-1) ~= sep then home = home .. sep end
+  return home .. ".rally_annotator_lang"
+end
+local function load_lang()
+  local f = io.open(lang_config_path(), "r")
+  if not f then return end
+  local code = f:read("*l"); f:close()
+  if code then code = code:gsub("%s+", "") end
+  if code and STRINGS[code] then LANG = code end
+end
+local function save_lang()
+  local f = io.open(lang_config_path(), "w")
+  if f then f:write(LANG .. "\n"); f:close() end
+end
+
+--------------------------------------------------------------------------------
 -- State
 --------------------------------------------------------------------------------
 local d                 -- the single dialog (one per extension)
@@ -185,6 +533,7 @@ local w_next            -- "Next rally #" text input (lets you resume numbering 
 local w_shots           -- "Number of shots" text input (optional shots_count per rally)
 local w_help_btn        -- the Help button (relabeled "Hide help" when open)
 local w_help            -- the help panel widget; nil when hidden (toggled via del_widget)
+local w_lang            -- language-selector dropdown (en/kn/hi/te/es/da/id)
 
 local rows = {}         -- in-memory rally rows: { n, s, e, reason, sport, [shots], [extra] }
 local mode = "new"      -- "new" (marking a fresh rally) or "edit" (editing a row)
@@ -413,8 +762,8 @@ local function rebuild_reason_default()
   if not d then return end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 6, 1, 1)
-  w_reason:add_value(REASON_DEFAULT, 0)            -- "unknown" default (id 0)
-  for i, v in ipairs(REASONS) do w_reason:add_value(v, i) end
+  w_reason:add_value(t("reason." .. REASON_DEFAULT), 0)  -- "unknown" default (id 0); label localized
+  for i, v in ipairs(REASONS) do w_reason:add_value(t("reason." .. v), i) end
 end
 
 local function rebuild_reason_selected(sel)
@@ -422,10 +771,10 @@ local function rebuild_reason_selected(sel)
   if not sel or sel == "" then sel = REASON_DEFAULT end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 6, 1, 1)
-  w_reason:add_value(sel, REASON_ID[sel] or 0)     -- selected first
-  if sel ~= REASON_DEFAULT then w_reason:add_value(REASON_DEFAULT, 0) end
+  w_reason:add_value(t("reason." .. sel), REASON_ID[sel] or 0)   -- selected first (label localized)
+  if sel ~= REASON_DEFAULT then w_reason:add_value(t("reason." .. REASON_DEFAULT), 0) end
   for i, v in ipairs(REASONS) do
-    if v ~= sel then w_reason:add_value(v, i) end
+    if v ~= sel then w_reason:add_value(t("reason." .. v), i) end
   end
 end
 
@@ -434,9 +783,9 @@ local function rebuild_sport_selected(sel)
   if not sel or sel == "" then sel = SPORTS[1] end
   w_sport:clear()
   local id = SPORT_ID[sel] or 99
-  w_sport:add_value(sel, id)                        -- first => shown selected
+  w_sport:add_value(t("sport." .. sel), id)         -- first => shown selected (label localized)
   for i, v in ipairs(SPORTS) do
-    if v ~= sel then w_sport:add_value(v, i) end
+    if v ~= sel then w_sport:add_value(t("sport." .. v), i) end
   end
 end
 
@@ -461,14 +810,14 @@ end
 local function refresh_buttons()
   if w_save then
     if mode == "edit" and edit_index and rows[edit_index] then
-      w_save:set_text(string.format("Save changes (#%d)", rows[edit_index].n))
+      w_save:set_text(t("btn.saveChangesN", { n = rows[edit_index].n }))
     else
       local s = get_field_num(w_start)
       local e = get_field_num(w_end)
       if s and e then
-        w_save:set_text(string.format("Save Rally (#%d)", planned_next_number()))
+        w_save:set_text(t("btn.saveRallyN", { n = planned_next_number() }))
       else
-        w_save:set_text("Save Rally")
+        w_save:set_text(t("btn.saveRally"))
       end
     end
   end
@@ -477,25 +826,25 @@ local function refresh_buttons()
   -- accidentally overwrite an existing rally thinking you were creating a new one.
   if w_mark_start and w_mark_end then
     if mode == "edit" and edit_index and rows[edit_index] then
-      w_mark_start:set_text(string.format("Re-mark START (#%d)", rows[edit_index].n))
-      w_mark_end:set_text(string.format("Re-mark END (#%d)", rows[edit_index].n))
+      w_mark_start:set_text(t("btn.reMarkStart", { n = rows[edit_index].n }))
+      w_mark_end:set_text(t("btn.reMarkEnd", { n = rows[edit_index].n }))
     else
-      w_mark_start:set_text("Mark START")
-      w_mark_end:set_text("Mark END")
+      w_mark_start:set_text(t("btn.markStart"))
+      w_mark_end:set_text(t("btn.markEnd"))
     end
   end
   if w_undo then
     if mode == "edit" then
-      w_undo:set_text("Undo last (cancel edit)")
+      w_undo:set_text(t("btn.undoCancelEdit"))
     else
       local s = get_field_num(w_start)
       local e = get_field_num(w_end)
       if s or e then
-        w_undo:set_text("Undo last (clear mark)")
+        w_undo:set_text(t("btn.undoClearMark"))
       elseif #rows > 0 then
-        w_undo:set_text(string.format("Undo last (#%d)", rows[#rows].n))
+        w_undo:set_text(t("btn.undoN", { n = rows[#rows].n }))
       else
-        w_undo:set_text("Undo last")
+        w_undo:set_text(t("btn.undo"))
       end
     end
   end
@@ -638,10 +987,12 @@ function save_rally()
     set_status("END must be later than START (rally must be > 0s).")
     return
   end
-  local _, reason = w_reason:get_value()   -- (id, text); "unknown" is allowed
-  if not reason or reason == "" then reason = REASON_DEFAULT end
-  local _, sport = w_sport:get_value()
-  if not sport or sport == "" then sport = SPORTS[1] end
+  -- Map the selected dropdown IDs back to CANONICAL english values (the displayed labels
+  -- are localized, but the CSV must stay canonical). id 0 = unknown; 1..N index REASONS/SPORTS.
+  local rid = w_reason:get_value()
+  local reason = (rid == nil or rid == 0) and REASON_DEFAULT or (REASONS[rid] or REASON_DEFAULT)
+  local sid = w_sport:get_value()
+  local sport = (sid ~= nil and SPORTS[sid]) or SPORTS[1]
   local shots = get_shots()                -- optional; nil when blank
   local shots_note = (shots ~= nil) and string.format(", %d shots", shots) or ""
 
@@ -762,10 +1113,10 @@ function show_help()
   if w_help then
     if d then d:del_widget(w_help) end
     w_help = nil
-    if w_help_btn then w_help_btn:set_text("Help") end
+    if w_help_btn then w_help_btn:set_text(t("btn.help")) end
   else
     if d then w_help = d:add_html(HELP_HTML, 1, 16, 4, 8) end
-    if w_help_btn then w_help_btn:set_text("Hide help") end
+    if w_help_btn then w_help_btn:set_text(t("btn.hideHelp")) end
   end
   if d then d:update() end
 end
@@ -776,43 +1127,54 @@ end
 local function create_dialog()
   d = vlc.dialog("Rally Annotator v" .. VERSION)
 
-  d:add_label("Sport:", 1, 1, 1, 1)
+  d:add_label(t("label.sport"), 1, 1, 1, 1)
   w_sport = d:add_dropdown(2, 1, 2, 1)
-  for i, v in ipairs(SPORTS) do w_sport:add_value(v, i) end   -- badminton first => default
-  w_help_btn = d:add_button("Help", show_help, 4, 1, 1, 1)
+  for i, v in ipairs(SPORTS) do w_sport:add_value(t("sport." .. v), i) end   -- badminton first => default
+  w_help_btn = d:add_button(t("btn.help"), show_help, 4, 1, 1, 1)
 
   -- Playback controls -- one row of 3: Back 5s | Play / Pause (toggle) | Fwd 5s.
-  d:add_button("Back 5s",      seek_back,  1, 2, 1, 1)
-  d:add_button("Play / Pause", play_pause, 2, 2, 2, 1)   -- spans cols 2-3, centered
-  d:add_button("Fwd 5s",       seek_fwd,   4, 2, 1, 1)
+  d:add_button(t("btn.back5"),     seek_back,  1, 2, 1, 1)
+  d:add_button(t("btn.playPause"), play_pause, 2, 2, 2, 1)   -- spans cols 2-3, centered
+  d:add_button(t("btn.fwd5"),      seek_fwd,   4, 2, 1, 1)
 
-  d:add_label("Start (s):", 1, 3, 1, 1)
+  d:add_label(t("label.start"), 1, 3, 1, 1)
   w_start = d:add_text_input("", 2, 3, 1, 1)
-  d:add_label("End (s):", 3, 3, 1, 1)
+  d:add_label(t("label.end"), 3, 3, 1, 1)
   w_end = d:add_text_input("", 4, 3, 1, 1)
 
-  d:add_label("Next rally #:", 1, 4, 1, 1)
+  d:add_label(t("label.next"), 1, 4, 1, 1)
   w_next = d:add_text_input("", 2, 4, 1, 1)
-  d:add_label("Number of shots:", 3, 4, 1, 1)   -- optional; blank => shots_count left empty
+  d:add_label(t("label.shots"), 3, 4, 1, 1)   -- optional; blank => shots_count left empty
   w_shots = d:add_text_input("", 4, 4, 1, 1)
 
-  d:add_label("Ending reason:", 3, 5, 1, 1)   -- labels the reason dropdown directly below it
+  d:add_label(t("label.reason"), 3, 5, 1, 1)   -- labels the reason dropdown directly below it
 
   -- Per-rally commit row, left-to-right: Mark START -> Mark END -> reason -> Save.
-  w_mark_start = d:add_button("Mark START", mark_start, 1, 6, 1, 1)
-  w_mark_end   = d:add_button("Mark END",   mark_end,   2, 6, 1, 1)
+  w_mark_start = d:add_button(t("btn.markStart"), mark_start, 1, 6, 1, 1)
+  w_mark_end   = d:add_button(t("btn.markEnd"),   mark_end,   2, 6, 1, 1)
   rebuild_reason_default()                     -- creates w_reason at (3,6,1,1), under its label
-  w_save = d:add_button("Save Rally", save_rally, 4, 6, 1, 1)
+  w_save = d:add_button(t("btn.saveRally"), save_rally, 4, 6, 1, 1)
 
   w_status = d:add_html("", 1, 7, 4, 2)   -- rich-text status panel (multi-line via <br>)
 
-  d:add_label("Recent rallies (select one, then Edit/Delete):", 1, 9, 4, 1)
+  d:add_label(t("label.recent"), 1, 9, 4, 1)
   w_list = d:add_list(1, 10, 4, 4)
 
-  d:add_button("Edit selected",   edit_selected,   1, 14, 1, 1)
-  d:add_button("Delete selected", delete_selected, 2, 14, 1, 1)
-  w_undo = d:add_button("Undo last", undo_last,     3, 14, 1, 1)
-  d:add_button("Refresh",         refresh_now,     4, 14, 1, 1)
+  d:add_button(t("btn.edit"),   edit_selected,   1, 14, 1, 1)
+  d:add_button(t("btn.delete"), delete_selected, 2, 14, 1, 1)
+  w_undo = d:add_button(t("btn.undo"), undo_last, 3, 14, 1, 1)
+  d:add_button(t("btn.refresh"), refresh_now,     4, 14, 1, 1)
+
+  -- Language selector (row 15). VLC dropdowns have no change-callback, so a small "✓"
+  -- button applies the choice and rebuilds the dialog. "✓" is language-neutral (like the
+  -- status panel's HTML), so it needs no translation key.
+  d:add_label(t("label.language"), 1, 15, 1, 1)
+  w_lang = d:add_dropdown(2, 15, 2, 1)
+  w_lang:add_value(LOCALE_LABELS[LANG], lang_index(LANG))   -- current first => shown selected
+  for i, code in ipairs(LOCALES) do
+    if code ~= LANG then w_lang:add_value(LOCALE_LABELS[code], i) end
+  end
+  d:add_button("✓", change_language, 4, 15, 1, 1)
 
   refresh_next_field()
   refresh_list()
@@ -831,6 +1193,22 @@ local function create_dialog()
   end
 end
 
+-- Apply the language picker: read it, persist it, and rebuild the dialog in the new
+-- language. Defined after create_dialog so it can call it (the dialog is recreated, like a
+-- reason/sport rebuild but for the whole grid); module state (rows/mode/out_path) persists.
+function change_language()
+  if not w_lang then return end
+  local id = w_lang:get_value()
+  local code = LOCALES[id]
+  if not code or not STRINGS[code] or code == LANG then return end
+  LANG = code
+  save_lang()
+  if d then d:delete(); d = nil end
+  w_reason = nil
+  w_help = nil
+  create_dialog()
+end
+
 --------------------------------------------------------------------------------
 -- Lifecycle
 --------------------------------------------------------------------------------
@@ -839,6 +1217,7 @@ function activate()
   -- where REASON_ID/SPORT_ID are declared -- the descriptor scan sandbox lacks ipairs).
   for i, v in ipairs(REASONS) do REASON_ID[v] = i end
   for i, v in ipairs(SPORTS) do SPORT_ID[v] = i end
+  load_lang()             -- restore the saved language before building the dialog
   mode = "new"
   edit_index = nil
   w_help = nil

@@ -1,6 +1,6 @@
-title :: Rally Annotator v1.6.4
+title :: Rally Annotator v1.7
  1. label      @(1,1) 1x1 :: Sport:
- 2. dropdown   @(2,1) 2x1 :: [badminton, tennis, table_tennis, pickleball, padel]
+ 2. dropdown   @(2,1) 2x1 :: [badminton, tennis, table tennis, pickleball, padel]
  3. button     @(4,1) 1x1 :: Help
  4. button     @(1,2) 1x1 :: Back 5s
  5. button     @(2,2) 2x1 :: Play / Pause
@@ -16,7 +16,7 @@ title :: Rally Annotator v1.6.4
 15. label      @(3,5) 1x1 :: Ending reason:
 16. button     @(1,6) 1x1 :: Mark START
 17. button     @(2,6) 1x1 :: Mark END
-18. dropdown   @(3,6) 1x1 :: [unknown, winner, forced_error, unforced_error, service_fault, let, other]
+18. dropdown   @(3,6) 1x1 :: [unknown, winner, forced error, unforced error, service fault, let, other]
 19. button     @(4,6) 1x1 :: Save Rally
 20. html       @(1,7) 4x2 :: <runtime html>
 21. label      @(1,9) 4x1 :: Recent rallies (select one, then Edit/Delete):
@@ -25,3 +25,6 @@ title :: Rally Annotator v1.6.4
 24. button     @(2,14) 1x1 :: Delete selected
 25. button     @(3,14) 1x1 :: Undo last
 26. button     @(4,14) 1x1 :: Refresh
+27. label      @(1,15) 1x1 :: Language:
+28. dropdown   @(2,15) 2x1 :: [English, ಕನ್ನಡ, हिन्दी, తెలుగు, Español, Dansk, Bahasa Indonesia]
+29. button     @(4,15) 1x1 :: ✓
