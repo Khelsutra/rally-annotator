@@ -36,6 +36,42 @@ These are the hard negatives a rally segmenter gets wrong: it fires on a neighbo
 the target court's knock-up. Labelling them is what lets a model be trained and scored against
 them.
 
+### You are not labelling the neighbours' rallies
+
+This is the point people get wrong, so it is worth being blunt about.
+
+`adjacent_court_rally` does **not** mean "segment the match on court 4". You are not producing
+ground truth for the neighbouring court and its rallies never go in `<clip>.rallies.csv`. You are
+marking a stretch of video where something that *looks* exactly like a rally is happening on a court
+that is **not** the target — a **negative example**, so the model can learn not to fire on it.
+
+That changes what precision is required:
+
+| | Rally row | Window |
+|---|---|---|
+| What it is | a **measurement** — the boundary is the label | a **sample** — the category is the label |
+| Boundary accuracy | frame-accurate; the model is scored against it | approximate; "roughly here to roughly here" is fine |
+| Completeness | every rally on the target court | ~12 examples of each category **across the whole corpus** |
+| Where it goes | `<clip>.rallies.csv` | `<clip>.windows.csv` |
+
+So: pick a stretch where the neighbour is clearly rallying and your court clearly is not, mark it,
+tag it, move on. Do not chase exact serve-contact and terminal-event boundaries — a window is not
+scored against a boundary.
+
+**What `target_rally` is doing in this list.** It is the **matched control**: the positives the
+negatives are compared against. You do not need to find new ones — take a dozen of the rallies you
+already labelled on the target court and mark those spans again as `target_rally` windows, choosing
+ones of comparable duration and from the same sessions as your negatives (§4.4 asks for
+session/duration matching).
+
+**The track is optional, per clip.** A clip with `active_court_count = 1` cannot supply
+`adjacent_court_rally` or `simultaneous_rallies` at all, no matter how many court lines are in shot
+— it can still supply `target_court_non_rally` and controls. And a clip needs no windows whatsoever
+for its rally CSV to be complete and usable.
+
+If you only ever record `target_rally`, this track produces nothing of value: the three hard
+negatives are the entire reason it exists.
+
 `target_court_id` must be set in the clip sidecar before window labels mean anything — "adjacent"
 is undefined without a target. The annotator refuses to save a window until it is set.
 
