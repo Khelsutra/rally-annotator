@@ -5,6 +5,8 @@
 
 import { browser } from "wxt/browser";
 import type { RallyRow } from "../state/csv";
+import type { ClipMeta } from "../state/clipmeta";
+import type { WindowRow } from "../state/windows";
 
 const PREFIX = "rally:";
 
@@ -50,6 +52,31 @@ export async function loadRows(key: string): Promise<RallyRow[]> {
 
 export async function saveRows(key: string, rows: RallyRow[]): Promise<void> {
   await browser.storage.local.set({ [PREFIX + key]: rows });
+}
+
+// The clip sidecar and the window track live alongside the rallies under their own
+// prefixes, keyed by the same per-video identity, so all three resume together.
+const CLIP_PREFIX = "clip:";
+const WIN_PREFIX = "win:";
+
+export async function loadClip(key: string): Promise<ClipMeta | null> {
+  const r = await browser.storage.local.get(CLIP_PREFIX + key);
+  const v = (r as Record<string, unknown>)[CLIP_PREFIX + key];
+  return v && typeof v === "object" ? (v as ClipMeta) : null;
+}
+
+export async function saveClip(key: string, clip: ClipMeta): Promise<void> {
+  await browser.storage.local.set({ [CLIP_PREFIX + key]: clip });
+}
+
+export async function loadWindows(key: string): Promise<WindowRow[]> {
+  const r = await browser.storage.local.get(WIN_PREFIX + key);
+  const v = (r as Record<string, unknown>)[WIN_PREFIX + key];
+  return Array.isArray(v) ? (v as WindowRow[]) : [];
+}
+
+export async function saveWindows(key: string, rows: WindowRow[]): Promise<void> {
+  await browser.storage.local.set({ [WIN_PREFIX + key]: rows });
 }
 
 // Sanitize a title into a safe "<name>.rallies.csv" filename (mirrors the VLC output

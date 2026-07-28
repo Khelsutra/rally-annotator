@@ -62,14 +62,29 @@ local PB = { state = "stopped", time_us = 0 }
 -- Currently-loaded media URI, or nil for "no media" (the default, so existing tests keep
 -- resolving the CSV to the HOME fallback). Set MEDIA_URI to simulate a loaded video.
 MEDIA_URI = nil
+-- Clip duration in SECONDS and the container meta table, both nil by default so the
+-- completeness readout stays UNKNOWN unless a test opts in (it must never be guessed).
+MEDIA_DURATION = nil
+MEDIA_METAS = nil
 vlc = {
   dialog   = function(t) DIALOG = new_dialog(t); return DIALOG end,
   object   = { input = function() return (PB.state ~= "stopped") and { kind = "input" } or nil end },
   var      = {
-    get = function(_, name) if name == "time" then return PB.time_us end return nil end,
+    get = function(_, name)
+      if name == "time" then return PB.time_us end
+      if name == "length" then return MEDIA_DURATION and MEDIA_DURATION * 1000000 or nil end
+      return nil
+    end,
     set = function(_, name, val) if name == "time" then PB.time_us = val end end,
   },
-  input    = { item = function() return MEDIA_URI and { uri = function() return MEDIA_URI end } or nil end },
+  input    = { item = function()
+    if not MEDIA_URI then return nil end
+    return {
+      uri = function() return MEDIA_URI end,
+      duration = MEDIA_DURATION and function() return MEDIA_DURATION end or nil,
+      metas = MEDIA_METAS and function() return MEDIA_METAS end or nil,
+    }
+  end },
   playlist = {
     status = function() return PB.state end,
     play   = function() PB.state = "playing" end,
@@ -95,7 +110,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "1.7.1")
+eq("descriptor version", descriptor().version, "1.8.0")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -177,17 +192,17 @@ local function find(kind, col, row)
 end
 local function buttonWithCb(cb) for _,w in ipairs(d.widgets) do if w.kind=='button' and w.cb==cb then return w end end end
 local function pickReason(name)
-  local w = find('dropdown', 3, 6)
+  local w = find('dropdown', 3, 7)
   for _, v in ipairs(w.values) do if v.text==name then w.sel_id=v.id; w.sel_text=v.text; return end end
   error('reason option not found: '..name)
 end
-local function curReason() return (find('dropdown',3,6)).sel_text end
-local function nextF()  return (find('text_input',2,4)):get_text() end
-local function setNext(s) (find('text_input',2,4)):set_text(s) end
-local function setS(s)  (find('text_input',2,3)):set_text(s) end
-local function setE(s)  (find('text_input',4,3)):set_text(s) end
-local function setShots(s) (find('text_input',4,4)):set_text(s) end
-local function getShots()  return (find('text_input',4,4)):get_text() end
+local function curReason() return (find('dropdown',3,7)).sel_text end
+local function nextF()  return (find('text_input',2,5)):get_text() end
+local function setNext(s) (find('text_input',2,5)):set_text(s) end
+local function setS(s)  (find('text_input',2,4)):set_text(s) end
+local function setE(s)  (find('text_input',4,4)):set_text(s) end
+local function setShots(s) (find('text_input',4,5)):set_text(s) end
+local function getShots()  return (find('text_input',4,5)):get_text() end
 
 local helpBtn = buttonWithCb(show_help)
 local statusHtml; for _, w in ipairs(d.widgets) do if w.kind=='html' then statusHtml=w; break end end
@@ -205,8 +220,8 @@ ok("single playback toggle (no separate Resume/Pause globals)",
 ok("Fwd 5s button wired",        buttonWithCb(seek_fwd) ~= nil)
 ok("Mark START button wired",    buttonWithCb(mark_start) ~= nil)
 ok("Save Rally button wired",    buttonWithCb(save_rally) ~= nil)
-ok("reason dropdown present",    find('dropdown',3,6) ~= nil)
-ok("Number of shots input present", find('text_input',4,4) ~= nil)
+ok("reason dropdown present",    find('dropdown',3,7) ~= nil)
+ok("Number of shots input present", find('text_input',4,5) ~= nil)
 
 --------------------------------------------------------------------------------
 -- i18n: every locale defines EXACTLY the en key set (catches a missing/extra/typo'd key).
@@ -271,11 +286,11 @@ os.remove(CSV)
 --------------------------------------------------------------------------------
 -- Edit reloads the saved shots into the field; editing the count rewrites the CSV
 --------------------------------------------------------------------------------
-local lst = find('list', 1, 10)
+local lst = find('list', 1, 11)
 lst.selection = { [1] = "row #1" }       -- select rally #1 in the Recent list
 edit_selected()
 eq("edit loads shots=12 into field", getShots(), "12")
-eq("edit loads start time", (find('text_input',2,3)):get_text(), "1.000")
+eq("edit loads start time", (find('text_input',2,4)):get_text(), "1.000")
 eq("edit loads reason winner", curReason(), "winner")
 setShots('7'); save_rally()              -- change the count and commit
 eq("shots field clears after edit-save", getShots(), "")
@@ -342,7 +357,7 @@ do
   MEDIA_URI = "file://" .. TMPb .. sep .. "clip.mp4"; PB.state = "playing"; PB.time_us = 10 * 1000000
   mark_start()                                   -- video provably playing -> adopt clip.rallies.csv
   eq("Mark START adopts the video's 2 existing rallies", nVals(), 2)
-  live('text_input', 4, 3):set_text("11")        -- End (s); Start was set to 10.000 by mark_start
+  live('text_input', 4, 4):set_text("11")        -- End (s); Start was set to 10.000 by mark_start
   save_rally()
   local hv = io.open(VIDEO_CSV, "r"); local vcsv = hv and hv:read("*a") or ""; if hv then hv:close() end
   ok("new rally #3 written to <video>.rallies.csv", vcsv:find("\n3,", 1, true) ~= nil)
@@ -363,22 +378,22 @@ do
   local function listw() local L; for _, x in ipairs(DIALOG.widgets) do if x.kind=='list' and not x.deleted then L=x end end; return L end
 
   -- save one rally so the Recent list has a row to (attempt to) edit
-  win('text_input',2,3):set_text("1.000"); win('text_input',4,3):set_text("2.000"); save_rally()
+  win('text_input',2,4):set_text("1.000"); win('text_input',4,4):set_text("2.000"); save_rally()
   -- arm a fresh rally: START + END filled, unsaved
-  win('text_input',2,3):set_text("100.000"); win('text_input',4,3):set_text("110.000")
+  win('text_input',2,4):set_text("100.000"); win('text_input',4,4):set_text("110.000")
 
   mark_start()   -- would overwrite START to 200.000 -> must be REFUSED, fields untouched
-  eq("armed: Mark START refused (START unchanged)", win('text_input',2,3):get_text(), "100.000")
-  eq("armed: still a new rally (not pushed to edit)", win('text_input',4,3):get_text(), "110.000")
+  eq("armed: Mark START refused (START unchanged)", win('text_input',2,4):get_text(), "100.000")
+  eq("armed: still a new rally (not pushed to edit)", win('text_input',4,4):get_text(), "110.000")
 
   listw().selection = { [1] = "row #1" }
   edit_selected() -- would load #1 over the armed marks -> must be REFUSED
-  eq("armed: Edit selected refused (START still the armed 100.000)", win('text_input',2,3):get_text(), "100.000")
+  eq("armed: Edit selected refused (START still the armed 100.000)", win('text_input',2,4):get_text(), "100.000")
 
   undo_last()     -- the documented escape hatch: clears the in-progress mark
-  eq("after Undo last, START cleared", win('text_input',2,3):get_text(), "")
+  eq("after Undo last, START cleared", win('text_input',2,4):get_text(), "")
   mark_start()    -- no longer armed -> now allowed
-  eq("after clearing, Mark START works (200.000)", win('text_input',2,3):get_text(), "200.000")
+  eq("after clearing, Mark START works (200.000)", win('text_input',2,4):get_text(), "200.000")
   os.remove(CSV)
 end
 
@@ -394,7 +409,7 @@ do
   local function w23(c,r) local f; for _, x in ipairs(DIALOG.widgets) do if x.kind=='text_input' and x.col==c and x.row==r and not x.deleted then f=x end end; return f end
   local function listw() local L; for _, x in ipairs(DIALOG.widgets) do if x.kind=='list' and not x.deleted then L=x end end; return L end
 
-  w23(2,3):set_text("1.000"); w23(4,3):set_text("2.000"); save_rally()
+  w23(2,4):set_text("1.000"); w23(4,4):set_text("2.000"); save_rally()
   eq("pristine Mark START label", markBtn(mark_start).text, "Mark START")
   eq("pristine Mark END label",   markBtn(mark_end).text,   "Mark END")
 
@@ -420,16 +435,280 @@ do
   MEDIA_URI = nil; PB.state = "stopped"
   activate()
   local function lbl(c, r) for _, w in ipairs(DIALOG.widgets) do if w.kind=='label' and w.col==c and w.row==r and not w.deleted then return w end end end
-  local function langDrop() for _, w in ipairs(DIALOG.widgets) do if w.kind=='dropdown' and w.col==2 and w.row==15 and not w.deleted then return w end end end
-  eq("sport label English before switch", lbl(1,1) and lbl(1,1).text, "Sport:")
-  ok("language dropdown present at (2,15)", langDrop() ~= nil)
+  local function langDrop() for _, w in ipairs(DIALOG.widgets) do if w.kind=='dropdown' and w.col==2 and w.row==16 and not w.deleted then return w end end end
+  eq("sport label English before switch", lbl(1,2) and lbl(1,2).text, "Sport:")
+  ok("language dropdown present at (2,16)", langDrop() ~= nil)
   langDrop().sel_id = 2            -- kn = LOCALES[2]
   change_language()
-  ok("sport label localized (non-English) after switch to kn", lbl(1,1) ~= nil and lbl(1,1).text ~= "Sport:")
+  ok("sport label localized (non-English) after switch to kn", lbl(1,2) ~= nil and lbl(1,2).text ~= "Sport:")
   langDrop().sel_id = 1            -- en = LOCALES[1]
   change_language()
-  eq("sport label English again after switch back", lbl(1,1) and lbl(1,1).text, "Sport:")
+  eq("sport label English again after switch back", lbl(1,2) and lbl(1,2).text, "Sport:")
   os.remove(LANGCFG); os.remove(CSV)
+end
+
+--------------------------------------------------------------------------------
+-- Screens: the nav row switches between the rally track, the clip-metadata sidecar and the
+-- window track. A switch must never cost the operator an in-progress mark (the whole grid
+-- is rebuilt, so the field values have to survive it).
+--------------------------------------------------------------------------------
+local function wd(kind, c, r)
+  local f
+  for _, w in ipairs(DIALOG.widgets) do
+    if w.kind == kind and w.col == c and w.row == r and not w.deleted then f = w end
+  end
+  return f
+end
+local function wbtn(text)
+  for _, w in ipairs(DIALOG.widgets) do
+    if w.kind == 'button' and not w.deleted and w.text and w.text:find(text, 1, true) then return w end
+  end
+end
+local function read_file(p)
+  local f = io.open(p, "r"); local s = f and f:read("*a") or nil; if f then f:close() end; return s
+end
+
+local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
+local CLIPMETA = TMPb .. sep .. "rally_labels.clipmeta.json"
+local WINCSV   = TMPb .. sep .. "rally_labels.windows.csv"
+
+do
+  os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
+  MEDIA_URI = nil; PB.state = "playing"; PB.time_us = 0
+  activate()
+  ok("nav: Rallies button present",  wbtn("Rallies") ~= nil)
+  ok("nav: Clip info button present", wbtn("Clip info") ~= nil)
+  ok("nav: Windows button present",  wbtn("Windows") ~= nil)
+  eq("nav marks the active screen", wbtn("Rallies").text:sub(1, 3), "\226\150\184")
+
+  -- arm a rally, then bounce through the other two screens and back
+  wd('text_input', 2, 4):set_text("12.500")
+  wd('text_input', 4, 4):set_text("18.250")
+  show_clip()
+  ok("clip screen has the venue field", wd('text_input', 2, 2) ~= nil)
+  ok("clip screen has no rally reason dropdown", wd('dropdown', 3, 7) == nil)
+  show_windows()
+  ok("windows screen has the window-label dropdown", wd('dropdown', 3, 5) ~= nil)
+  show_rallies()
+  eq("switching screens preserves the armed START", wd('text_input', 2, 4):get_text(), "12.500")
+  eq("switching screens preserves the armed END",   wd('text_input', 4, 4):get_text(), "18.250")
+  wd('text_input', 2, 4):set_text(""); wd('text_input', 4, 4):set_text("")
+end
+
+--------------------------------------------------------------------------------
+-- Clip metadata sidecar: two SEPARATE court counts, blank == "not screened" (null, never
+-- 0/false/a default), and the collector's active<=visible invariant enforced here so an
+-- invalid sidecar can never reach import.
+--------------------------------------------------------------------------------
+do
+  os.remove(CLIPMETA)
+  show_clip()
+  local venue, camera = wd('text_input', 2, 2), wd('text_input', 4, 2)
+  local visible, active = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  local partial, target = wd('text_input', 2, 4), wd('text_input', 4, 4)
+  local notes = wd('text_input', 2, 6)
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+
+  -- GX010150: 2 courts visible, 1 active -- a divider excludes the neighbour.
+  venue:set_text("bxh_indiranagar"); camera:set_text("bxh_low_side_a")
+  visible:set_text("2"); active:set_text("1"); partial:set_text("0")
+  target:set_text("c1"); notes:set_text("divider excludes the neighbour")
+  save_clip_info()
+  local j = read_file(CLIPMETA) or ""
+  ok("clipmeta written", #j > 0)
+  ok("clipmeta records courts VISIBLE", j:find('"court_count": 2', 1, true) ~= nil)
+  ok("clipmeta records courts IN PLAY separately", j:find('"active_court_count": 1', 1, true) ~= nil)
+  ok("clipmeta records the partial-court count", j:find('"partially_visible_court_count": 0', 1, true) ~= nil)
+  ok("clipmeta records venue", j:find('"venue_id": "bxh_indiranagar"', 1, true) ~= nil)
+  ok("clipmeta records the target court", j:find('"target_court_id": "c1"', 1, true) ~= nil)
+  ok("unset match_format writes null, never a guess", j:find('"match_format": null', 1, true) ~= nil)
+  ok("no container date -> capture_time_utc null", j:find('"capture_time_utc": null', 1, true) ~= nil)
+  ok("clipmeta carries a schema version", j:find('"clipmeta_version": 1', 1, true) ~= nil)
+  ok("clipmeta names its generator", j:find('"generator": "rally%-annotator%-vlc/') ~= nil)
+
+  -- a court cannot be in play without being in frame
+  active:set_text("3")
+  save_clip_info()
+  ok("active > visible is refused", statusw.text:find("cannot exceed", 1, true) ~= nil)
+  eq("refused write left the file unchanged", read_file(CLIPMETA), j)
+  active:set_text("1")
+
+  partial:set_text("9")
+  save_clip_info()
+  ok("partial > visible is refused", statusw.text:find("cannot exceed", 1, true) ~= nil)
+  partial:set_text("0")
+
+  visible:set_text("two")
+  save_clip_info()
+  ok("non-numeric court count is refused loudly", statusw.text:find("whole number", 1, true) ~= nil)
+
+  -- blank == not screened, which must survive as null rather than becoming 0
+  visible:set_text(""); active:set_text(""); partial:set_text("")
+  save_clip_info()
+  local j2 = read_file(CLIPMETA) or ""
+  ok("blank court_count writes null (unscreened)", j2:find('"court_count": null', 1, true) ~= nil)
+  ok("blank active_court_count writes null (unscreened)", j2:find('"active_court_count": null', 1, true) ~= nil)
+  ok("blank is not 0", j2:find('"court_count": 0', 1, true) == nil)
+
+  -- Badminton_BXH_2: 4 visible / 3 active, singles -- and the format picker round-trips.
+  visible:set_text("4"); active:set_text("3")
+  local fmt = wd('dropdown', 2, 5)
+  for _, v in ipairs(fmt.values) do if v.text == "singles" then fmt.sel_id = v.id end end
+  save_clip_info()
+  local j3 = read_file(CLIPMETA) or ""
+  ok("4 visible / 3 active recorded", j3:find('"court_count": 4', 1, true) and j3:find('"active_court_count": 3', 1, true))
+  ok("match_format singles recorded", j3:find('"match_format": "singles"', 1, true) ~= nil)
+
+  -- re-enabling the extension reloads what was screened rather than re-asking
+  activate(); show_clip()
+  eq("clip info reloads on re-open (visible)", wd('text_input', 2, 3):get_text(), "4")
+  eq("clip info reloads on re-open (active)",  wd('text_input', 4, 3):get_text(), "3")
+  eq("clip info reloads on re-open (venue)",   wd('text_input', 2, 2):get_text(), "bxh_indiranagar")
+end
+
+--------------------------------------------------------------------------------
+-- Window track: its own file, its own numbering, the five-label §4.4 vocabulary, and a
+-- refusal to save before the clip's target court is known ("adjacent" needs a target).
+--------------------------------------------------------------------------------
+do
+  os.remove(WINCSV); os.remove(CLIPMETA)
+  activate()                              -- fresh: no clip metadata, so no target court yet
+  show_windows()
+  local ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  local wl = wd('dropdown', 3, 5)
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+
+  eq("window label vocabulary size", #wl.values, 5)
+  local seen = {}
+  for _, v in ipairs(wl.values) do seen[v.id] = true end
+  eq("all five labels offered", (seen[1] and seen[2] and seen[3] and seen[4] and seen[5]) and 5 or 0, 5)
+
+  ws:set_text("12.500"); we:set_text("18.250")
+  save_window()
+  ok("a window cannot be saved before the target court is set", statusw.text:find("Target court ID", 1, true) ~= nil)
+  ok("nothing was written", read_file(WINCSV) == nil)
+
+  -- record the target court, then label windows
+  show_clip()
+  wd('text_input', 4, 4):set_text("c1")
+  wd('text_input', 2, 3):set_text("4"); wd('text_input', 4, 3):set_text("3")
+  save_clip_info()
+  show_windows()
+  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  wl = wd('dropdown', 3, 5)
+  statusw = nil
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  ws:set_text("12.500"); we:set_text("18.250")
+  for _, v in ipairs(wl.values) do if v.id == 2 then wl.sel_id = v.id end end   -- adjacent_court_rally
+  wd('text_input', 2, 6):set_text("left neighbour, mid-rally")
+  save_window()
+  local w1 = read_file(WINCSV) or ""
+  ok("windows.csv header", w1:find("window_number,start_time,end_time,window_label,target_court_id,notes", 1, true) ~= nil)
+  ok("window row written with the canonical label", w1:find("\n1,12.500,18.250,adjacent_court_rally,c1,left neighbour; mid-rally\n", 1, true) ~= nil)
+
+  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  eq("window fields clear after save", ws:get_text(), "")
+  eq("window # auto-advances", wd('text_input', 2, 4):get_text(), "2")
+
+  ws:set_text("30.000"); we:set_text("36.000")
+  save_window()
+  ok("second window appended", (read_file(WINCSV) or ""):find("\n2,30.000,36.000,", 1, true) ~= nil)
+
+  -- reversed marks are tolerated; a zero-length window is refused
+  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  ws:set_text("50.000"); we:set_text("50.000")
+  save_window()
+  ok("zero-length window refused", statusw.text:find("later than", 1, true) ~= nil)
+  ws:set_text("60.000"); we:set_text("55.000")
+  save_window()
+  ok("reversed marks are swapped, not rejected", (read_file(WINCSV) or ""):find("\n3,55.000,60.000,", 1, true) ~= nil)
+
+  -- the per-label tally against §4.4's 12-of-each minimum
+  ok("status shows the per-label tally", statusw.text:find("12", 1, true) ~= nil)
+
+  -- undo / delete
+  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  ws:set_text(""); we:set_text("")
+  undo_window()
+  ok("undo removes the last window", (read_file(WINCSV) or ""):find("\n3,", 1, true) == nil)
+  wd('list', 1, 10).selection = { [1] = "row #1" }
+  delete_window()
+  ok("delete removes the selected window", (read_file(WINCSV) or ""):find("\n1,", 1, true) == nil)
+  ok("the other window survives", (read_file(WINCSV) or ""):find("\n2,", 1, true) ~= nil)
+
+  -- the window track is a SEPARATE file: the rally CSV is untouched by any of this
+  ok("rally CSV untouched by window labelling", read_file(CSV) == nil)
+
+  -- windows reload on re-open
+  activate(); show_windows()
+  eq("windows reload on re-open", #wd('list', 1, 10).values, 1)
+end
+
+--------------------------------------------------------------------------------
+-- Label completeness: the readout must match sports-data-collector's _label_completeness()
+-- number for number, or the annotator and the import gate disagree. Reference case is the
+-- real truncated pass: 768.768 s clip, labels stopping at 439.956 s.
+--------------------------------------------------------------------------------
+do
+  os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
+  local f = io.open(CSV, "w")
+  f:write("rally_number,start_time,end_time,ending_reason,sport,shots_count\n")
+  f:write("1,0.510,10.000,winner,badminton,\n")
+  f:write("2,100.000,120.000,winner,badminton,\n")
+  f:write("3,430.000,439.956,winner,badminton,\n")
+  f:close()
+  MEDIA_URI = nil; PB.state = "playing"
+  MEDIA_DURATION = 768.768
+  activate()
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  ok("coverage line shown when the duration is known", statusw.text:find("57.2", 1, true) ~= nil)
+  ok("unlabelled tail reported", statusw.text:find("328.8", 1, true) ~= nil)
+  ok("largest interior gap reported", statusw.text:find("310.0", 1, true) ~= nil)
+  ok("a >120s tail warns that the pass is unfinished", statusw.text:find("WARNING", 1, true) ~= nil)
+
+  -- and it lands in the sidecar as a snapshot of what the operator saw
+  show_clip(); wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("1")
+  save_clip_info()
+  local j = read_file(CLIPMETA) or ""
+  ok("completeness snapshot in the sidecar", j:find('"label_span_coverage": 0.5723', 1, true) ~= nil)
+  ok("tail snapshot in the sidecar", j:find('"tail_unlabelled_s": 328.8', 1, true) ~= nil)
+  ok("head snapshot in the sidecar", j:find('"head_unlabelled_s": 0.5', 1, true) ~= nil)
+  ok("rally_count travels with it so a stale snapshot is detectable", j:find('"rally_count": 3', 1, true) ~= nil)
+
+  -- no duration -> no readout at all (a rule must never fire on a guess)
+  MEDIA_DURATION = nil
+  activate()
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  ok("no duration -> no coverage line", statusw.text:find("span)", 1, true) == nil)
+  show_clip(); save_clip_info()
+  ok("no duration -> label_completeness null", (read_file(CLIPMETA) or ""):find('"label_completeness": null', 1, true) ~= nil)
+  os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
+  show_rallies()
+end
+
+--------------------------------------------------------------------------------
+-- Container date: read from the container when the player exposes one, NEVER from the
+-- path -- a folder named "May 19 2026" here holds files captured 2026-05-21.
+--------------------------------------------------------------------------------
+do
+  -- gBaaddy20May2026.MP4 in the reference archive was captured 2026-05-22, so the date must
+  -- come from the CONTAINER and the file name must never be consulted.
+  local CAPMETA2 = TMPb .. sep .. "gBaaddy20May2026.clipmeta.json"
+  os.remove(CSV); os.remove(CAPMETA2)
+  MEDIA_URI = "file://" .. TMPb .. sep .. "gBaaddy20May2026.MP4"
+  PB.state = "playing"
+  MEDIA_METAS = { date = "2026-05-22T04:11:07Z" }
+  activate(); show_clip(); save_clip_info()
+  local j = read_file(CAPMETA2) or ""
+  ok("container date recorded", j:find('"capture_time_utc": "2026%-05%-22T04:11:07Z"') ~= nil)
+  ok("its provenance is recorded as the container", j:find('"capture_time_source": "container"', 1, true) ~= nil)
+  ok("the misleading 20May2026 file name never becomes the capture date",
+     j:find("2026-05-20", 1, true) == nil)
+  MEDIA_METAS = nil
+  activate(); show_clip(); save_clip_info()
+  ok("no container date -> null, not a guess from the path",
+     (read_file(CAPMETA2) or ""):find('"capture_time_utc": null', 1, true) ~= nil)
+  os.remove(CAPMETA2); MEDIA_URI = nil; activate(); show_rallies()
 end
 
 --------------------------------------------------------------------------------

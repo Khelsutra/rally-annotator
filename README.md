@@ -30,6 +30,21 @@ rally_number,start_time,end_time,ending_reason,sport,shots_count
 Times are **decimal seconds**; `shots_count` is an **optional** rally shot/stroke count (blank if you skip it).
 See [docs/CSV_FORMAT.md](docs/CSV_FORMAT.md).
 
+### Three tracks, three files
+
+The rally CSV says **when** each rally happened. Two optional sidecars record what it can't:
+
+| File | What it holds | Format |
+|---|---|---|
+| `<clip>.rallies.csv` | one row per rally — start/end/reason/sport/shots | [CSV_FORMAT.md](docs/CSV_FORMAT.md) |
+| `<clip>.clipmeta.json` | per-clip facts: venue, camera setup, **courts visible vs courts in play**, target court, match format | [CLIP_METADATA.md](docs/CLIP_METADATA.md) |
+| `<clip>.windows.csv` | labelled time windows: `target_rally` / `adjacent_court_rally` / `simultaneous_rallies` / `target_court_non_rally` / `empty` | [WINDOW_LABELS.md](docs/WINDOW_LABELS.md) |
+
+The two sidecars are optional — the rally CSV alone still ingests exactly as before. They exist
+because the operator already knows those facts while labelling, and reconstructing them later from
+sampled frames is expensive and unreliable: two attempts to infer adjacent-court play from pixels
+failed calibration outright.
+
 ## Generating rally annotations — pick your front-end
 
 | You're labeling… | Use | Output |
@@ -77,6 +92,19 @@ is a single toggle (it resumes when paused, pauses when playing).
    the button shows which one, e.g. `Undo last (#7)`, and the status panel shows that row's details — or clears an
    in-progress mark, or cancels an edit.
 6. **Help** button → usage + an [ending-reason decision guide](docs/ENDING_REASONS.md), rendered inside the dialog.
+7. The nav row at the top switches between **Rallies**, **Clip info** and **Windows**. Switching
+   screens never discards an in-progress `START → END`.
+
+**Clip info** (optional, once per clip): record the venue, the camera setup, how many courts are
+**visible** and how many are **in play**, how many are only partly in frame, the target court id and
+the match format, then **Save clip info**. Leave anything you did not check **blank** — a blank
+records "not screened", which is different from recording a negative. **Courts in play** may never
+exceed **courts visible**, and the tool refuses the save if it does.
+
+**Windows** (optional): mark an interval and tag it `target_rally`, `adjacent_court_rally`,
+`simultaneous_rallies`, `target_court_non_rally` or `empty`. Set the **Target court ID** in Clip
+info first — "adjacent" has no meaning without a target court. A running tally shows how many of
+each label you have.
 
 **Output:** `<video-stem>.rallies.csv` next to the video (falls back to your home dir if the path can't be
 resolved). Re-opening the extension **continues** rally numbering from the existing file — no duplicate IDs.
@@ -139,6 +167,10 @@ in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the 
       fully localized** — the browser extension and the *entire* VLC dialog (chrome, status messages, and
       the in-dialog ending-reason guide). Machine drafts pending native review — see
       [docs/LOCALIZATION.md](docs/LOCALIZATION.md).
+- [x] **Per-clip metadata + a window track (v1.8.0)** — a **Clip info** screen writing
+      `<clip>.clipmeta.json` (venue / camera setup / courts visible vs in play / match format), a
+      **Windows** screen writing `<clip>.windows.csv` with the five-label vocabulary, and a
+      label-completeness readout that warns on an unfinished pass. Both front-ends, all 7 languages.
 - [ ] Optional per-sport reason presets / hotkeys.
 - [x] **Browser front-end for web video incl. YouTube** — Chrome MV3 extension emitting the same CSV
       ([web/](web/)). Firefox/Safari build legs and embedded-iframe (`youtube.com/embed`) support are

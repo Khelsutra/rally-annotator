@@ -15,8 +15,13 @@ vi.mock("wxt/browser", () => ({
   },
 }));
 
-import { deriveIdentity, csvFilename, loadRows, saveRows } from "../src/persist/store";
+import {
+  deriveIdentity, csvFilename, loadRows, saveRows,
+  loadClip, saveClip, loadWindows, saveWindows,
+} from "../src/persist/store";
 import type { RallyRow } from "../src/state/csv";
+import { emptyClipMeta } from "../src/state/clipmeta";
+import type { WindowRow } from "../src/state/windows";
 
 describe("deriveIdentity", () => {
   it("uses the YouTube video id on a watch URL", () => {
@@ -64,5 +69,39 @@ describe("loadRows / saveRows", () => {
     await saveRows("vidkey", rows);
     expect(h.store["rally:vidkey"]).toEqual(rows);
     expect(await loadRows("vidkey")).toEqual(rows);
+  });
+});
+
+// The three tracks share one per-video identity but live under distinct prefixes, so
+// re-opening a video resumes all of them and none can clobber another.
+describe("clip + window stores", () => {
+  beforeEach(() => {
+    for (const k of Object.keys(h.store)) delete h.store[k];
+  });
+
+  it("an unscreened clip reads back as null, not as an empty screening record", async () => {
+    expect(await loadClip("nope")).toBeNull();
+  });
+
+  it("round-trips clip metadata under its own prefix", async () => {
+    const clip = { ...emptyClipMeta(), court_count: 2, active_court_count: 1 };
+    await saveClip("vidkey", clip);
+    expect(h.store["clip:vidkey"]).toEqual(clip);
+    expect(await loadClip("vidkey")).toEqual(clip);
+  });
+
+  it("round-trips windows under a third prefix", async () => {
+    const rows: WindowRow[] = [{ n: 1, s: 1, e: 2, label: "empty", court: "c1", notes: "" }];
+    await saveWindows("vidkey", rows);
+    expect(h.store["win:vidkey"]).toEqual(rows);
+    expect(await loadWindows("vidkey")).toEqual(rows);
+    expect(await loadWindows("other")).toEqual([]);
+  });
+
+  it("the three tracks never collide for the same video", async () => {
+    await saveRows("k", []);
+    await saveClip("k", emptyClipMeta());
+    await saveWindows("k", []);
+    expect(Object.keys(h.store).sort()).toEqual(["clip:k", "rally:k", "win:k"]);
   });
 });

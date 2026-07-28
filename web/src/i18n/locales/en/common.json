@@ -1,8 +1,9 @@
 {
-  "_meta": { "locale": "en", "status": "source" },
-
+  "_meta": {
+    "locale": "en",
+    "status": "source"
+  },
   "panel.title": "Rally Annotator",
-
   "label.sport": "Sport:",
   "label.start": "Start:",
   "label.end": "End:",
@@ -11,12 +12,10 @@
   "label.reason": "Reason:",
   "label.language": "Language:",
   "label.recent": "Recent rallies (click one, then Edit/Delete):",
-
   "ph.start": "start s",
   "ph.end": "end s",
   "ph.next": "next #",
   "ph.shots": "shots",
-
   "btn.help": "Help",
   "btn.hideHelp": "Hide help",
   "btn.back5": "« Back 5s",
@@ -37,7 +36,6 @@
   "btn.undoN": "Undo last (#{n})",
   "btn.refresh": "Refresh",
   "btn.downloadCsv": "Download CSV",
-
   "reason.unknown": "unknown",
   "reason.winner": "winner",
   "reason.forced_error": "forced error",
@@ -45,13 +43,11 @@
   "reason.service_fault": "service fault",
   "reason.let": "let",
   "reason.other": "other",
-
   "sport.badminton": "badminton",
   "sport.tennis": "tennis",
   "sport.table_tennis": "table tennis",
   "sport.pickleball": "pickleball",
   "sport.padel": "padel",
-
   "status.ready": "Ready. Pick the Sport, then mark rallies. Click Help for usage.",
   "status.noMediaStart": "No media playing — cannot mark START.",
   "status.unsavedGuard": "You have an UNSAVED rally (START → END). Click 'Save Rally' to keep it, or 'Undo last' to clear it, before marking a new START.",
@@ -75,7 +71,6 @@
   "status.clearedMark": "Cleared the in-progress START/END (nothing was written).",
   "status.nothingUndo": "Nothing to undo.",
   "status.removedLast": "Removed last rally #{n}. {count} remaining.",
-
   "status.seekBack": "Seek −5s.",
   "status.seekFwd": "Seek +5s.",
   "status.noVideoSeek": "No video to seek.",
@@ -86,12 +81,51 @@
   "status.noVideoFound": "No video found on this page yet.",
   "status.downloaded": "Downloaded CSV ({count} rallies).",
   "status.deletedHint": " (click Download CSV to refresh the file)",
-
   "status.modeNew": "Mode: new rally (Mark START, Mark END, reason, Save Rally).",
   "status.modeEdit": "Mode: EDITING #{n} (Save changes / Undo cancels).",
   "status.lastRow": "Last row (Undo removes): #{n} {s} → {e} [{reason}]",
   "status.footer": "Now: {now}  |  Rallies: {count}",
   "status.csvLine": "CSV → Downloads · key: {key}",
-
-  "help.html": "<b>Rally Annotator (web) — how to use</b><br>1. Pick the <b>Sport</b> (stays set).<br>2. <b>Back 5s / Play&nbsp;/&nbsp;Pause / Fwd 5s</b> drive the page's video from here.<br>3. At a rally's start click <b>Mark START</b> (pause/scrub first for accuracy); at its end click <b>Mark END</b>. Fine-tune the Start/End seconds by editing the fields.<br>4. Choose the <b>Ending reason</b> (or leave it <b>unknown</b>), optionally type a <b>Number of shots</b>, then <b>Save Rally</b> — the full CSV downloads.<br>5. Reason &amp; shots RESET after each save (never silently reused); Sport stays.<br>6. <b>Recent rallies</b>: click a row, then <b>Edit</b> / <b>Delete</b>. <b>Undo last</b> removes the most recent row, clears an in-progress mark, or cancels an edit.<br>7. Rallies autosave to extension storage keyed to this video, so reloading the page resumes numbering. The CSV lands in your <b>Downloads</b> folder (it can't be written next to a web video).<br><br>The ending-reason values (winner / forced_error / unforced_error / service_fault / let / other / unknown) are written to the CSV in canonical English regardless of the interface language."
+  "help.html": "<b>Rally Annotator (web) — how to use</b><br>1. Pick the <b>Sport</b> (stays set).<br>2. <b>Back 5s / Play&nbsp;/&nbsp;Pause / Fwd 5s</b> drive the page's video from here.<br>3. At a rally's start click <b>Mark START</b> (pause/scrub first for accuracy); at its end click <b>Mark END</b>. Fine-tune the Start/End seconds by editing the fields.<br>4. Choose the <b>Ending reason</b> (or leave it <b>unknown</b>), optionally type a <b>Number of shots</b>, then <b>Save Rally</b> — the full CSV downloads.<br>5. Reason &amp; shots RESET after each save (never silently reused); Sport stays.<br>6. <b>Recent rallies</b>: click a row, then <b>Edit</b> / <b>Delete</b>. <b>Undo last</b> removes the most recent row, clears an in-progress mark, or cancels an edit.<br>7. Rallies autosave to extension storage keyed to this video, so reloading the page resumes numbering. The CSV lands in your <b>Downloads</b> folder (it can't be written next to a web video).<br><br>The ending-reason values (winner / forced_error / unforced_error / service_fault / let / other / unknown) are written to the CSV in canonical English regardless of the interface language.",
+  "btn.clipInfo": "Clip info",
+  "btn.windows": "Windows",
+  "label.venue": "Venue ID:",
+  "label.cameraSetup": "Camera setup ID:",
+  "label.courtsVisible": "Courts visible:",
+  "label.courtsActive": "Courts in play:",
+  "label.courtsPartial": "Only partly visible:",
+  "label.targetCourt": "Target court ID:",
+  "label.matchFormat": "Match format:",
+  "label.captureTime": "Capture time (UTC):",
+  "label.notes": "Notes:",
+  "label.windowLabel": "Window label:",
+  "label.nextWindow": "Next window #:",
+  "label.recentWindows": "Recent windows (click one, then Edit/Delete):",
+  "fmt.unset": "(not set)",
+  "fmt.singles": "singles",
+  "fmt.doubles": "doubles",
+  "fmt.mixed": "mixed",
+  "wlabel.target_rally": "target rally",
+  "wlabel.adjacent_court_rally": "adjacent-court rally",
+  "wlabel.simultaneous_rallies": "simultaneous rallies",
+  "wlabel.target_court_non_rally": "target court, no rally",
+  "wlabel.empty": "empty",
+  "btn.saveClip": "Save clip info",
+  "btn.saveWindow": "Save window",
+  "btn.saveWindowN": "Save window (#{n})",
+  "btn.downloadWindows": "Download windows CSV",
+  "clip.saved": "Saved clip info: {summary}",
+  "clip.invalidActive": "Courts in play ({active}) cannot exceed courts visible ({visible}) - a court cannot be in play without being in frame.",
+  "clip.invalidPartial": "Only-partly-visible ({partial}) cannot exceed courts visible ({visible}).",
+  "clip.invalidNumber": "{field} needs a whole number of {min} or more - or leave it BLANK to record 'not screened'.",
+  "clip.captureUnknown": "(not readable here - probed from the container at import)",
+  "clip.needTarget": "Set the Target court ID in Clip info first - 'adjacent' is undefined without a target court.",
+  "win.saved": "Saved window #{n}: {s} → {e} [{label}].",
+  "win.deleted": "Deleted window #{n}. {count} remaining.",
+  "win.removed": "Removed last window #{n}. {count} remaining.",
+  "win.nothing": "No windows to remove.",
+  "cov.line": "Labelled to {to}s of {dur}s ({pct}% span) | tail {tail}s | largest gap {gap}s",
+  "cov.tail": "WARNING: {tail}s at the END carry no labels - if play continues there, this pass is unfinished (import blocks over {limit}s).",
+  "cov.span": "Note: labels span under {limit}% of the clip - expected for a long idle outro, a red flag for an interrupted pass.",
+  "tally.line": "Windows: {counts}  (§4.4 wants {target} of each)"
 }

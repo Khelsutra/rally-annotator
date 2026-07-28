@@ -13,6 +13,8 @@ import {
   LOCALE_LABELS,
 } from "../src/i18n";
 import { Annotator } from "../src/state/annotator";
+import { MATCH_FORMATS } from "../src/state/clipmeta";
+import { WINDOW_LABELS, serializeWindows } from "../src/state/windows";
 
 describe("t() shim", () => {
   it("interpolates {vars}", () => {
@@ -82,6 +84,45 @@ describe("catalog integrity", () => {
       "btn.saveRallyN", "btn.saveChangesN", "btn.undo", "btn.undoCancelEdit", "btn.undoClearMark", "btn.undoN",
     ];
     for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);
+  });
+
+  it("every clip-info / window key the panel can emit exists in en", () => {
+    const en = new Set(EN_KEYS);
+    const used = [
+      "btn.clipInfo", "btn.windows", "btn.saveClip", "btn.saveWindow", "btn.saveWindowN",
+      "btn.downloadWindows",
+      "label.venue", "label.cameraSetup", "label.courtsVisible", "label.courtsActive",
+      "label.courtsPartial", "label.targetCourt", "label.matchFormat", "label.captureTime",
+      "label.notes", "label.windowLabel", "label.recentWindows",
+      "fmt.unset", ...MATCH_FORMATS.map((f) => "fmt." + f),
+      ...WINDOW_LABELS.map((l) => "wlabel." + l),
+      "clip.saved", "clip.invalidActive", "clip.invalidPartial", "clip.invalidNumber",
+      "clip.captureUnknown", "clip.needTarget",
+      "win.saved", "win.deleted", "win.removed", "win.nothing",
+      "cov.line", "cov.tail", "cov.span", "tally.line",
+    ];
+    for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);
+  });
+});
+
+describe("window labels are DATA, not display text", () => {
+  it("the canonical §4.4 strings never translate, in any locale", () => {
+    for (const l of registeredLocales()) {
+      setLocale(l);
+      const csv = serializeWindows([
+        { n: 1, s: 12.5, e: 18.25, label: "adjacent_court_rally", court: "c1", notes: "" },
+      ]);
+      expect(csv).toContain("1,12.500,18.250,adjacent_court_rally,c1,");
+    }
+    setLocale("en");
+  });
+
+  it("but every label has a translated DISPLAY string in every locale", () => {
+    for (const l of registeredLocales()) {
+      for (const label of WINDOW_LABELS) {
+        expect(t("wlabel." + label, undefined, l).length, `${l}/${label}`).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

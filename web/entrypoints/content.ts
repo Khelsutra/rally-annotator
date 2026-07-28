@@ -1,7 +1,12 @@
 import { browser } from "wxt/browser";
 import { Annotator } from "../src/state/annotator";
 import { DirectVideoHandler } from "../src/video/directVideo";
-import { deriveIdentity, loadRows, saveRows, csvFilename } from "../src/persist/store";
+import {
+  deriveIdentity, loadRows, saveRows, csvFilename,
+  loadClip, saveClip, loadWindows, saveWindows,
+} from "../src/persist/store";
+import { clipmetaFilename } from "../src/state/clipmeta";
+import { windowsFilename } from "../src/state/windows";
 import { mountPanel } from "../src/ui/panel";
 import { getLocale, setLocale, negotiateLocale, type Locale } from "../src/i18n";
 import type { RuntimeMessage } from "../src/messages";
@@ -19,6 +24,10 @@ export default defineContentScript({
     const identity = deriveIdentity();
     const video = new DirectVideoHandler();
     const rows = await loadRows(identity.key);
+    // The clip sidecar and window track resume from the same per-video identity as the
+    // rallies, so re-opening a video restores what was screened rather than re-asking.
+    const clip = await loadClip(identity.key);
+    const windows = await loadWindows(identity.key);
 
     // LD-i8: seed the locale from the stored preference, falling back to the browser language.
     const stored = await browser.storage.local.get("lang");
@@ -34,16 +43,26 @@ export default defineContentScript({
       },
     });
 
+    const send = (filename: string, body: string, mime?: string) =>
+      void browser.runtime.sendMessage({
+        type: "rally-download",
+        filename,
+        csv: body,
+        mime,
+      } as RuntimeMessage);
+
     const panel = mountPanel({
       annotator,
       video,
       identity,
-      download: (csv) =>
-        void browser.runtime.sendMessage({
-          type: "rally-download",
-          filename: csvFilename(identity.title),
-          csv,
-        } as RuntimeMessage),
+      clip: clip ?? undefined,
+      windows,
+      download: (csv) => send(csvFilename(identity.title), csv),
+      downloadClipMeta: (json) =>
+        send(clipmetaFilename(identity.title), json, "application/json"),
+      downloadWindows: (csv) => send(windowsFilename(identity.title), csv),
+      persistClip: (c) => void saveClip(identity.key, c),
+      persistWindows: (w) => void saveWindows(identity.key, w),
       onLocaleChange: (locale: Locale) => {
         void browser.storage.local.set({ lang: locale });
       },

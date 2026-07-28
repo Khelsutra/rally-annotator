@@ -46,6 +46,77 @@ async function seekTo(page: Page, target: number) {
   );
 }
 
+// Clip metadata + window track, driven through the REAL extension in Chromium. Run once (in
+// en) rather than per-locale: the per-locale proof above already covers rendering, and this
+// case is about the two new artifacts reaching chrome.storage.local intact.
+test("records clip screening metadata and a labelled window", async () => {
+  const context = await chromium.launchPersistentContext("", {
+    headless: false,
+    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, "--no-first-run"],
+    viewport: { width: 1280, height: 800 },
+  });
+  const page = await context.newPage();
+  try {
+    let sw: Worker = context.serviceWorkers()[0];
+    if (!sw) sw = await context.waitForEvent("serviceworker");
+    await page.goto("/");
+    await page.waitForFunction(() => (window as any).__videoReady === true, { timeout: 20_000 });
+    await sw.evaluate(async () => {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabs[0]?.id;
+      if (id != null) await chrome.tabs.sendMessage(id, { type: "toggle-panel" });
+    });
+    await expect(page.locator(".hdr .t")).toContainText("Rally Annotator");
+
+    // GX010150: two courts in frame, only one of them in play.
+    await page.getByRole("button", { name: tt("en", "btn.clipInfo") }).click();
+    await page.locator("input[name=clip-venue]").fill("bxh_indiranagar");
+    await page.locator("input[name=clip-courtsVisible]").fill("2");
+    await page.locator("input[name=clip-courtsActive]").fill("1");
+    await page.locator("input[name=clip-targetCourt]").fill("c1");
+    await page.getByRole("button", { name: tt("en", "btn.saveClip") }).click();
+
+    const clip = await sw.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      const key = Object.keys(all).find((k) => k.startsWith("clip:"));
+      return key ? (all as Record<string, unknown>)[key] : null;
+    });
+    expect(clip).toMatchObject({ court_count: 2, active_court_count: 1, target_court_id: "c1" });
+    // The two counts must stay distinct, and an unset field must stay null, not 0.
+    expect((clip as Record<string, unknown>).match_format).toBeNull();
+    expect((clip as Record<string, unknown>).partially_visible_court_count).toBeNull();
+
+    // Then a labelled window on the same clip, marked off the real <video>.
+    await page.getByRole("button", { name: tt("en", "btn.windows") }).click();
+    await seekTo(page, 2.0);
+    await page.locator("input[name=win-start]").fill("12.500");
+    await page.locator("input[name=win-end]").fill("18.250");
+    await page.locator("select[name=win-label]").selectOption("adjacent_court_rally");
+    await page.getByRole("button", { name: tt("en", "btn.saveWindowN", { n: 1 }) }).click();
+
+    const wins = await sw.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      const key = Object.keys(all).find((k) => k.startsWith("win:"));
+      return key ? (all as Record<string, unknown>)[key] : null;
+    });
+    expect(Array.isArray(wins)).toBe(true);
+    expect(wins as unknown[]).toHaveLength(1);
+    // The §4.4 label is DATA: canonical english regardless of the interface language.
+    expect((wins as Array<Record<string, unknown>>)[0]).toMatchObject({
+      n: 1, label: "adjacent_court_rally", court: "c1",
+    });
+
+    // The rally track is untouched by any of this.
+    const rallies = await sw.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      return Object.keys(all).some((k) => k.startsWith("rally:"));
+    });
+    expect(rallies).toBe(false);
+  } finally {
+    await context.close();
+  }
+});
+
 for (const locale of SUPPORTED_LOCALES) {
   test(`panel works and renders in ${locale} (${LOCALE_LABELS[locale]})`, async () => {
     const T = (key: string, vars?: Record<string, string | number>) => tt(locale, key, vars);
