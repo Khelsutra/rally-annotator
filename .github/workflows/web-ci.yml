@@ -8,10 +8,12 @@ on:
   push:
     paths:
       - "web/**"
+      - "tools/**"
       - ".github/workflows/web-ci.yml"
   pull_request:
     paths:
       - "web/**"
+      - "tools/**"
       - ".github/workflows/web-ci.yml"
 
 jobs:

@@ -65,6 +65,38 @@ Whether this camera section is one the target-first pipeline can actually serve:
 - **`unclear`** — you could not tell. **Use this rather than guessing**; `unclear` is a real,
   recordable answer and is more useful than a wrong `supported`.
 
+### Drawing the polygon against an empty court
+
+No single frame of a live match has all four corners of the target court unobstructed — a player
+is always standing on a line. So build an **empty-court still** first:
+
+```bash
+node tools/court_still.mjs "<clip>.MP4"
+```
+
+It samples 25 frames spread across the clip and takes their **temporal median**. On a fixed camera
+that erases everything that moves — players, shuttles, a passing coach — and keeps everything that
+does not, which is exactly the court lines. The result lands next to the video as
+`<clip>.court.png`, sharing the stem with the label sidecars.
+
+Two things this deliberately is **not**:
+
+- It does not detect the court, propose a polygon, or infer anything. It produces an **image**; a
+  human reads it and draws the polygon. That boundary is what keeps the resulting label
+  human-from-scratch, with no model anywhere in its provenance.
+- It never touches `<clip>.rallies.csv`, `<clip>.clipmeta.json` or `<clip>.target-review.csv`.
+
+Sampling at rally START/END timestamps would be the **worst** choice, incidentally: those are
+precisely the moments when players are on the lines. The median needs no labels at all.
+
+Coordinates are read off that still as fractions of the frame — `0,0` top-left, `1,1`
+bottom-right — which is why they survive a resolution change.
+
+> **Wide-angle caveat.** On GoPro footage the lens bows straight lines noticeably, so a four-point
+> quadrilateral is an *approximation* of a court whose edges are actually curved. That is usually
+> acceptable for a padded play volume; if it is not, add points along the bowed edges rather than
+> forcing four.
+
 ### Validation fails closed
 
 A profile is **refused** — not silently coerced — when any of these hold:

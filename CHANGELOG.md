@@ -39,6 +39,14 @@ instant an implicit negative, so the exhaustive pass bought nothing it did not a
   `partially_visible_court_count` and `match_format` remain, reframed in the docs as **capture
   metadata**: they describe the room, and are not background-event truth, training quotas, or
   permission to time a neighbouring rally.
+- **New tool — `tools/court_still.mjs`.** Builds an **empty-court still** to draw the play-volume
+  polygon against: it samples 25 frames across the clip and takes their **temporal median**, which
+  on a fixed camera erases everything that moves (players, shuttles) and keeps everything that does
+  not (the lines). Writes `<clip>.court.png` next to the video. Zero dependencies beyond ffmpeg.
+  It produces an **image only** — it detects nothing, proposes nothing, and never touches a label
+  file, which is what keeps the polygon a human-from-scratch label with no model in its provenance.
+  (Sampling at rally START/END would be the *worst* choice: that is exactly when players stand on
+  the lines.)
 - Docs: `docs/WINDOW_LABELS.md` → **[docs/TARGET_REVIEW.md](docs/TARGET_REVIEW.md)**; new locked
   decisions LD-15 in [web/DESIGN.md](web/DESIGN.md).
 - Suite **171 assertions** (was 160); web **156 tests** (was 126) at 95.7% statements; 8 E2E green.

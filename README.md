@@ -100,6 +100,17 @@ the match format, then **Save clip info**. Leave anything you did not check **bl
 records "not screened", which is different from recording a negative. **Courts in play** may never
 exceed **courts visible**, and the tool refuses the save if it does.
 
+Before drawing a play-volume polygon, build an **empty-court still** — no live frame has all four
+corners unobstructed:
+
+```bash
+node tools/court_still.mjs "<clip>.MP4"
+```
+
+It temporal-medians 25 frames across the clip, which erases every player and leaves the lines, and
+writes `<clip>.court.png` next to the video. It only makes an image: it detects nothing, proposes
+nothing, and never touches a label file.
+
 **Target** (optional): save one **target profile per static camera section** — the section id, the
 court this recording indexes, the camera profile, a normalized play-volume polygon for that court,
 and whether the setup is `supported` / `unsupported` / `unclear`. Invalid geometry is refused rather
