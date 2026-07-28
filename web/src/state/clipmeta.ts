@@ -7,8 +7,12 @@
 // found single-court. A tool that guesses is worse than one that says nothing.
 
 import type { RallyRow } from "./csv";
+import { parseProfiles, type TargetProfile } from "./targetReview";
 
-export const CLIPMETA_VERSION = 1;
+// v2 adds `target_profiles` (one per static camera section) and drops the top-level
+// `target_court_id`, which belongs to a section rather than to the whole clip. A v1 file is read
+// and upgraded in memory; see MIGRATION below.
+export const CLIPMETA_VERSION = 2;
 export const MATCH_FORMATS = ["singles", "doubles", "mixed"] as const;
 export type MatchFormat = (typeof MATCH_FORMATS)[number];
 
@@ -34,12 +38,17 @@ export interface ClipMeta {
   venue_id: string | null;
   camera_setup_id: string | null;
   capture_time_utc: string | null;
-  target_court_id: string | null;
   court_count: number | null;
   active_court_count: number | null;
   partially_visible_court_count: number | null;
   match_format: string | null;
   notes: string | null;
+  target_profiles: TargetProfile[];
+  // MIGRATION: a v1 file's top-level `target_court_id`. Kept so the value is not lost, and
+  // offered as the default when the first profile is created — but never promoted into a
+  // profile automatically, because a profile without a validated section and polygon would
+  // fail its own validation. Never serialized.
+  legacy_target_court_id?: string | null;
 }
 
 export function emptyClipMeta(): ClipMeta {
@@ -48,12 +57,12 @@ export function emptyClipMeta(): ClipMeta {
     venue_id: null,
     camera_setup_id: null,
     capture_time_utc: null,
-    target_court_id: null,
     court_count: null,
     active_court_count: null,
     partially_visible_court_count: null,
     match_format: null,
     notes: null,
+    target_profiles: [],
   };
 }
 
@@ -134,12 +143,19 @@ export function serializeClipMeta(
     camera_setup_id: m.camera_setup_id,
     capture_time_utc: m.capture_time_utc,
     capture_time_source: m.capture_time_utc ? "container" : null,
-    target_court_id: m.target_court_id,
     court_count: m.court_count,
     active_court_count: m.active_court_count,
     partially_visible_court_count: m.partially_visible_court_count,
     match_format: m.match_format,
     notes: m.notes,
+    target_profiles: m.target_profiles.map((p) => ({
+      camera_section_id: p.camera_section_id,
+      target_court_id: p.target_court_id,
+      camera_profile_id: p.camera_profile_id,
+      play_volume_polygon: p.play_volume_polygon.map(([x, y]) => [x, y]),
+      setup_validity: p.setup_validity,
+      notes: p.notes,
+    })),
     label_completeness: opts.completeness,
   };
   return JSON.stringify(doc, null, 2) + "\n";
@@ -157,9 +173,14 @@ export function parseClipMeta(text: string): ClipMeta | null {
   if (!doc || typeof doc !== "object") return null;
   const m = emptyClipMeta();
   for (const k of ["sport", "venue_id", "camera_setup_id", "capture_time_utc",
-                   "target_court_id", "match_format", "notes"] as const) {
+                   "match_format", "notes"] as const) {
     const v = doc[k];
     if (typeof v === "string" && v !== "") m[k] = v;
+  }
+  m.target_profiles = parseProfiles(doc.target_profiles);
+  // v1 carried the court id at the top level; keep it for the first-profile default only.
+  if (typeof doc.target_court_id === "string" && doc.target_court_id !== "") {
+    m.legacy_target_court_id = doc.target_court_id;
   }
   for (const k of ["court_count", "active_court_count", "partially_visible_court_count"] as const) {
     const v = doc[k];

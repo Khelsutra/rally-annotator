@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.0.0 — 2026-07-28 — target-first correction
+
+**Breaking:** the neighborhood window track is removed. Nothing in this tool asks the operator to
+identify or time a rally on a surrounding court. That design turned the neighbours into an
+exhaustive annotation problem — a ten-minute multicourt clip could take hours — and none of it is
+what the product indexes. The complete prominent-match timeline already makes every non-target
+instant an implicit negative, so the exhaustive pass bought nothing it did not already have.
+
+- **Removed:** the `target_rally` / `adjacent_court_rally` / `simultaneous_rallies` /
+  `target_court_non_rally` / `empty` vocabulary, `<clip>.windows.csv`, the per-label tally and the
+  12-of-each quota, from both front-ends, both schemas, all 7 locale catalogs, the docs and the
+  tests. A test asserts no localized string anywhere still offers a withdrawn label.
+- **New — target profiles.** A **Target** screen saves one profile per **static camera section**:
+  `camera_section_id`, `target_court_id`, `camera_profile_id`, a play-volume polygon **normalized to
+  the frame**, and `setup_validity` (`supported` / `unsupported` / `unclear`). They live in
+  `<clip>.clipmeta.json` under `target_profiles`. On the web you can **click the court's corners on
+  the video** and the coordinates are normalized against its rendered box.
+  - **Validation fails closed.** A missing section or court, a duplicate section, fewer than 3
+    points, or **any coordinate outside 0…1** is refused — never coerced or clamped. Pixel
+    coordinates are the likeliest operator mistake and the one that would be wrong yet perfectly
+    well-formed, so they are rejected explicitly. A stored profile that no longer validates is
+    dropped on load rather than half-read.
+- **New — sparse target-state review** → `<clip>.target-review.csv`, with exactly three answers:
+  **`rallying` / `not_rallying` / `unclear`**, all about the **target** court. No quota, no tally,
+  no sweep — this is active-learning evidence, not a count gate. A review cannot be saved before a
+  target profile exists, because it answers a question about a camera section.
+- **Legacy `<clip>.windows.csv` is detected and refused** — never read, never converted, never
+  imported, in either front-end or in extension storage. A row whose state is not one of the three
+  answers is dropped by the parser, which is what stops a withdrawn label from re-entering as
+  target-state truth. The status panel says one line so you know the file is there and is being
+  ignored.
+- **`clipmeta.json` is version 2.** `target_profiles` is added and the top-level `target_court_id`
+  is dropped (it belongs to a section, not to the whole clip). A v1 file is read and upgraded on the
+  next save; its old `target_court_id` becomes the **default** for the first profile you create and
+  is never promoted into one automatically.
+- Per-clip `venue_id`, `camera_setup_id`, `court_count`, `active_court_count`,
+  `partially_visible_court_count` and `match_format` remain, reframed in the docs as **capture
+  metadata**: they describe the room, and are not background-event truth, training quotas, or
+  permission to time a neighbouring rally.
+- Docs: `docs/WINDOW_LABELS.md` → **[docs/TARGET_REVIEW.md](docs/TARGET_REVIEW.md)**; new locked
+  decisions LD-15 in [web/DESIGN.md](web/DESIGN.md).
+- Suite **171 assertions** (was 160); web **156 tests** (was 126) at 95.7% statements; 8 E2E green.
+
 ## v1.8.1 — 2026-07-28
 - **Fix (data safety): Refresh could write one video's clip metadata into another's sidecar.**
   Refresh repointed `<video>.rallies.csv` / `.clipmeta.json` / `.windows.csv` at the newly playing

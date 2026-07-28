@@ -133,18 +133,34 @@ OFL Noto fonts, AI-draft → native-review). The reason/sport **values** and CSV
 English (LD-3 byte-compatibility is preserved across all languages). Full design + locked decisions:
 [../docs/LOCALIZATION.md](../docs/LOCALIZATION.md).
 
-### LD-13 — Per-clip metadata and the window track are SEPARATE artifacts, not more CSV columns
-**Decision.** Screening metadata goes to `<clip>.clipmeta.json` and labelled time windows to
-`<clip>.windows.csv`; the rally CSV is unchanged and still ingests exactly as before. All three
-share one per-video identity (`rally:` / `clip:` / `win:` prefixes in `chrome.storage.local`) so
-they resume together. Pure logic lives in `src/state/clipmeta.ts` and `src/state/windows.ts`,
-mirroring the VLC extension's output.
+### LD-13 — Per-clip metadata and target-state review are SEPARATE artifacts, not more CSV columns
+**Decision.** Capture metadata and per-section target profiles go to `<clip>.clipmeta.json`, sparse
+target-state answers to `<clip>.target-review.csv`; the rally CSV is unchanged and still ingests
+exactly as before. All three share one per-video identity (`rally:` / `clip:` / `review:` prefixes
+in `chrome.storage.local`) so they resume together. Pure logic lives in `src/state/clipmeta.ts` and
+`src/state/targetReview.ts`, mirroring the VLC extension's output.
 **Why.** Clip metadata is per-**clip**, not per-rally — putting it on every rally row would repeat
-it N times and make it editable in N places. A window is not a rally: it may overlap one or sit
-between two, and it carries a different vocabulary, so it needs its own numbering and its own file.
+it N times and make it editable in N places. A review answer is not a rally: it is an answer about
+an interval someone else chose, it may overlap a rally or sit between two, and it carries its own
+vocabulary and numbering.
 **Consequence.** Three downloads instead of one (the sandbox still cannot write next to a web
 video, LD-3). The background worker's download message now carries a `mime` so the JSON sidecar is
 not saved as `text/csv`.
+
+### LD-15 — Target-first: the tool never asks about a neighbouring court
+**Decision.** Only the prominent target match is annotated. The withdrawn neighborhood window track
+(`adjacent_court_rally`, `simultaneous_rallies`, `target_court_non_rally`, `empty`) is **removed**
+from both front-ends, both schemas, the docs and the tests. Target-state review offers exactly three
+answers — `rallying`, `not_rallying`, `unclear` — all about the *target* court.
+**Why.** Labelling the surrounding courts is an exhaustive annotation problem: a ten-minute
+multicourt clip could take hours, and none of it is what the product indexes. The complete
+prominent-match timeline already makes every non-target-rally instant an implicit negative, so the
+exhaustive pass bought nothing it did not already have.
+**Consequence.** Legacy `<clip>.windows.csv` files are **detected and refused**, never read into the
+review track and never converted — a `target_rally` window was a sampled span under a withdrawn
+contract, not an answer to a mined question, and silently equating them would launder dead
+assumptions into new training truth. Per-clip `court_count` / `active_court_count` survive as
+**capture metadata only**: they describe the room, not what any other court was doing.
 
 ### LD-14 — An unset screening field is `null`, and the UI cannot express a guess
 **Decision.** Blank inputs serialize to `null`; the `match_format` picker's first option is an

@@ -39,7 +39,7 @@ describe("unset is not 'no'", () => {
     expect(j.clipmeta_version).toBe(CLIPMETA_VERSION);
   });
 
-  it("never emits can_supply_adjacent_court_negatives — the collector derives it, so there is one place it can be wrong", () => {
+  it("never emits a derived capability flag — the collector derives what it needs", () => {
     expect(ser()).not.toContain("can_supply_adjacent_court_negatives");
   });
 });
@@ -91,9 +91,9 @@ describe("serialize / parse", () => {
     const keys = Object.keys(JSON.parse(ser()));
     expect(keys).toEqual([
       "clipmeta_version", "generator", "clip_name", "sport", "venue_id", "camera_setup_id",
-      "capture_time_utc", "capture_time_source", "target_court_id", "court_count",
+      "capture_time_utc", "capture_time_source", "court_count",
       "active_court_count", "partially_visible_court_count", "match_format", "notes",
-      "label_completeness",
+      "target_profiles", "label_completeness",
     ]);
   });
 
@@ -101,7 +101,7 @@ describe("serialize / parse", () => {
     const m = {
       ...emptyClipMeta(), venue_id: "bxh_indiranagar", camera_setup_id: "bxh_low_side_a",
       court_count: 4, active_court_count: 3, partially_visible_court_count: 1,
-      target_court_id: "c1", match_format: "singles", notes: "one idle court on the right",
+      match_format: "singles", notes: "one idle court on the right",
       sport: "badminton",
     };
     expect(parseClipMeta(ser(m))).toEqual(m);
