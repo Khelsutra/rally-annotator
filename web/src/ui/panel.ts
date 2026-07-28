@@ -203,6 +203,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   const recentLabel = h("div", { class: "mini" });
   body.append(recentLabel);
   const list = h("div", { class: "list" });
+  list.dataset.list = "rallies";
   body.append(list);
 
   // ---- actions ----
@@ -274,6 +275,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   const profileListLabel = h("div", { class: "mini" });
   targetBox.append(profileListLabel);
   const profileList = h("div", { class: "list" });
+  profileList.dataset.list = "profiles";
   targetBox.append(profileList);
   const profileDelBtn = h("button");
   targetBox.append(h("div", { class: "row" }, profileDelBtn));
@@ -308,6 +310,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   const rvRecentLabel = h("div", { class: "mini" });
   reviewBox.append(rvRecentLabel);
   const rvList = h("div", { class: "list" });
+  rvList.dataset.list = "reviews";
   reviewBox.append(rvList);
   const rvDelBtn = h("button");
   const rvUndoBtn = h("button");
@@ -561,9 +564,17 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     setStatus({ key: st === "playing" ? "status.resumed" : st === "paused" ? "status.paused" : "status.noVideoLoaded" });
   });
 
-  markStartBtn.addEventListener("click", () => setStatus(a.markStart(video.now())));
+  // Declaring the target court is a PRECONDITION of rally annotation, not a later step: a rally
+  // CSV records one court's match, and a file that never says which court is under-specified data
+  // nobody can repair afterwards.
+  const targetDeclared = () => clip.target_profiles.length > 0;
+  markStartBtn.addEventListener("click", () => {
+    if (!targetDeclared()) return setStatus({ key: "target.gateRally" });
+    setStatus(a.markStart(video.now()));
+  });
   markEndBtn.addEventListener("click", () => setStatus(a.markEnd(video.now())));
   saveBtn.addEventListener("click", () => {
+    if (!targetDeclared()) return setStatus({ key: "target.gateRally" });
     const res = a.saveRally();
     if (res.ok) download(a.toCSV()); // download the full CSV on each save (per design)
     setStatus(res);

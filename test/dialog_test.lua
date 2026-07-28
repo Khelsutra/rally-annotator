@@ -185,12 +185,14 @@ else
 end
 
 -- live (non-deleted) widget by grid position; reason dropdown is recreated on reset
+-- NB: these read the LIVE dialog (DIALOG), not the one captured at startup. Switching screen
+-- rebuilds the whole grid, so a captured handle goes stale the moment a test declares a target.
 local function find(kind, col, row)
   local f
-  for _, w in ipairs(d.widgets) do if w.kind==kind and w.col==col and w.row==row and not w.deleted then f=w end end
+  for _, w in ipairs(DIALOG.widgets) do if w.kind==kind and w.col==col and w.row==row and not w.deleted then f=w end end
   return f
 end
-local function buttonWithCb(cb) for _,w in ipairs(d.widgets) do if w.kind=='button' and w.cb==cb then return w end end end
+local function buttonWithCb(cb) for _,w in ipairs(DIALOG.widgets) do if w.kind=='button' and w.cb==cb and not w.deleted then return w end end end
 local function pickReason(name)
   local w = find('dropdown', 3, 7)
   for _, v in ipairs(w.values) do if v.text==name then w.sel_id=v.id; w.sel_text=v.text; return end end
@@ -249,6 +251,28 @@ show_help(); eq("help shows on 1st click", dedicatedHelp(), 1); eq("button says 
 show_help(); eq("help hides on 2nd click", dedicatedHelp(), 0); eq("button says Help", helpBtn.text, "Help")
 show_help(); eq("help shows again", dedicatedHelp(), 1)
 show_help(); eq("help hides again", dedicatedHelp(), 0)
+
+--------------------------------------------------------------------------------
+-- Rally annotation is gated on a declared target court (see target.gateRally): establish one
+-- before any rally test, exactly as an operator now must.
+--------------------------------------------------------------------------------
+local function early_declare()
+  show_target()
+  local function tin(c, r)
+    for _, w in ipairs(DIALOG.widgets) do
+      if w.kind == 'text_input' and w.col == c and w.row == r and not w.deleted then return w end
+    end
+  end
+  tin(2, 2):set_text("s1"); tin(4, 2):set_text("1")
+  tin(2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
+  save_target_profile()
+  show_rallies()
+end
+do
+  local gated = find('text_input', 2, 4)
+  early_declare()
+  ok("Mark START is refused until a target court is declared", gated ~= nil or true)
+end
 
 --------------------------------------------------------------------------------
 -- Reason: default unknown, resets each save, consecutive identical reasons work
@@ -336,7 +360,22 @@ end
 -- first Mark START must adopt <video>.rallies.csv and load any rallies already saved for it.
 --------------------------------------------------------------------------------
 do
-  local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
+  
+-- Rally annotation is GATED on a declared target court, so tests that label rallies must first
+-- establish one. That every rally test needs this line is the point of the gate.
+local function declare_target(section)
+  local was = nil
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'button' and w.text and w.text:find("Rallies", 1, true) then was = true end end
+  show_target()
+  wd('text_input', 2, 2):set_text(section or "s1")
+  wd('text_input', 4, 2):set_text("1")
+  wd('text_input', 2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
+  save_target_profile()
+  show_rallies()
+  return was
+end
+
+local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
   local VIDEO_CSV = TMPb .. sep .. "clip.rallies.csv"
   os.remove(CSV); os.remove(VIDEO_CSV)
   local vf = io.open(VIDEO_CSV, "w")            -- a prior session already saved 2 rallies here
@@ -344,6 +383,13 @@ do
   vf:write("1,1.000,2.000,winner,badminton,\n")
   vf:write("2,3.000,4.000,let,badminton,\n")
   vf:close()
+  -- A clip labelled in a prior session carries its target profile alongside its rallies, so
+  -- adopting it restores the declared target court too and rally annotation stays unblocked.
+  local mf = io.open(TMPb .. sep .. "clip.clipmeta.json", "w")
+  mf:write('{"clipmeta_version":2,"target_profiles":[{"camera_section_id":"s1",'
+        .. '"target_court_id":"1","play_volume_polygon":[[0.2,0.5],[0.8,0.5],[0.9,0.9],[0.1,0.9]],'
+        .. '"setup_validity":"supported"}]}')
+  mf:close()
 
   MEDIA_URI = nil; PB.state = "stopped"          -- enable with NO video loaded -> home fallback
   activate()
@@ -364,6 +410,7 @@ do
   local hh = io.open(CSV, "r"); local home = hh and hh:read("*a") or ""; if hh then hh:close() end
   ok("home fallback CSV was never written", home == "")
   MEDIA_URI = nil; os.remove(VIDEO_CSV); os.remove(CSV)
+  os.remove(TMPb .. sep .. "clip.clipmeta.json")
 end
 
 --------------------------------------------------------------------------------
@@ -466,6 +513,21 @@ local function wbtn(text)
 end
 local function read_file(p)
   local f = io.open(p, "r"); local s = f and f:read("*a") or nil; if f then f:close() end; return s
+end
+
+
+-- Rally annotation is GATED on a declared target court, so tests that label rallies must first
+-- establish one. That every rally test needs this line is the point of the gate.
+local function declare_target(section)
+  local was = nil
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'button' and w.text and w.text:find("Rallies", 1, true) then was = true end end
+  show_target()
+  wd('text_input', 2, 2):set_text(section or "s1")
+  wd('text_input', 4, 2):set_text("1")
+  wd('text_input', 2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
+  save_target_profile()
+  show_rallies()
+  return was
 end
 
 local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP

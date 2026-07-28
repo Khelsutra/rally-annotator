@@ -86,13 +86,143 @@ export function formatPolygon(points: Array<[number, number]>): string {
   return points.map(([x, y]) => `${x.toFixed(3)},${y.toFixed(3)}`).join(" ");
 }
 
+// ---------------------------------------------------------------------------------------
+// Polygon geometry + court prominence.
+//
+// "The prominent court is the one which acquires the maximum coverage out of all the visible
+// courts" — a RELATIVE criterion. Whether any one court is wholly inside the frame says
+// nothing: a camera aimed at one court from a corner routinely runs part of it off frame
+// while still being unambiguously about that court.
+//
+// Coordinates are normalized to the frame, so a polygon's area IS its coverage fraction
+// directly — no image dimensions needed, and the answer is resolution-independent.
+// ---------------------------------------------------------------------------------------
+
+/** Shoelace area. Normalized input, so the result is the fraction of frame covered. */
+export function polygonArea(points: ReadonlyArray<readonly [number, number]>): number {
+  if (points.length < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[(i + 1) % points.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(a) / 2;
+}
+
+function segmentsCross(
+  p: readonly [number, number], p2: readonly [number, number],
+  q: readonly [number, number], q2: readonly [number, number]
+): boolean {
+  const o = (a: readonly [number, number], b: readonly [number, number], c: readonly [number, number]) =>
+    Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+  const d1 = o(p, p2, q), d2 = o(p, p2, q2), d3 = o(q, q2, p), d4 = o(q, q2, p2);
+  return d1 !== d2 && d3 !== d4; // proper crossing only; shared endpoints are not a crossing
+}
+
+/**
+ * A bowtie has a shoelace area, and it is meaningless — the two lobes cancel. Ranking courts
+ * by a meaningless number is worse than refusing, so this is checked before area is trusted.
+ */
+export function isSelfIntersecting(points: ReadonlyArray<readonly [number, number]>): boolean {
+  const n = points.length;
+  if (n < 4) return false;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (j === i || (j + 1) % n === i || (i + 1) % n === j) continue; // adjacent edges share a vertex
+      if (segmentsCross(points[i], points[(i + 1) % n], points[j], points[(j + 1) % n])) return true;
+    }
+  }
+  return false;
+}
+
+export interface CourtCandidate {
+  id: string;
+  polygon: ReadonlyArray<readonly [number, number]>;
+}
+
+export interface ProminenceRanking {
+  ranked: Array<{ id: string; coverage: number }>;
+  /** The maximum-coverage candidate, or null when there is nothing to rank. */
+  winner: string | null;
+  /** Winner's coverage minus the runner-up's; 1 candidate means the full winning coverage. */
+  margin: number;
+  /**
+   * `prominent` — one court clearly dominates.
+   * `ambiguous` — two or more are within `minMargin`, so no court is prominent HERE. That is a
+   *   real finding about the framing, not a failure to decide.
+   * `none` — nothing rankable.
+   */
+  verdict: "prominent" | "ambiguous" | "none";
+}
+
+/**
+ * Default separation required to call a winner. Two courts within 5% of frame coverage of each
+ * other are not meaningfully "one prominent court", and saying so beats picking by a rounding
+ * error.
+ */
+export const DEFAULT_PROMINENCE_MARGIN = 0.05;
+
+export function rankProminence(
+  candidates: ReadonlyArray<CourtCandidate>,
+  minMargin: number = DEFAULT_PROMINENCE_MARGIN
+): ProminenceRanking {
+  const ranked = candidates
+    // A degenerate or self-intersecting polygon has no trustworthy area, so it cannot compete.
+    .filter((c) => c.polygon.length >= 3 && !isSelfIntersecting(c.polygon))
+    .map((c) => ({ id: c.id, coverage: polygonArea(c.polygon) }))
+    .filter((c) => c.coverage > 0)
+    .sort((a, b) => b.coverage - a.coverage);
+
+  if (ranked.length === 0) return { ranked, winner: null, margin: 0, verdict: "none" };
+  const margin = ranked.length === 1 ? ranked[0].coverage : ranked[0].coverage - ranked[1].coverage;
+  return {
+    ranked,
+    winner: ranked[0].id,
+    margin,
+    verdict: margin >= minMargin ? "prominent" : "ambiguous",
+  };
+}
+
+export interface ProminenceVerdict {
+  prominent: boolean;
+  coverage: number;
+  margin: number;
+  verdict: "prominent" | "ambiguous" | "none";
+  runnerUp: string | null;
+}
+
+/**
+ * Is `target` the prominent court, given the other courts visible in the same frame?
+ *
+ * `prominent` is only true on a clear win: an ambiguous frame answers false with
+ * `verdict: "ambiguous"`, so a caller can tell "another court wins" from "no court dominates".
+ */
+export function isProminentCourt(
+  target: CourtCandidate,
+  others: ReadonlyArray<CourtCandidate> = [],
+  minMargin: number = DEFAULT_PROMINENCE_MARGIN
+): ProminenceVerdict {
+  const r = rankProminence([target, ...others], minMargin);
+  const mine = r.ranked.find((c) => c.id === target.id);
+  const runnerUp = r.ranked.find((c) => c.id !== r.winner)?.id ?? null;
+  return {
+    prominent: r.verdict === "prominent" && r.winner === target.id,
+    coverage: mine?.coverage ?? 0,
+    margin: r.margin,
+    verdict: r.verdict,
+    runnerUp,
+  };
+}
+
 export type ProfileIssue =
   | { key: "target.needSection" }
   | { key: "target.needCourt" }
   | { key: "target.duplicateSection"; params: { section: string } }
   | { key: "target.polygonSyntax" }
   | { key: "target.polygonTooFewPoints" }
-  | { key: "target.polygonRange" };
+  | { key: "target.polygonRange" }
+  | { key: "target.polygonSelfIntersecting" };
 
 // `others` is every profile already on the clip EXCEPT the one being saved, so a re-save of an
 // existing section is not rejected as a duplicate of itself.
@@ -107,6 +237,9 @@ export function validateProfile(p: TargetProfile, others: TargetProfile[]): Prof
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { key: "target.polygonSyntax" };
     if (x < 0 || x > 1 || y < 0 || y > 1) return { key: "target.polygonRange" };
   }
+  // A bowtie passes every check above and still has a meaningless area — its lobes cancel in
+  // the shoelace sum — so it would poison any coverage comparison built on it.
+  if (isSelfIntersecting(p.play_volume_polygon)) return { key: "target.polygonSelfIntersecting" };
   return null;
 }
 

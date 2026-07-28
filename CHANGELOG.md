@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **Rally annotation is now GATED on a declared target court.** Mark START and Save Rally both
+  refuse until a target profile exists, in both front-ends. A rally CSV records one court's match,
+  and a file that never says which court is under-specified data nobody can repair later. Reading an
+  existing clip is never blocked — only new marking — so the information backfills exactly when
+  someone next touches a clip.
+- **The picker now ranks courts by coverage and names the prominent one.** Mark every visible court;
+  it computes each one's coverage, highlights the winner, and hands you its polygon. If the top two
+  are within 5 points it says **ambiguous** rather than picking by a rounding error — a real finding
+  that the section is `unsupported`.
+- **New pure geometry in `targetReview.ts`:** `polygonArea` (normalized, so area *is* coverage),
+  `isSelfIntersecting`, `rankProminence`, `isProminentCourt`. A downstream pipeline can ask the same
+  question of detected polygons and get the same answer; a test pins the picker's margin to the
+  module constant so the two cannot drift.
+- **A self-intersecting play volume is now refused** in both front-ends. A bowtie passed every
+  previous check and has a *meaningless* area — its lobes cancel in the shoelace sum — so it would
+  have poisoned any coverage comparison built on it.
+- **Fix: the gate is checked after the video adopt, not before.** Marking on a freshly-adopted clip
+  reloads that clip's profiles; gating first let a mark through that the save then refused, stranding
+  the operator mid-rally.
+- The three panel lists carry `data-list="rallies|profiles|reviews"`, so a selector can name the one
+  it means.
 - **Reframed `setup_validity` around serviceability, not geometric completeness.** The old wording
   listed a "clipped" target as a trigger for `unsupported`, which invites a wrong inference the
   polygon makes vivid: a camera aimed at one court from a corner routinely runs part of it off frame

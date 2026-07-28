@@ -133,7 +133,7 @@
   "state.rallying": "duel i gang",
   "state.not_rallying": "ingen duel",
   "state.unclear": "uklart",
-  "target.saved": "Målprofil '{section}' gemt ({n}-punkts spilzone).",
+  "target.saved": "Målprofil '{section}' gemt ({n}-punkts spilzone, {pct}% af billedet).",
   "target.deleted": "Målprofil '{section}' slettet.",
   "target.needSelect": "Klik først på en målprofil i listen.",
   "target.needSection": "Kamerasektions-ID er påkrævet - det identificerer den statiske sektion, profilen beskriver.",
@@ -149,5 +149,7 @@
   "review.deleted": "Gennemgang #{n} slettet. {count} tilbage.",
   "review.removed": "Fjernede sidste gennemgang #{n}. {count} tilbage.",
   "review.nothing": "Ingen gennemgange at fjerne.",
-  "legacy.windowsPresent": "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her."
+  "legacy.windowsPresent": "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her.",
+  "target.polygonSelfIntersecting": "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
+  "target.gateRally": "Angiv først den fremtrædende målbane — fanen Mål. En duel-CSV er en optegnelse over ÉN banes kamp, og uden en målprofil siger intet hvilken."
 }

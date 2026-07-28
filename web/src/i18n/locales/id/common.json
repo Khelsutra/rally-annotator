@@ -133,7 +133,7 @@
   "state.rallying": "sedang reli",
   "state.not_rallying": "tidak reli",
   "state.unclear": "tidak jelas",
-  "target.saved": "Profil target '{section}' tersimpan (area main {n} titik).",
+  "target.saved": "Profil target '{section}' tersimpan (area main {n} titik, {pct}% dari bingkai).",
   "target.deleted": "Profil target '{section}' dihapus.",
   "target.needSelect": "Klik dulu satu profil target di daftar.",
   "target.needSection": "ID bagian kamera wajib diisi - ini menandai bagian statis yang dijelaskan profil ini.",
@@ -149,5 +149,7 @@
   "review.deleted": "Tinjauan #{n} dihapus. Sisa {count}.",
   "review.removed": "Tinjauan terakhir #{n} dihapus. Sisa {count}.",
   "review.nothing": "Tidak ada tinjauan untuk dihapus.",
-  "legacy.windowsPresent": "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini."
+  "legacy.windowsPresent": "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini.",
+  "target.polygonSelfIntersecting": "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
+  "target.gateRally": "Tentukan dulu lapangan target yang menonjol — layar Target. CSV reli adalah catatan pertandingan SATU lapangan, dan tanpa profil target tak ada yang menyatakan lapangan mana."
 }

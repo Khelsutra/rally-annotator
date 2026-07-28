@@ -18,6 +18,38 @@ Two artifacts:
 | `<clip>.clipmeta.json` → `target_profiles[]` | one persistent **target profile per static camera section** |
 | `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` |
 
+## Declare the target court BEFORE annotating rallies
+
+Rally annotation is **gated** on a saved target profile. Mark START and Save Rally both refuse
+until one exists, in both front-ends.
+
+This is not ceremony. A rally CSV is a record of **one court's match**, and a file that never says
+which court is under-specified data — the kind nobody can repair afterwards, because the person who
+knew is gone and the video looks the same from every angle. Asking at the start costs one minute;
+reconstructing it later costs a screening pass, and two of those have already failed.
+
+Reading an existing clip is never blocked: a CSV labelled before the gate existed loads and displays
+normally. Only *new* marking requires the declaration — so the information gets backfilled exactly
+when someone next touches the clip.
+
+### Which court is prominent
+
+Mark **every** court you can see in `tools/court_picker.html`, including the ones only partly in
+frame. It ranks them by coverage and names the prominent one — *the court with the maximum coverage
+of the frame* — then hands you its polygon.
+
+Coverage decides. Whether a court is wholly inside the frame does not enter into it.
+
+If the top two are within **5 percentage points** of each other, the picker says **ambiguous**
+rather than picking by a rounding error. That is a real finding about the framing: no court
+dominates, so the section is `unsupported`. A camera that cannot decide which court it is about
+cannot be served by a target-first pipeline.
+
+The same arithmetic is available as pure functions — `polygonArea`, `rankProminence`,
+`isProminentCourt` in `web/src/state/targetReview.ts` — so a downstream pipeline can ask the same
+question of detected polygons and get the same answer. A test pins the picker's margin to the
+module's constant so the two cannot drift.
+
 ## Rally annotation is unchanged
 
 - rally **START** = serve / first legal contact

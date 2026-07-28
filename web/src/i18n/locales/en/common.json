@@ -132,7 +132,7 @@
   "state.rallying": "rallying",
   "state.not_rallying": "not rallying",
   "state.unclear": "unclear",
-  "target.saved": "Saved target profile '{section}' ({n}-point play volume).",
+  "target.saved": "Saved target profile '{section}' ({n}-point play volume, {pct}% of frame).",
   "target.deleted": "Deleted target profile '{section}'.",
   "target.needSelect": "Click a target profile in the list first.",
   "target.needSection": "Camera section ID is required - it identifies the static section this profile describes.",
@@ -148,5 +148,7 @@
   "review.deleted": "Deleted review #{n}. {count} remaining.",
   "review.removed": "Removed last review #{n}. {count} remaining.",
   "review.nothing": "No reviews to remove.",
-  "legacy.windowsPresent": "A legacy neighborhood window file exists for this clip. It is diagnostic material only: it is NOT read, converted or imported here."
+  "legacy.windowsPresent": "A legacy neighborhood window file exists for this clip. It is diagnostic material only: it is NOT read, converted or imported here.",
+  "target.polygonSelfIntersecting": "The play volume crosses itself — its corners are out of order, so it encloses nothing. Re-pick them going around the court.",
+  "target.gateRally": "Set the prominent target court first — Target screen. A rally CSV is a record of ONE court's match, and without a target profile nothing says which."
 }

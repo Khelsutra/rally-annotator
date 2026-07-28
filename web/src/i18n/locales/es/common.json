@@ -133,7 +133,7 @@
   "state.rallying": "con punto en juego",
   "state.not_rallying": "sin punto en juego",
   "state.unclear": "poco claro",
-  "target.saved": "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos).",
+  "target.saved": "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos, {pct}% del cuadro).",
   "target.deleted": "Perfil objetivo '{section}' eliminado.",
   "target.needSelect": "Haz clic primero en un perfil objetivo de la lista.",
   "target.needSection": "El ID de sección de cámara es obligatorio: identifica la sección estática que describe este perfil.",
@@ -149,5 +149,7 @@
   "review.deleted": "Revisión #{n} eliminada. Quedan {count}.",
   "review.removed": "Se quitó la última revisión #{n}. Quedan {count}.",
   "review.nothing": "No hay revisiones que quitar.",
-  "legacy.windowsPresent": "Existe un archivo antiguo de ventanas de pistas vecinas para este clip. Es solo material de diagnóstico: no se lee, ni se convierte, ni se importa aquí."
+  "legacy.windowsPresent": "Existe un archivo antiguo de ventanas de pistas vecinas para este clip. Es solo material de diagnóstico: no se lee, ni se convierte, ni se importa aquí.",
+  "target.polygonSelfIntersecting": "La zona de juego se cruza consigo misma: las esquinas están desordenadas, así que no encierra nada. Vuelve a marcarlas dando la vuelta a la pista.",
+  "target.gateRally": "Define primero la pista objetivo prominente — pantalla Objetivo. Un CSV de puntos es el registro del partido de UNA pista, y sin perfil objetivo nada indica cuál."
 }
