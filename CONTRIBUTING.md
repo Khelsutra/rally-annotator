@@ -13,7 +13,7 @@ Issues and PRs are welcome: live test reports per sport/OS, browser-extension fe
 |---|---|---|
 | `vlc/rally_annotator.lua` | The VLC 3.x plugin (local-file labeling) | Lua 5.1 · `test/dialog_test.lua` |
 | `web/` | The browser extension (web video, incl. YouTube) | TypeScript (WXT MV3) · Vitest + Playwright |
-| `docs/` | Shared contract: CSV format + ending-reason guide | — |
+| `docs/` | Shared contract: CSV format, clip-metadata sidecar, window labels, ending-reason guide | — |
 
 Read [web/DESIGN.md](web/DESIGN.md) (locked decisions) and [web/TESTING.md](web/TESTING.md) before
 changing the extension's architecture or test strategy.
@@ -68,6 +68,10 @@ If a change is **architectural**, add a decision entry to [web/DESIGN.md](web/DE
 
 - Match the surrounding code's style, naming, and comment density — don't reformat unrelated lines.
 - Keep the **CSV schema** stable; new columns go at the end and must round-trip (older CSVs still load).
+- In the **clip sidecar**, a field the operator left blank is written as `null` — "not screened".
+  Never substitute `0`, `false`, or a plausible default: downstream tooling relies on telling
+  "unscreened" apart from "screened and found negative". Both front-ends must agree on the shape;
+  see [docs/CLIP_METADATA.md](docs/CLIP_METADATA.md).
 - Keep the pure state machine free of browser/DOM/`chrome.*` APIs (that's what makes it testable).
 - Don't commit build output or browser binaries (`web/.gitignore` covers `.output/`, `node_modules/`,
   `e2e-results/`, `coverage/`).

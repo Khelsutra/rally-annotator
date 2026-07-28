@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.8.0 — 2026-07-28
+- **Per-clip screening metadata → `<clip>.clipmeta.json`.** A new **Clip info** screen records what
+  the camera was looking at — venue, camera setup, **courts visible** vs **courts in play** (two
+  separate fields), how many are only partly in frame, target court id, match format, notes. These
+  are facts the operator knows *while labelling* and that nobody can reconstruct afterwards: two
+  attempts to infer adjacent-court play from pixels failed calibration, and frame-sampled guesses
+  got `Badminton_BXH_2` (singles, not doubles) and `GX010141` (one active court, not two) wrong.
+  Format + rationale: **[docs/CLIP_METADATA.md](docs/CLIP_METADATA.md)**.
+  - **Unset stays unset.** A blank field writes `null` — "not screened" — never `0`, never `false`,
+    never a plausible default; the `match_format` picker's first entry is an explicit *(not set)*.
+    `sports-data-collector` treats "unscreened" and "screened and found single-court" differently,
+    and this is what keeps them apart.
+  - **`active_court_count ≤ court_count` is enforced here**, matching the collector's model
+    validator, so an invalid sidecar can never reach import.
+  - **Capture time is read-only** and comes from the container when the player exposes it. There is
+    deliberately *no* box to type a date into: in this archive a folder named `May 19 2026` holds
+    files captured `2026-05-21`, and `gBaaddy20May2026.MP4` was captured `2026-05-22`.
+- **Window track → `<clip>.windows.csv`.** A new **Windows** screen marks time intervals and tags
+  them `target_rally` / `adjacent_court_rally` / `simultaneous_rallies` / `target_court_non_rally` /
+  `empty`, with its own numbering, its own edit/undo, and a **live per-label tally** against the
+  12-of-each target. A window may overlap a rally or sit between rallies, so it is a separate track,
+  not more CSV columns. See **[docs/WINDOW_LABELS.md](docs/WINDOW_LABELS.md)**.
+- **Label-completeness readout.** The status panel now shows labelled span, unlabelled tail and
+  largest interior gap, and **warns above a 120 s tail** — the same formulas and thresholds
+  `sports-data-collector` blocks on. A partial pass was nearly ingested as complete (33 rallies
+  ending at 439.956 s of a 768.768 s clip); rally *density* did not separate it from a sparse clip,
+  the 328.8 s tail did.
+- **Fix: switching screen or language no longer discards an in-progress `START → END`.** The form is
+  captured before the grid is rebuilt (the language switch had this bug since v1.7).
+- **Fix (web): the panel now scrolls internally** — with a section expanded it could grow past the
+  viewport, putting its Save button out of reach on a laptop screen.
+- Both front-ends, all 7 languages. VLC suite **150 assertions** (was 88); web **126 tests**
+  (was 65) plus a new real-Chromium E2E for the two new artifacts.
+
 ## v1.7.1 — 2026-06-22
 - **Completes the localization:** the dialog's **status messages** and the full in-dialog **HELP /
   ending-reason guide** are now localized into all 7 languages too (en/hi/kn/te/es/da/id) — so the
