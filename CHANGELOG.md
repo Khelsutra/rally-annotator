@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.0 — 2026-07-28
 - **Rally annotation is now GATED on a declared target court.** Mark START and Save Rally both
   refuse until a target profile exists, in both front-ends. A rally CSV records one court's match,
   and a file that never says which court is under-specified data nobody can repair later. Reading an

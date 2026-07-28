@@ -11,6 +11,19 @@
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
 
+  WHAT'S NEW IN v2.1.0
+    - Rally annotation is GATED on a declared target court: Mark START and Save
+      Rally refuse until a target profile exists. A rally CSV records ONE court's
+      match, and a file that never says which court is under-specified data that
+      cannot be repaired later. Reading an existing clip is never blocked -- only
+      new marking -- so the declaration backfills when a clip is next touched.
+    - A self-intersecting play volume is refused: a bowtie passes every per-point
+      check and has a MEANINGLESS area (its lobes cancel), so it would poison any
+      coverage comparison built on it.
+    - tools/court_picker.html now marks EVERY visible court, ranks them by frame
+      coverage and names the prominent one; within 5 points it reports ambiguous
+      rather than picking by a rounding error.
+
   WHAT'S NEW IN v2.0.0  (target-first correction)
     - The neighborhood WINDOW track is REMOVED. Nothing in this tool asks the
       operator to identify or time a rally on a surrounding court: that turned the
@@ -131,7 +144,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.0.0"
+local VERSION = "2.1.0"
 
 function descriptor()
   return {
