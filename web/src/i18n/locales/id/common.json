@@ -151,5 +151,11 @@
   "review.nothing": "Tidak ada tinjauan untuk dihapus.",
   "legacy.windowsPresent": "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini.",
   "target.polygonSelfIntersecting": "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
-  "target.gateRally": "Tentukan dulu lapangan target yang menonjol — layar Target. CSV reli adalah catatan pertandingan SATU lapangan, dan tanpa profil target tak ada yang menyatakan lapangan mana."
+  "target.gateRally": "Tentukan dulu lapangan target yang menonjol — layar Target. CSV reli adalah catatan pertandingan SATU lapangan, dan tanpa profil target tak ada yang menyatakan lapangan mana.",
+  "target.volumeSummary": "Area main: {n} sudut, menutupi {pct}% dari bingkai.",
+  "target.volumeEmpty": "Belum ada area main — tandai lapangan di tools/court_picker.html lalu tempel baris yang diberikan.",
+  "target.volumeInvalid": "Area main belum bisa dipakai — {why}",
+  "btn.pickOnImage": "Pilih di gambar…",
+  "target.pickerOpened": "Pemilih dan folder klip ini dibuka. Tandai semua lapangan di <clip>.court.png, lalu tempel barisnya ke Area main.",
+  "target.pickerMissing": "court_picker.html tidak ada di samping ekstensi. Salin tools/court_picker.html ke {dir} agar bisa dibuka dari sini — atau buka saja dari repo."
 }
