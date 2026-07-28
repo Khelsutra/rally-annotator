@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.8.1 — 2026-07-28
+- **Fix (data safety): Refresh could write one video's clip metadata into another's sidecar.**
+  Refresh repointed `<video>.rallies.csv` / `.clipmeta.json` / `.windows.csv` at the newly playing
+  video and reloaded them into memory, but did **not** repaint the **Clip info** and **Windows**
+  screens — those paint from their widgets. So after switching videos the boxes still held the
+  *previous* clip's venue and court counts while the save path already pointed at the new clip, and
+  **Save clip info** would have written video A's screening into video B's file. Refresh now
+  rebuilds those screens from the freshly loaded state, and a video switch clears the in-progress
+  fields instead of carrying them across. Regression test asserts the fields clear, that B's sidecar
+  carries `null` where A had values, and that A's own sidecar is left intact. (Rallies screen was
+  never affected — its list and counters already repainted.)
+- **Documented `active_court_count` when the count changes mid-clip:** record the **maximum**
+  concurrent count over the whole clip, because the field answers a *capability* question
+  (`can_supply_adjacent_court_negatives = active >= 2`). The time structure belongs to the window
+  track, which records exactly when a neighbour was live.
+- **Documented the identifier conventions**, with the values actually in use (`venue_id: Boxhill`;
+  `camera_setup_id: bxh-elevated-baseline` / `bxh-lowside-3court` / `bxh-lowside-singlecourt`), and
+  locked `target_court_id` to **the venue's own painted court number** — it survives a camera move,
+  where a frame-relative scheme silently re-points at a different court. The doc's worked examples
+  now use those real values instead of an invented naming style.
+- `.gitignore` now covers `*.clipmeta.json` and `*.windows.csv` — they are user data, like the
+  rally CSV, and were previously committable by accident.
+- Suite **160 assertions** (was 150).
+
 ## v1.8.0 — 2026-07-28
 - **Per-clip screening metadata → `<clip>.clipmeta.json`.** A new **Clip info** screen records what
   the camera was looking at — venue, camera setup, **courts visible** vs **courts in play** (two

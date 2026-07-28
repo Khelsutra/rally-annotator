@@ -1,5 +1,7 @@
-# Rally label outputs (user data, not source)
+# Rally label outputs (user data, not source) -- all three tracks
 *.rallies.csv
+*.clipmeta.json
+*.windows.csv
 rally_labels.csv
 
 # OS / editor junk

@@ -11,6 +11,14 @@
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
 
+  WHAT'S NEW IN v1.8.1
+    - Fix (data safety): Refresh repointed the CSV/sidecar paths at the newly
+      playing video but did NOT repaint the Clip info / Windows screens, so their
+      boxes still showed the PREVIOUS video's values. Saving then wrote video A's
+      venue/court counts into video B's clipmeta.json. Refresh now rebuilds those
+      screens from the freshly loaded state, and a video switch drops the
+      in-progress fields instead of carrying them across.
+
   WHAT'S NEW IN v1.8.0
     - Three screens, switched from a nav row at the top: RALLIES (unchanged),
       CLIP INFO, and WINDOWS.
@@ -103,7 +111,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "1.8.0"
+local VERSION = "1.8.1"
 
 function descriptor()
   return {
@@ -1371,7 +1379,7 @@ local win_form = { start = "", stop = "", next = "", notes = "", label = WINDOW_
 
 -- Forward declarations: the button callbacks below are defined BEFORE the dialog builders
 -- they call. Without these the callbacks would resolve these names as (nil) globals.
-local capture_form, win_refresh, create_dialog
+local capture_form, win_refresh, create_dialog, rebuild_after_sync
 
 --------------------------------------------------------------------------------
 -- Helpers (declared before the global callbacks that capture them)
@@ -2005,6 +2013,9 @@ local function sync_to_current_video()
     load_clipmeta(); load_windows()
     refresh_next_field()
     refresh_list(); refresh_buttons()
+    -- The Clip info and Windows screens paint from widgets, not from `clip`/`wins`, so a
+    -- reload alone would leave them showing pre-reload text. Rebuild those screens.
+    if screen ~= "rally" then rebuild_after_sync(false) end
     set_status(t("sync.refreshed", { count = #rows }))
     return
   end
@@ -2015,6 +2026,10 @@ local function sync_to_current_video()
   refresh_next_field()
   refresh_list()
   refresh_buttons()
+  -- Switching video must not carry the previous clip's fields across. Without this the
+  -- Clip info boxes still held video A's venue/court counts while `clip_path` already
+  -- pointed at video B, so a Save would have written A's metadata into B's sidecar.
+  rebuild_after_sync(true)
   set_status(t("sync.switched", { count = #rows, n = next_rally_number() }))
 end
 
@@ -2652,6 +2667,22 @@ function create_dialog()
   else
     set_status(t("activate.ready"))
   end
+end
+
+-- Repaint the current screen from freshly loaded state after Refresh repointed the files.
+-- `switched_video` = true drops the in-progress form, because those values belong to the
+-- video we just navigated away from.
+function rebuild_after_sync(switched_video)
+  if switched_video then
+    form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = form.sport }
+    win_form = { start = "", stop = "", next = "", notes = "", label = WINDOW_LABELS[1] }
+    win_mode = "new"
+    win_edit_index = nil
+  else
+    capture_form()
+  end
+  if d then d:delete(); d = nil end
+  create_dialog()
 end
 
 -- Screen switches go through one place so the in-progress form is always captured first.

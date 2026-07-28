@@ -110,7 +110,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "1.8.0")
+eq("descriptor version", descriptor().version, "1.8.1")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -709,6 +709,57 @@ do
   ok("no container date -> null, not a guess from the path",
      (read_file(CAPMETA2) or ""):find('"capture_time_utc": null', 1, true) ~= nil)
   os.remove(CAPMETA2); MEDIA_URI = nil; activate(); show_rallies()
+end
+
+--------------------------------------------------------------------------------
+-- Refresh after switching videos must repaint the Clip info / Windows screens, not just
+-- reload them into memory. Regression: the boxes kept video A's text while clip_path already
+-- pointed at video B, so a Save would have written A's metadata into B's sidecar.
+--------------------------------------------------------------------------------
+do
+  local A = TMPb .. sep .. "vidA"
+  local B = TMPb .. sep .. "vidB"
+  for _, stem in ipairs({ A, B }) do
+    os.remove(stem .. ".rallies.csv"); os.remove(stem .. ".clipmeta.json"); os.remove(stem .. ".windows.csv")
+  end
+  MEDIA_DURATION = nil; MEDIA_METAS = nil
+
+  -- video A: screened as 2 visible / 1 active, target court "3"
+  MEDIA_URI = "file://" .. A .. ".mp4"; PB.state = "playing"; PB.time_us = 0
+  activate(); show_clip()
+  wd('text_input', 2, 2):set_text("Boxhill")
+  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("1")
+  wd('text_input', 4, 4):set_text("3")
+  save_clip_info()
+  ok("video A clipmeta written", read_file(A .. ".clipmeta.json") ~= nil)
+
+  -- switch to video B (never screened) and Refresh while still on the Clip info screen
+  MEDIA_URI = "file://" .. B .. ".mp4"
+  refresh_now()
+  eq("Refresh clears the previous clip's venue", wd('text_input', 2, 2):get_text(), "")
+  eq("Refresh clears the previous clip's court count", wd('text_input', 2, 3):get_text(), "")
+  eq("Refresh clears the previous clip's target court", wd('text_input', 4, 4):get_text(), "")
+
+  -- and a Save now must not carry A's values into B's sidecar
+  wd('text_input', 2, 3):set_text("4"); wd('text_input', 4, 3):set_text("3")
+  save_clip_info()
+  local jb = read_file(B .. ".clipmeta.json") or ""
+  ok("video B sidecar written", #jb > 0)
+  ok("B has its own counts", jb:find('"court_count": 4', 1, true) ~= nil)
+  ok("B did not inherit A's venue", jb:find('"venue_id": null', 1, true) ~= nil)
+  ok("B did not inherit A's target court", jb:find('"target_court_id": null', 1, true) ~= nil)
+  local ja = read_file(A .. ".clipmeta.json") or ""
+  ok("A's sidecar was left intact", ja:find('"court_count": 2', 1, true) ~= nil)
+
+  -- the same must hold for the window list
+  MEDIA_URI = "file://" .. A .. ".mp4"
+  refresh_now(); show_windows()
+  eq("A has no windows yet", #wd('list', 1, 10).values, 0)
+
+  for _, stem in ipairs({ A, B }) do
+    os.remove(stem .. ".rallies.csv"); os.remove(stem .. ".clipmeta.json"); os.remove(stem .. ".windows.csv")
+  end
+  MEDIA_URI = nil; activate(); show_rallies()
 end
 
 --------------------------------------------------------------------------------

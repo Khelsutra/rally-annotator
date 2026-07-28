@@ -10,11 +10,11 @@ is free: the operator is already watching the video.
   "generator": "rally-annotator-vlc/1.8.0",
   "clip_name": "GX010150",
   "sport": "badminton",
-  "venue_id": "bxh_indiranagar",
-  "camera_setup_id": "bxh_low_side_a",
+  "venue_id": "Boxhill",
+  "camera_setup_id": "bxh-lowside-3court",
   "capture_time_utc": null,
   "capture_time_source": null,
-  "target_court_id": "c1",
+  "target_court_id": "3",
   "court_count": 2,
   "active_court_count": 1,
   "partially_visible_court_count": 0,
@@ -52,7 +52,7 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 | `capture_time_source` | enum | `null` | `container` when a container tag supplied it; `null` when unknown. There is deliberately **no** `operator` value. |
 | `target_court_id` | string | `null` | Stable id for the court being labelled, so "adjacent" is well defined. Required before window labels mean anything. |
 | `court_count` | int ≥ 1 | `null` | Courts **visible in frame**, including any that are only partly visible. |
-| `active_court_count` | int ≥ 1 | `null` | Visible courts **with play on them**, including the target court. Never greater than `court_count`. |
+| `active_court_count` | int ≥ 1 | `null` | Visible courts **with play on them**, including the target court, **at the clip's busiest moment** — see [When the count changes mid-clip](#when-the-count-changes-mid-clip). Never greater than `court_count`. |
 | `partially_visible_court_count` | int ≥ 0 | `null` | How many of the `court_count` courts are only partly in frame. Never greater than `court_count`. |
 | `match_format` | enum | `null` | `singles` / `doubles` / `mixed`, for the **target** court. |
 | `notes` | string | `null` | Free text — occlusions, partial courts, mid-clip changes. |
@@ -75,6 +75,77 @@ Owner-reviewed examples from the reference corpus:
 `adarsh_avi_singles` is why `partially_visible_court_count` exists: the sliver of court on the left
 is real and the operator should be able to record it **and say so**, rather than silently round it
 away or inflate `court_count` with no qualifier.
+
+### When the count changes mid-clip
+
+It usually does — a neighbouring court finishes a game, sits idle for four minutes, then a new pair
+walks on. **You do not track that here.** `active_court_count` is **one number for the whole clip:
+the most courts that were in play at any one time.**
+
+Record the **maximum**, not an average, not the count at some instant, and not the state at the end.
+
+The reason is what the field is *for*. The collector derives
+`can_supply_adjacent_court_negatives = active_court_count >= 2` — a **capability** question: *could
+this clip yield an `adjacent_court_rally` example at all?* A clip whose neighbour plays for three of
+its twelve minutes can. A clip whose neighbour is empty for the entire duration cannot, however many
+court lines are in shot. The maximum is the only summary that answers that question correctly:
+`max >= 2` holds exactly when some moment of adjacent play exists.
+
+The three worked examples above are already phrased this way — note "the right-hand court is there
+but **empty throughout**" for `adarsh_avi_singles`. That qualifier is doing the work: it is the
+whole-clip maximum that is 1, not the count in some particular frame.
+
+**The time structure is the window track's job, not this field's.** When a neighbour was live is
+recorded precisely, with start and end seconds, as `adjacent_court_rally` and
+`simultaneous_rallies` windows in [WINDOW_LABELS.md](WINDOW_LABELS.md). That is the division of
+labour: this file answers *what kind of clip is this*, the window track answers *when did what
+happen*. Duplicating the timing here would create a second, coarser, staler copy of it.
+
+If the variation is worth a human note — "court 3 idle until ~6:00, then a doubles game" — put it in
+`notes`. Do not encode it in the count.
+
+### The three identifiers: how to choose them
+
+`venue_id`, `camera_setup_id` and `target_court_id` are free text — there is no enum, here or in
+`sports-data-collector`. They are nevertheless **identity keys, not descriptions**: downstream
+gating counts *distinct values*, and the collector's rule is that an **absent value is never assumed
+to differ from anything**. A typo invents a venue, or a camera setup, and quietly inflates the
+apparent diversity of a training split.
+
+So the only real requirement is that you reuse the **exact same string** for the same thing, every
+time. Values already in use in this corpus:
+
+| Field | Values in use |
+|---|---|
+| `venue_id` | `Boxhill` |
+| `camera_setup_id` | `bxh-elevated-baseline` · `bxh-lowside-3court` · `bxh-lowside-singlecourt` |
+
+`camera_setup_id` identifies a **placement and framing**, not a camera. Move the tripod somewhere
+materially different and it is a new setup, because that is what makes it count toward setup
+representativeness. Two clips shot from the same spot on different days share one id.
+
+#### `target_court_id` — use the venue's own court numbering
+
+**Convention (owner, 2026-07-28): name the target court by the number the venue itself paints on
+it.** At Boxhill that is Boxhill's court numbering; at any other venue, that venue's own numbering.
+Write the number as the venue writes it.
+
+This is preferred over a frame-relative scheme (`c1` = leftmost, and so on) for one reason: it
+**survives a camera move**. A frame-relative id silently re-points at a different slab of floor the
+moment the tripod shifts, so two clips of the same physical court disagree about which court they
+are — and `adjacent_court_rally` stops aggregating correctly across them. A painted court number is
+a property of the building, so it stays true across every setup, session and clip.
+
+The target court is not something to look up: **it is the court whose rallies you are putting in
+`<clip>.rallies.csv`.** The id just gives it a name, so that `adjacent_court_rally` has a referent —
+"a rally on some court that is not this one".
+
+Rules that make the id load-bearing rather than decorative:
+
+- Non-empty, and **stable within the clip** — never rename it mid-file.
+- The **same physical court carries the same id in every clip**, across setups and sessions.
+- If a venue does not number its courts, pick a scheme, write it down here, and keep it — the cost
+  is not in choosing badly, it is in choosing differently twice.
 
 ### Unset is not "no"
 
@@ -185,7 +256,7 @@ Importing today, until a sidecar reader lands on the collector side:
 ```bash
 python -m src.cli.curate import-local --sport badminton \
   --video-path GX010150.MP4 --annotations-path GX010150.rallies.csv \
-  --venue-id bxh_indiranagar --camera-setup-id bxh_low_side_a \
+  --venue-id Boxhill --camera-setup-id bxh-lowside-3court \
   --court-count 2 --active-court-count 1
 ```
 

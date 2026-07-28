@@ -1,4 +1,4 @@
-title :: Rally Annotator v1.8.0
+title :: Rally Annotator v1.8.1
  1. button     @(1,1) 1x1 :: ▸ Rallies
  2. button     @(2,1) 1x1 :: Clip info
  3. button     @(3,1) 1x1 :: Windows
