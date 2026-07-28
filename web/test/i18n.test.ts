@@ -14,7 +14,7 @@ import {
 } from "../src/i18n";
 import { Annotator } from "../src/state/annotator";
 import { MATCH_FORMATS } from "../src/state/clipmeta";
-import { WINDOW_LABELS, serializeWindows } from "../src/state/windows";
+import { SETUP_VALIDITY, TARGET_STATES, serializeReviews } from "../src/state/targetReview";
 
 describe("t() shim", () => {
   it("interpolates {vars}", () => {
@@ -86,41 +86,78 @@ describe("catalog integrity", () => {
     for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);
   });
 
-  it("every clip-info / window key the panel can emit exists in en", () => {
+  it("every clip-info / target / review key the panel can emit exists in en", () => {
     const en = new Set(EN_KEYS);
     const used = [
-      "btn.clipInfo", "btn.windows", "btn.saveClip", "btn.saveWindow", "btn.saveWindowN",
-      "btn.downloadWindows",
+      "btn.clipInfo", "btn.target", "btn.review", "btn.saveClip", "btn.saveTarget",
+      "btn.deleteProfile", "btn.pickPolygon", "btn.pickCancel", "btn.saveReview",
+      "btn.saveReviewN", "btn.downloadReviews",
       "label.venue", "label.cameraSetup", "label.courtsVisible", "label.courtsActive",
       "label.courtsPartial", "label.targetCourt", "label.matchFormat", "label.captureTime",
-      "label.notes", "label.windowLabel", "label.recentWindows",
+      "label.notes", "label.cameraSection", "label.cameraProfile", "label.polygon",
+      "label.setupValidity", "label.profiles", "label.targetState", "label.recentReviews",
       "fmt.unset", ...MATCH_FORMATS.map((f) => "fmt." + f),
-      ...WINDOW_LABELS.map((l) => "wlabel." + l),
+      ...SETUP_VALIDITY.map((v) => "validity." + v),
+      ...TARGET_STATES.map((st) => "state." + st),
       "clip.saved", "clip.invalidActive", "clip.invalidPartial", "clip.invalidNumber",
-      "clip.captureUnknown", "clip.needTarget",
-      "win.saved", "win.deleted", "win.removed", "win.nothing",
-      "cov.line", "cov.tail", "cov.span", "tally.line",
+      "clip.captureUnknown",
+      "target.saved", "target.deleted", "target.needSelect", "target.needSection",
+      "target.needCourt", "target.duplicateSection", "target.polygonSyntax",
+      "target.polygonTooFewPoints", "target.polygonRange", "target.needProfile",
+      "target.pickStart", "target.picking",
+      "review.saved", "review.deleted", "review.removed", "review.nothing",
+      "legacy.windowsPresent",
+      "cov.line", "cov.tail", "cov.span",
     ];
     for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);
   });
 });
 
-describe("window labels are DATA, not display text", () => {
-  it("the canonical §4.4 strings never translate, in any locale", () => {
+describe("target states are DATA, not display text", () => {
+  it("the canonical state string never translates, in any locale", () => {
     for (const l of registeredLocales()) {
       setLocale(l);
-      const csv = serializeWindows([
-        { n: 1, s: 12.5, e: 18.25, label: "adjacent_court_rally", court: "c1", notes: "" },
+      const csv = serializeReviews([
+        { n: 1, s: 12.5, e: 18.25, state: "not_rallying", section: "s1", source: "operator", notes: "" },
       ]);
-      expect(csv).toContain("1,12.500,18.250,adjacent_court_rally,c1,");
+      expect(csv).toContain("1,12.500,18.250,not_rallying,s1,operator,");
     }
     setLocale("en");
   });
 
-  it("but every label has a translated DISPLAY string in every locale", () => {
+  it("but every state and validity has a translated DISPLAY string in every locale", () => {
     for (const l of registeredLocales()) {
-      for (const label of WINDOW_LABELS) {
-        expect(t("wlabel." + label, undefined, l).length, `${l}/${label}`).toBeGreaterThan(0);
+      for (const st of TARGET_STATES) {
+        expect(t("state." + st, undefined, l).length, l + "/" + st).toBeGreaterThan(0);
+      }
+      for (const v of SETUP_VALIDITY) {
+        expect(t("validity." + v, undefined, l).length, l + "/" + v).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("the withdrawn neighborhood vocabulary is gone from every catalog", () => {
+  const WITHDRAWN = [
+    "wlabel.target_rally", "wlabel.adjacent_court_rally", "wlabel.simultaneous_rallies",
+    "wlabel.target_court_non_rally", "wlabel.empty", "tally.line", "btn.saveWindow",
+    "label.windowLabel", "label.recentWindows", "clip.needTarget",
+  ];
+  it("no catalog still defines a key from the withdrawn design", () => {
+    for (const l of registeredLocales()) {
+      const keys = new Set(catalogKeys(l));
+      for (const k of WITHDRAWN) expect(keys.has(k), l + " still has " + k).toBe(false);
+    }
+  });
+  it("no catalog VALUE names a neighbouring-court label", () => {
+    for (const l of registeredLocales()) {
+      for (const k of catalogKeys(l)) {
+        const v = t(k, undefined, l);
+        for (const bad of ["adjacent_court_rally", "simultaneous_rallies", "target_court_non_rally"]) {
+          // The one permitted mention is the legacy notice, which exists to REFUSE such files.
+          if (k === "legacy.windowsPresent") continue;
+          expect(v.includes(bad), l + "/" + k + " mentions " + bad).toBe(false);
+        }
       }
     }
   });

@@ -49,7 +49,7 @@ async function seekTo(page: Page, target: number) {
 // Clip metadata + window track, driven through the REAL extension in Chromium. Run once (in
 // en) rather than per-locale: the per-locale proof above already covers rendering, and this
 // case is about the two new artifacts reaching chrome.storage.local intact.
-test("records clip screening metadata and a labelled window", async () => {
+test("records clip metadata, a target profile and a sparse target-state review", async () => {
   const context = await chromium.launchPersistentContext("", {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, "--no-first-run"],
@@ -73,7 +73,6 @@ test("records clip screening metadata and a labelled window", async () => {
     await page.locator("input[name=clip-venue]").fill("bxh_indiranagar");
     await page.locator("input[name=clip-courtsVisible]").fill("2");
     await page.locator("input[name=clip-courtsActive]").fill("1");
-    await page.locator("input[name=clip-targetCourt]").fill("c1");
     await page.getByRole("button", { name: tt("en", "btn.saveClip") }).click();
 
     const clip = await sw.evaluate(async () => {
@@ -81,29 +80,52 @@ test("records clip screening metadata and a labelled window", async () => {
       const key = Object.keys(all).find((k) => k.startsWith("clip:"));
       return key ? (all as Record<string, unknown>)[key] : null;
     });
-    expect(clip).toMatchObject({ court_count: 2, active_court_count: 1, target_court_id: "c1" });
+    expect(clip).toMatchObject({ court_count: 2, active_court_count: 1 });
     // The two counts must stay distinct, and an unset field must stay null, not 0.
     expect((clip as Record<string, unknown>).match_format).toBeNull();
     expect((clip as Record<string, unknown>).partially_visible_court_count).toBeNull();
 
-    // Then a labelled window on the same clip, marked off the real <video>.
-    await page.getByRole("button", { name: tt("en", "btn.windows") }).click();
-    await seekTo(page, 2.0);
-    await page.locator("input[name=win-start]").fill("12.500");
-    await page.locator("input[name=win-end]").fill("18.250");
-    await page.locator("select[name=win-label]").selectOption("adjacent_court_rally");
-    await page.getByRole("button", { name: tt("en", "btn.saveWindowN", { n: 1 }) }).click();
+    // A target profile for this camera section. Pixel coordinates must be refused, not coerced.
+    await page.getByRole("button", { name: tt("en", "btn.target") }).click();
+    await page.locator("input[name=target-section]").fill("s1");
+    await page.locator("input[name=target-court]").fill("3");
+    await page.locator("input[name=target-polygon]").fill("120,540 880,540 1010,980 70,980");
+    await page.getByRole("button", { name: tt("en", "btn.saveTarget") }).click();
+    await expect(page.locator(".status")).toContainText("NORMALIZED");
 
-    const wins = await sw.evaluate(async () => {
+    await page.locator("input[name=target-polygon]").fill("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98");
+    await page.getByRole("button", { name: tt("en", "btn.saveTarget") }).click();
+
+    const withProfile = await sw.evaluate(async () => {
       const all = await chrome.storage.local.get(null);
-      const key = Object.keys(all).find((k) => k.startsWith("win:"));
+      const key = Object.keys(all).find((k) => k.startsWith("clip:"));
       return key ? (all as Record<string, unknown>)[key] : null;
     });
-    expect(Array.isArray(wins)).toBe(true);
-    expect(wins as unknown[]).toHaveLength(1);
-    // The §4.4 label is DATA: canonical english regardless of the interface language.
-    expect((wins as Array<Record<string, unknown>>)[0]).toMatchObject({
-      n: 1, label: "adjacent_court_rally", court: "c1",
+    const profiles = (withProfile as Record<string, unknown>).target_profiles as Array<Record<string, unknown>>;
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0]).toMatchObject({
+      camera_section_id: "s1", target_court_id: "3", setup_validity: "supported",
+    });
+    expect(profiles[0].play_volume_polygon as number[][]).toHaveLength(4);
+
+    // Then one sparse target-state answer, marked off the real <video>.
+    await page.getByRole("button", { name: tt("en", "btn.review") }).click();
+    await seekTo(page, 2.0);
+    await page.locator("input[name=review-start]").fill("412.500");
+    await page.locator("input[name=review-end]").fill("418.250");
+    await page.locator("select[name=review-state]").selectOption("not_rallying");
+    await page.getByRole("button", { name: tt("en", "btn.saveReviewN", { n: 1 }) }).click();
+
+    const revs = await sw.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      const key = Object.keys(all).find((k) => k.startsWith("review:"));
+      return key ? (all as Record<string, unknown>)[key] : null;
+    });
+    expect(Array.isArray(revs)).toBe(true);
+    expect(revs as unknown[]).toHaveLength(1);
+    // The state is DATA: canonical english regardless of the interface language.
+    expect((revs as Array<Record<string, unknown>>)[0]).toMatchObject({
+      n: 1, state: "not_rallying", section: "s1",
     });
 
     // The rally track is untouched by any of this.

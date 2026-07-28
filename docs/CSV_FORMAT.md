@@ -45,11 +45,11 @@ The `sport` column is self-documenting; tools that take a `--sport` flag can ign
 
 ## The other two tracks
 
-This file is one of three the annotator can produce for a clip. The other two are optional and do
-not change this schema:
+This file holds the ground truth: **the prominent target match only**. The other two files the
+annotator can produce are optional and do not change this schema:
 
 - **[CLIP_METADATA.md](CLIP_METADATA.md)** — `<clip>.clipmeta.json`, per-clip screening facts
   (venue, camera setup, courts visible vs courts in play, target court, match format).
-- **[WINDOW_LABELS.md](WINDOW_LABELS.md)** — `<clip>.windows.csv`, labelled time windows
-  (`target_rally` / `adjacent_court_rally` / `simultaneous_rallies` / `target_court_non_rally` /
-  `empty`).
+- **[TARGET_REVIEW.md](TARGET_REVIEW.md)** — target profiles (one per static camera section) and
+  `<clip>.target-review.csv`, sparse `rallying` / `not_rallying` / `unclear` answers about the
+  **target** court.

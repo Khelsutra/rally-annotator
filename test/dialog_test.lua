@@ -110,7 +110,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "1.8.0")
+eq("descriptor version", descriptor().version, "2.0.0")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -478,7 +478,9 @@ do
   activate()
   ok("nav: Rallies button present",  wbtn("Rallies") ~= nil)
   ok("nav: Clip info button present", wbtn("Clip info") ~= nil)
-  ok("nav: Windows button present",  wbtn("Windows") ~= nil)
+  ok("nav: Target button present",   wbtn("Target") ~= nil)
+  ok("nav: Review button present",   wbtn("Review") ~= nil)
+  ok("nav offers NO neighborhood-window screen", wbtn("Windows") == nil)
   eq("nav marks the active screen", wbtn("Rallies").text:sub(1, 3), "\226\150\184")
 
   -- arm a rally, then bounce through the other two screens and back
@@ -487,8 +489,12 @@ do
   show_clip()
   ok("clip screen has the venue field", wd('text_input', 2, 2) ~= nil)
   ok("clip screen has no rally reason dropdown", wd('dropdown', 3, 7) == nil)
-  show_windows()
-  ok("windows screen has the window-label dropdown", wd('dropdown', 3, 5) ~= nil)
+  show_target()
+  ok("target screen has the camera-section field", wd('text_input', 2, 2) ~= nil)
+  ok("target screen has the play-volume field", wd('text_input', 2, 4) ~= nil)
+  show_review()
+  ok("review screen has the target-state dropdown", wd('dropdown', 4, 4) ~= nil)
+  eq("review offers exactly three answers", #wd('dropdown', 4, 4).values, 3)
   show_rallies()
   eq("switching screens preserves the armed START", wd('text_input', 2, 4):get_text(), "12.500")
   eq("switching screens preserves the armed END",   wd('text_input', 4, 4):get_text(), "18.250")
@@ -505,14 +511,14 @@ do
   show_clip()
   local venue, camera = wd('text_input', 2, 2), wd('text_input', 4, 2)
   local visible, active = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  local partial, target = wd('text_input', 2, 4), wd('text_input', 4, 4)
+  local partial = wd('text_input', 2, 4)
   local notes = wd('text_input', 2, 6)
   local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
 
   -- GX010150: 2 courts visible, 1 active -- a divider excludes the neighbour.
   venue:set_text("bxh_indiranagar"); camera:set_text("bxh_low_side_a")
   visible:set_text("2"); active:set_text("1"); partial:set_text("0")
-  target:set_text("c1"); notes:set_text("divider excludes the neighbour")
+  notes:set_text("divider excludes the neighbour")
   save_clip_info()
   local j = read_file(CLIPMETA) or ""
   ok("clipmeta written", #j > 0)
@@ -520,10 +526,11 @@ do
   ok("clipmeta records courts IN PLAY separately", j:find('"active_court_count": 1', 1, true) ~= nil)
   ok("clipmeta records the partial-court count", j:find('"partially_visible_court_count": 0', 1, true) ~= nil)
   ok("clipmeta records venue", j:find('"venue_id": "bxh_indiranagar"', 1, true) ~= nil)
-  ok("clipmeta records the target court", j:find('"target_court_id": "c1"', 1, true) ~= nil)
+  ok("clipmeta is version 2", j:find('"clipmeta_version": 2', 1, true) ~= nil)
+  ok("clipmeta has a target_profiles array", j:find('"target_profiles"', 1, true) ~= nil)
+  ok("clip screen no longer asks for a target court", wd('text_input', 4, 4) == nil)
   ok("unset match_format writes null, never a guess", j:find('"match_format": null', 1, true) ~= nil)
   ok("no container date -> capture_time_utc null", j:find('"capture_time_utc": null', 1, true) ~= nil)
-  ok("clipmeta carries a schema version", j:find('"clipmeta_version": 1', 1, true) ~= nil)
   ok("clipmeta names its generator", j:find('"generator": "rally%-annotator%-vlc/') ~= nil)
 
   -- a court cannot be in play without being in frame
@@ -567,148 +574,224 @@ do
 end
 
 --------------------------------------------------------------------------------
--- Window track: its own file, its own numbering, the five-label §4.4 vocabulary, and a
--- refusal to save before the clip's target court is known ("adjacent" needs a target).
+-- Target profiles: one per static camera section, validated FAIL-CLOSED. Nothing here asks
+-- about a surrounding court -- that requirement was withdrawn.
 --------------------------------------------------------------------------------
 do
-  os.remove(WINCSV); os.remove(CLIPMETA)
-  activate()                              -- fresh: no clip metadata, so no target court yet
-  show_windows()
-  local ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  local wl = wd('dropdown', 3, 5)
+  os.remove(CLIPMETA); os.remove(WINCSV)
+  MEDIA_URI = nil; PB.state = "playing"
+  activate(); show_target()
+  local sec, court = wd('text_input', 2, 2), wd('text_input', 4, 2)
+  local poly = wd('text_input', 2, 4)
   local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
 
-  eq("window label vocabulary size", #wl.values, 5)
-  local seen = {}
-  for _, v in ipairs(wl.values) do seen[v.id] = true end
-  eq("all five labels offered", (seen[1] and seen[2] and seen[3] and seen[4] and seen[5]) and 5 or 0, 5)
+  eq("setup validity offers three answers", #wd('dropdown', 4, 3).values, 3)
 
-  ws:set_text("12.500"); we:set_text("18.250")
-  save_window()
-  ok("a window cannot be saved before the target court is set", statusw.text:find("Target court ID", 1, true) ~= nil)
-  ok("nothing was written", read_file(WINCSV) == nil)
+  -- a pixel polygon is the likeliest operator mistake, and the one that would be wrong
+  -- but perfectly well-formed
+  sec:set_text("s1"); court:set_text("3")
+  poly:set_text("120,540 880,540 1010,980 70,980")
+  save_target_profile()
+  ok("pixel coordinates are refused", statusw.text:find("NORMALIZED", 1, true) ~= nil)
+  ok("nothing written on refusal", read_file(CLIPMETA) == nil)
 
-  -- record the target court, then label windows
-  show_clip()
-  wd('text_input', 4, 4):set_text("c1")
+  poly:set_text("0.2,0.5 0.8,0.5")
+  save_target_profile()
+  ok("a 2-point polygon is refused", statusw.text:find("at least 3 points", 1, true) ~= nil)
+
+  poly:set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
+  sec:set_text("")
+  save_target_profile()
+  ok("a missing camera section is refused", statusw.text:find("Camera section ID is required", 1, true) ~= nil)
+  sec:set_text("s1"); court:set_text("")
+  save_target_profile()
+  ok("a missing target court is refused", statusw.text:find("Target court ID is required", 1, true) ~= nil)
+
+  court:set_text("3")
+  save_target_profile()
+  local j = read_file(CLIPMETA) or ""
+  ok("a valid profile is written", j:find('"camera_section_id": "s1"', 1, true) ~= nil)
+  ok("with its target court", j:find('"target_court_id": "3"', 1, true) ~= nil)
+  ok("with a normalized polygon", j:find("[0.2, 0.5]", 1, true) ~= nil)
+  ok("and its setup validity", j:find('"setup_validity": "supported"', 1, true) ~= nil)
+  eq("one profile listed", #wd('list', 1, 10).values, 1)
+
+  -- re-saving the same section replaces rather than duplicating
+  court:set_text("4")
+  save_target_profile()
+  eq("re-saving a section does not duplicate it", #wd('list', 1, 10).values, 1)
+  ok("re-save updated the court", (read_file(CLIPMETA) or ""):find('"target_court_id": "4"', 1, true) ~= nil)
+
+  -- a second section is a second profile
+  sec:set_text("s2"); court:set_text("5")
+  save_target_profile()
+  eq("a second camera section adds a profile", #wd('list', 1, 10).values, 2)
+
+  -- profiles survive a reopen
+  activate(); show_target()
+  eq("profiles reload on re-open", #wd('list', 1, 10).values, 2)
+
+  wd('list', 1, 10).selection = { [1] = "row" }
+  delete_target_profile()
+  eq("delete removes the selected profile", #wd('list', 1, 10).values, 1)
+  os.remove(CLIPMETA)
+end
+
+--------------------------------------------------------------------------------
+-- Sparse target-state review: three answers, all about the TARGET court. No quota.
+--------------------------------------------------------------------------------
+do
+  local REVIEWCSV = TMPb .. sep .. "rally_labels.target-review.csv"
+  os.remove(CLIPMETA); os.remove(REVIEWCSV); os.remove(WINCSV)
+  MEDIA_URI = nil; PB.state = "playing"
+  activate(); show_review()
+  local rs, re_ = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+
+  local states = {}
+  for _, v in ipairs(wd('dropdown', 4, 4).values) do states[#states + 1] = v.text end
+  eq("exactly three answers offered", #states, 3)
+  for _, txt in ipairs(states) do
+    ok("no answer names a neighbouring court (" .. txt .. ")",
+       txt:find("adjacent", 1, true) == nil and txt:find("simultaneous", 1, true) == nil)
+  end
+
+  rs:set_text("412.5"); re_:set_text("418.25")
+  save_review()
+  ok("a review is refused before any target profile exists",
+     statusw.text:find("Save a target profile first", 1, true) ~= nil)
+  ok("nothing written", read_file(REVIEWCSV) == nil)
+
+  show_target()
+  wd('text_input', 2, 2):set_text("s1"); wd('text_input', 4, 2):set_text("3")
+  wd('text_input', 2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
+  save_target_profile()
+  show_review()
+  rs, re_ = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  local st = wd('dropdown', 4, 4)
+  for _, v in ipairs(st.values) do if v.id == 2 then st.sel_id = v.id end end   -- not_rallying
+  rs:set_text("412.5"); re_:set_text("418.25")
+  save_review()
+  local rv = read_file(REVIEWCSV) or ""
+  ok("review header", rv:find("review_number,start_time,end_time,target_state,camera_section_id,source,notes", 1, true) ~= nil)
+  ok("answer written with the canonical state", rv:find("\n1,412.500,418.250,not_rallying,s1,operator,", 1, true) ~= nil)
+  eq("review fields clear after save", (wd('text_input', 2, 3)):get_text(), "")
+
+  ok("no quota or per-category tally is shown", statusw.text:find("/12", 1, true) == nil)
+
+  -- reversed marks swap; a zero-length interval is refused
+  rs, re_ = wd('text_input', 2, 3), wd('text_input', 4, 3)
+  rs:set_text("50"); re_:set_text("50")
+  save_review()
+  ok("zero-length interval refused", statusw.text:find("later than", 1, true) ~= nil)
+  rs:set_text("60"); re_:set_text("55")
+  save_review()
+  ok("reversed marks swapped", (read_file(REVIEWCSV) or ""):find("\n2,55.000,60.000,", 1, true) ~= nil)
+
+  wd('list', 1, 10).selection = { [1] = "row" }
+  delete_review()
+  ok("delete removes the selected review", (read_file(REVIEWCSV) or ""):find("\n1,", 1, true) == nil)
+  undo_review()
+  eq("undo removes the last review", #wd('list', 1, 10).values, 0)
+
+  -- reviews reload, and the rally CSV is untouched throughout
+  ok("rally CSV untouched by reviewing", read_file(CSV) == nil)
+  os.remove(CLIPMETA); os.remove(REVIEWCSV)
+end
+
+--------------------------------------------------------------------------------
+-- A legacy neighborhood windows.csv is DETECTED AND REFUSED: never read, never converted.
+--------------------------------------------------------------------------------
+do
+  local REVIEWCSV = TMPb .. sep .. "rally_labels.target-review.csv"
+  os.remove(CLIPMETA); os.remove(REVIEWCSV)
+  local f = io.open(WINCSV, "w")
+  f:write("window_number,start_time,end_time,window_label,target_court_id,notes\n")
+  f:write("1,12.500,18.250,adjacent_court_rally,3,\n")
+  f:write("2,30.000,36.000,target_rally,3,\n")
+  f:close()
+
+  MEDIA_URI = nil; PB.state = "playing"
+  activate(); show_review()
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  eq("legacy windows are NOT loaded as reviews", #wd('list', 1, 10).values, 0)
+  ok("the legacy file is called out as refused", statusw.text:find("NOT read", 1, true) ~= nil)
+  ok("nothing was converted into a review file", read_file(REVIEWCSV) == nil)
+  ok("the legacy file itself is left untouched",
+     (read_file(WINCSV) or ""):find("adjacent_court_rally", 1, true) ~= nil)
+  os.remove(WINCSV); os.remove(CLIPMETA)
+end
+
+--------------------------------------------------------------------------------
+-- A withdrawn label must not survive anywhere an operator can reach it.
+--------------------------------------------------------------------------------
+do
+  local WITHDRAWN = { "adjacent_court_rally", "simultaneous_rallies", "target_court_non_rally" }
+  local offenders = {}
+  for code, tbl in pairs(STRINGS) do
+    for key, val in pairs(tbl) do
+      if key ~= "legacy.windowsPresent" then
+        for _, bad in ipairs(WITHDRAWN) do
+          if tostring(val):find(bad, 1, true) then
+            offenders[#offenders + 1] = code .. "/" .. key .. " -> " .. bad
+          end
+        end
+      end
+    end
+  end
+  eq("no localized string anywhere still offers a withdrawn neighborhood label",
+     #offenders == 0 and "none" or table.concat(offenders, ", "), "none")
+end
+
+--------------------------------------------------------------------------------
+-- Refresh after switching videos must repaint the Clip info / Windows screens, not just
+-- reload them into memory. Regression: the boxes kept video A's text while clip_path already
+-- pointed at video B, so a Save would have written A's metadata into B's sidecar.
+--------------------------------------------------------------------------------
+do
+  local A = TMPb .. sep .. "vidA"
+  local B = TMPb .. sep .. "vidB"
+  for _, stem in ipairs({ A, B }) do
+    os.remove(stem .. ".rallies.csv"); os.remove(stem .. ".clipmeta.json"); os.remove(stem .. ".target-review.csv")
+  end
+  MEDIA_DURATION = nil; MEDIA_METAS = nil
+
+  -- video A: screened as 2 visible / 1 active, target court "3"
+  MEDIA_URI = "file://" .. A .. ".mp4"; PB.state = "playing"; PB.time_us = 0
+  activate(); show_clip()
+  wd('text_input', 2, 2):set_text("Boxhill")
+  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("1")
+  save_clip_info()
+  ok("video A clipmeta written", read_file(A .. ".clipmeta.json") ~= nil)
+
+  -- switch to video B (never screened) and Refresh while still on the Clip info screen
+  MEDIA_URI = "file://" .. B .. ".mp4"
+  refresh_now()
+  eq("Refresh clears the previous clip's venue", wd('text_input', 2, 2):get_text(), "")
+  eq("Refresh clears the previous clip's court count", wd('text_input', 2, 3):get_text(), "")
+  eq("Refresh clears the previous clip's partial count", wd('text_input', 2, 4):get_text(), "")
+
+  -- and a Save now must not carry A's values into B's sidecar
   wd('text_input', 2, 3):set_text("4"); wd('text_input', 4, 3):set_text("3")
   save_clip_info()
-  show_windows()
-  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  wl = wd('dropdown', 3, 5)
-  statusw = nil
-  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
-  ws:set_text("12.500"); we:set_text("18.250")
-  for _, v in ipairs(wl.values) do if v.id == 2 then wl.sel_id = v.id end end   -- adjacent_court_rally
-  wd('text_input', 2, 6):set_text("left neighbour, mid-rally")
-  save_window()
-  local w1 = read_file(WINCSV) or ""
-  ok("windows.csv header", w1:find("window_number,start_time,end_time,window_label,target_court_id,notes", 1, true) ~= nil)
-  ok("window row written with the canonical label", w1:find("\n1,12.500,18.250,adjacent_court_rally,c1,left neighbour; mid-rally\n", 1, true) ~= nil)
+  local jb = read_file(B .. ".clipmeta.json") or ""
+  ok("video B sidecar written", #jb > 0)
+  ok("B has its own counts", jb:find('"court_count": 4', 1, true) ~= nil)
+  ok("B did not inherit A's venue", jb:find('"venue_id": null', 1, true) ~= nil)
+  ok("B did not inherit A's camera setup", jb:find('"camera_setup_id": null', 1, true) ~= nil)
+  local ja = read_file(A .. ".clipmeta.json") or ""
+  ok("A's sidecar was left intact", ja:find('"court_count": 2', 1, true) ~= nil)
 
-  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  eq("window fields clear after save", ws:get_text(), "")
-  eq("window # auto-advances", wd('text_input', 2, 4):get_text(), "2")
+  -- the same must hold for the review list
+  MEDIA_URI = "file://" .. A .. ".mp4"
+  refresh_now(); show_review()
+  eq("A has no reviews yet", #wd('list', 1, 10).values, 0)
 
-  ws:set_text("30.000"); we:set_text("36.000")
-  save_window()
-  ok("second window appended", (read_file(WINCSV) or ""):find("\n2,30.000,36.000,", 1, true) ~= nil)
-
-  -- reversed marks are tolerated; a zero-length window is refused
-  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  ws:set_text("50.000"); we:set_text("50.000")
-  save_window()
-  ok("zero-length window refused", statusw.text:find("later than", 1, true) ~= nil)
-  ws:set_text("60.000"); we:set_text("55.000")
-  save_window()
-  ok("reversed marks are swapped, not rejected", (read_file(WINCSV) or ""):find("\n3,55.000,60.000,", 1, true) ~= nil)
-
-  -- the per-label tally against §4.4's 12-of-each minimum
-  ok("status shows the per-label tally", statusw.text:find("12", 1, true) ~= nil)
-
-  -- undo / delete
-  ws, we = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  ws:set_text(""); we:set_text("")
-  undo_window()
-  ok("undo removes the last window", (read_file(WINCSV) or ""):find("\n3,", 1, true) == nil)
-  wd('list', 1, 10).selection = { [1] = "row #1" }
-  delete_window()
-  ok("delete removes the selected window", (read_file(WINCSV) or ""):find("\n1,", 1, true) == nil)
-  ok("the other window survives", (read_file(WINCSV) or ""):find("\n2,", 1, true) ~= nil)
-
-  -- the window track is a SEPARATE file: the rally CSV is untouched by any of this
-  ok("rally CSV untouched by window labelling", read_file(CSV) == nil)
-
-  -- windows reload on re-open
-  activate(); show_windows()
-  eq("windows reload on re-open", #wd('list', 1, 10).values, 1)
-end
-
---------------------------------------------------------------------------------
--- Label completeness: the readout must match sports-data-collector's _label_completeness()
--- number for number, or the annotator and the import gate disagree. Reference case is the
--- real truncated pass: 768.768 s clip, labels stopping at 439.956 s.
---------------------------------------------------------------------------------
-do
-  os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
-  local f = io.open(CSV, "w")
-  f:write("rally_number,start_time,end_time,ending_reason,sport,shots_count\n")
-  f:write("1,0.510,10.000,winner,badminton,\n")
-  f:write("2,100.000,120.000,winner,badminton,\n")
-  f:write("3,430.000,439.956,winner,badminton,\n")
-  f:close()
-  MEDIA_URI = nil; PB.state = "playing"
-  MEDIA_DURATION = 768.768
-  activate()
-  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
-  ok("coverage line shown when the duration is known", statusw.text:find("57.2", 1, true) ~= nil)
-  ok("unlabelled tail reported", statusw.text:find("328.8", 1, true) ~= nil)
-  ok("largest interior gap reported", statusw.text:find("310.0", 1, true) ~= nil)
-  ok("a >120s tail warns that the pass is unfinished", statusw.text:find("WARNING", 1, true) ~= nil)
-
-  -- and it lands in the sidecar as a snapshot of what the operator saw
-  show_clip(); wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("1")
-  save_clip_info()
-  local j = read_file(CLIPMETA) or ""
-  ok("completeness snapshot in the sidecar", j:find('"label_span_coverage": 0.5723', 1, true) ~= nil)
-  ok("tail snapshot in the sidecar", j:find('"tail_unlabelled_s": 328.8', 1, true) ~= nil)
-  ok("head snapshot in the sidecar", j:find('"head_unlabelled_s": 0.5', 1, true) ~= nil)
-  ok("rally_count travels with it so a stale snapshot is detectable", j:find('"rally_count": 3', 1, true) ~= nil)
-
-  -- no duration -> no readout at all (a rule must never fire on a guess)
-  MEDIA_DURATION = nil
-  activate()
-  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
-  ok("no duration -> no coverage line", statusw.text:find("span)", 1, true) == nil)
-  show_clip(); save_clip_info()
-  ok("no duration -> label_completeness null", (read_file(CLIPMETA) or ""):find('"label_completeness": null', 1, true) ~= nil)
-  os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
-  show_rallies()
-end
-
---------------------------------------------------------------------------------
--- Container date: read from the container when the player exposes one, NEVER from the
--- path -- a folder named "May 19 2026" here holds files captured 2026-05-21.
---------------------------------------------------------------------------------
-do
-  -- gBaaddy20May2026.MP4 in the reference archive was captured 2026-05-22, so the date must
-  -- come from the CONTAINER and the file name must never be consulted.
-  local CAPMETA2 = TMPb .. sep .. "gBaaddy20May2026.clipmeta.json"
-  os.remove(CSV); os.remove(CAPMETA2)
-  MEDIA_URI = "file://" .. TMPb .. sep .. "gBaaddy20May2026.MP4"
-  PB.state = "playing"
-  MEDIA_METAS = { date = "2026-05-22T04:11:07Z" }
-  activate(); show_clip(); save_clip_info()
-  local j = read_file(CAPMETA2) or ""
-  ok("container date recorded", j:find('"capture_time_utc": "2026%-05%-22T04:11:07Z"') ~= nil)
-  ok("its provenance is recorded as the container", j:find('"capture_time_source": "container"', 1, true) ~= nil)
-  ok("the misleading 20May2026 file name never becomes the capture date",
-     j:find("2026-05-20", 1, true) == nil)
-  MEDIA_METAS = nil
-  activate(); show_clip(); save_clip_info()
-  ok("no container date -> null, not a guess from the path",
-     (read_file(CAPMETA2) or ""):find('"capture_time_utc": null', 1, true) ~= nil)
-  os.remove(CAPMETA2); MEDIA_URI = nil; activate(); show_rallies()
+  for _, stem in ipairs({ A, B }) do
+    os.remove(stem .. ".rallies.csv"); os.remove(stem .. ".clipmeta.json"); os.remove(stem .. ".target-review.csv")
+  end
+  MEDIA_URI = nil; activate(); show_rallies()
 end
 
 --------------------------------------------------------------------------------

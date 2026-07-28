@@ -17,11 +17,11 @@ vi.mock("wxt/browser", () => ({
 
 import {
   deriveIdentity, csvFilename, loadRows, saveRows,
-  loadClip, saveClip, loadWindows, saveWindows,
+  loadClip, saveClip, loadReviews, saveReviews, hasLegacyWindows,
 } from "../src/persist/store";
 import type { RallyRow } from "../src/state/csv";
 import { emptyClipMeta } from "../src/state/clipmeta";
-import type { WindowRow } from "../src/state/windows";
+import type { ReviewRow } from "../src/state/targetReview";
 
 describe("deriveIdentity", () => {
   it("uses the YouTube video id on a watch URL", () => {
@@ -90,18 +90,26 @@ describe("clip + window stores", () => {
     expect(await loadClip("vidkey")).toEqual(clip);
   });
 
-  it("round-trips windows under a third prefix", async () => {
-    const rows: WindowRow[] = [{ n: 1, s: 1, e: 2, label: "empty", court: "c1", notes: "" }];
-    await saveWindows("vidkey", rows);
-    expect(h.store["win:vidkey"]).toEqual(rows);
-    expect(await loadWindows("vidkey")).toEqual(rows);
-    expect(await loadWindows("other")).toEqual([]);
+  it("round-trips target-state reviews under a third prefix", async () => {
+    const rows: ReviewRow[] = [{ n: 1, s: 1, e: 2, state: "unclear", section: "s1", source: "operator", notes: "" }];
+    await saveReviews("vidkey", rows);
+    expect(h.store["review:vidkey"]).toEqual(rows);
+    expect(await loadReviews("vidkey")).toEqual(rows);
+    expect(await loadReviews("other")).toEqual([]);
   });
 
   it("the three tracks never collide for the same video", async () => {
     await saveRows("k", []);
     await saveClip("k", emptyClipMeta());
-    await saveWindows("k", []);
-    expect(Object.keys(h.store).sort()).toEqual(["clip:k", "rally:k", "win:k"]);
+    await saveReviews("k", []);
+    expect(Object.keys(h.store).sort()).toEqual(["clip:k", "rally:k", "review:k"]);
+  });
+
+  it("detects legacy neighborhood windows in storage without reading them as reviews", async () => {
+    expect(await hasLegacyWindows("k")).toBe(false);
+    h.store["win:k"] = [{ n: 1, s: 1, e: 2, label: "adjacent_court_rally", court: "3", notes: "" }];
+    expect(await hasLegacyWindows("k")).toBe(true);
+    // and they must NOT surface through the review loader
+    expect(await loadReviews("k")).toEqual([]);
   });
 });

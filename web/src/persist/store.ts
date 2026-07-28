@@ -6,7 +6,7 @@
 import { browser } from "wxt/browser";
 import type { RallyRow } from "../state/csv";
 import type { ClipMeta } from "../state/clipmeta";
-import type { WindowRow } from "../state/windows";
+import type { ReviewRow } from "../state/targetReview";
 
 const PREFIX = "rally:";
 
@@ -57,7 +57,7 @@ export async function saveRows(key: string, rows: RallyRow[]): Promise<void> {
 // The clip sidecar and the window track live alongside the rallies under their own
 // prefixes, keyed by the same per-video identity, so all three resume together.
 const CLIP_PREFIX = "clip:";
-const WIN_PREFIX = "win:";
+const REVIEW_PREFIX = "review:";
 
 export async function loadClip(key: string): Promise<ClipMeta | null> {
   const r = await browser.storage.local.get(CLIP_PREFIX + key);
@@ -69,14 +69,23 @@ export async function saveClip(key: string, clip: ClipMeta): Promise<void> {
   await browser.storage.local.set({ [CLIP_PREFIX + key]: clip });
 }
 
-export async function loadWindows(key: string): Promise<WindowRow[]> {
-  const r = await browser.storage.local.get(WIN_PREFIX + key);
-  const v = (r as Record<string, unknown>)[WIN_PREFIX + key];
-  return Array.isArray(v) ? (v as WindowRow[]) : [];
+export async function loadReviews(key: string): Promise<ReviewRow[]> {
+  const r = await browser.storage.local.get(REVIEW_PREFIX + key);
+  const v = (r as Record<string, unknown>)[REVIEW_PREFIX + key];
+  return Array.isArray(v) ? (v as ReviewRow[]) : [];
 }
 
-export async function saveWindows(key: string, rows: WindowRow[]): Promise<void> {
-  await browser.storage.local.set({ [WIN_PREFIX + key]: rows });
+export async function saveReviews(key: string, rows: ReviewRow[]): Promise<void> {
+  await browser.storage.local.set({ [REVIEW_PREFIX + key]: rows });
+}
+
+// Withdrawn-design neighborhood windows may still sit in storage from an older build. They are
+// detected so the UI can say so, and NEVER read into the review track: a `target_rally` window
+// was a sampled span under a contract that no longer exists, not an answer to a mined question.
+export async function hasLegacyWindows(key: string): Promise<boolean> {
+  const r = await browser.storage.local.get("win:" + key);
+  const v = (r as Record<string, unknown>)["win:" + key];
+  return Array.isArray(v) && v.length > 0;
 }
 
 // Sanitize a title into a safe "<name>.rallies.csv" filename (mirrors the VLC output

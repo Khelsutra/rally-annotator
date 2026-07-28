@@ -4,7 +4,7 @@ import { mountPanel, type PanelHandle } from "../src/ui/panel";
 import { Annotator } from "../src/state/annotator";
 import { DirectVideoHandler } from "../src/video/directVideo";
 import { emptyClipMeta, type ClipMeta } from "../src/state/clipmeta";
-import type { WindowRow } from "../src/state/windows";
+import type { ReviewRow, TargetProfile } from "../src/state/targetReview";
 
 // The panel uses an OPEN shadow root, so we can drive its controls from the test.
 // (No real <video> in jsdom; we type Start/End by hand, which the panel supports.)
@@ -243,11 +243,10 @@ describe("clip info section", () => {
       video: new DirectVideoHandler(),
       identity: { key: "url:t", title: "T" },
       download: () => {},
-      clip: { ...emptyClipMeta(), court_count: 4, active_court_count: 3, target_court_id: "c1" },
+      clip: { ...emptyClipMeta(), court_count: 4, active_court_count: 3 },
     });
     const r = shadow();
     expect((r.querySelector("input[name=clip-courtsVisible]") as HTMLInputElement).value).toBe("4");
-    expect((r.querySelector("input[name=clip-targetCourt]") as HTMLInputElement).value).toBe("c1");
     panel!.destroy();
   });
 });
@@ -298,86 +297,240 @@ describe("label-completeness readout", () => {
   });
 });
 
-describe("window track section", () => {
-  function mountWin(clip?: Partial<ClipMeta>) {
+const POLY = "0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98";
+
+const profile = (over: Partial<TargetProfile> = {}): TargetProfile => ({
+  camera_section_id: "s1",
+  target_court_id: "3",
+  camera_profile_id: null,
+  play_volume_polygon: [[0.2, 0.5], [0.8, 0.5], [0.95, 0.98], [0.05, 0.98]],
+  setup_validity: "supported",
+  notes: null,
+  ...over,
+});
+
+describe("target profile section", () => {
+  function mountTarget(clip?: Partial<ClipMeta>) {
     const a = new Annotator();
-    const saved: { rows?: WindowRow[]; csv?: string } = {};
+    const saved: { clip?: ClipMeta; json?: string } = {};
     panel = mountPanel({
       annotator: a,
       video: new DirectVideoHandler(),
       identity: { key: "url:t", title: "T" },
       download: () => {},
       clip: { ...emptyClipMeta(), ...clip },
-      persistWindows: (w) => (saved.rows = [...w]),
-      downloadWindows: (c) => (saved.csv = c),
+      persistClip: (c) => (saved.clip = { ...c, target_profiles: [...c.target_profiles] }),
+      downloadClipMeta: (j) => (saved.json = j),
     });
     return { a, saved, r: shadow() };
   }
 
-  it("refuses to save a window before the target court is known", () => {
-    const { saved, r } = mountWin();
-    setField(r.querySelector("input[name=win-start]"), "12.5");
-    setField(r.querySelector("input[name=win-end]"), "18.25");
-    btn(r, "Save window").click();
-    expect(statusText(r)).toContain("Target court ID");
+  function fill(r: ShadowRoot, poly = POLY, section = "s1", court = "3") {
+    setField(r.querySelector("input[name=target-section]"), section);
+    setField(r.querySelector("input[name=target-court]"), court);
+    setField(r.querySelector("input[name=target-polygon]"), poly);
+  }
+
+  it("saves one profile per camera section", () => {
+    const { saved, r } = mountTarget();
+    fill(r);
+    btn(r, "Save target profile").click();
+    expect(saved.clip?.target_profiles).toHaveLength(1);
+    expect(saved.clip?.target_profiles[0]).toMatchObject({ camera_section_id: "s1", target_court_id: "3" });
+    expect(saved.json).toContain('"target_profiles"');
+    panel!.destroy();
+  });
+
+  it("refuses pixel coordinates instead of coercing them", () => {
+    const { saved, r } = mountTarget();
+    fill(r, "120,540 880,540 1010,980 70,980");
+    btn(r, "Save target profile").click();
+    expect(statusText(r)).toContain("NORMALIZED");
+    expect(saved.json).toBeUndefined();
+    panel!.destroy();
+  });
+
+  it("refuses a missing section id, a missing court and a degenerate polygon", () => {
+    const { saved, r } = mountTarget();
+    fill(r, POLY, "", "3");
+    btn(r, "Save target profile").click();
+    expect(statusText(r)).toContain("Camera section ID is required");
+
+    fill(r, POLY, "s1", "");
+    btn(r, "Save target profile").click();
+    expect(statusText(r)).toContain("Target court ID is required");
+
+    fill(r, "0.1,0.1 0.9,0.1", "s1", "3");
+    btn(r, "Save target profile").click();
+    expect(statusText(r)).toContain("at least 3 points");
+    expect(saved.json).toBeUndefined();
+    panel!.destroy();
+  });
+
+  it("re-saving a section replaces it rather than duplicating", () => {
+    const { saved, r } = mountTarget();
+    fill(r);
+    btn(r, "Save target profile").click();
+    fill(r, POLY, "s1", "4");
+    btn(r, "Save target profile").click();
+    expect(saved.clip?.target_profiles).toHaveLength(1);
+    expect(saved.clip?.target_profiles[0].target_court_id).toBe("4");
+    panel!.destroy();
+  });
+
+  it("picks the play volume by clicking the video, normalized to its rendered box", () => {
+    const a = new Annotator();
+    const video = new DirectVideoHandler();
+    const el = document.createElement("video");
+    el.getBoundingClientRect = () =>
+      ({ left: 100, top: 50, width: 400, height: 200, right: 500, bottom: 250, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+    document.body.append(el);
+    video.findActive = () => el;
+    const saved: { clip?: ClipMeta } = {};
+    panel = mountPanel({
+      annotator: a, video, identity: { key: "url:t", title: "T" },
+      download: () => {},
+      persistClip: (c) => (saved.clip = { ...c, target_profiles: [...c.target_profiles] }),
+    });
+    const r = shadow();
+    const pick = btn(r, "Pick on video");
+    pick.click();
+    expect(statusText(r)).toContain("corners");
+    // (300,150) is the centre of the 400x200 box at (100,50) -> 0.5, 0.5
+    const at = (x: number, y: number) =>
+      el.dispatchEvent(new MouseEvent("click", { clientX: x, clientY: y, bubbles: true }));
+    at(300, 150);
+    expect((r.querySelector("input[name=target-polygon]") as HTMLInputElement).value).toBe("0.500,0.500");
+    at(180, 90);
+    at(420, 90);
+    at(460, 230);
+    // four corners auto-stops the pick
+    expect(pick.textContent).toBe("Pick on video");
+    setField(r.querySelector("input[name=target-section]"), "s1");
+    setField(r.querySelector("input[name=target-court]"), "3");
+    btn(r, "Save target profile").click();
+    expect(saved.clip?.target_profiles[0].play_volume_polygon).toHaveLength(4);
+    el.remove();
+    panel!.destroy();
+  });
+
+  it("a click outside the video box is ignored, and picking can be cancelled", () => {
+    const a = new Annotator();
+    const video = new DirectVideoHandler();
+    const el = document.createElement("video");
+    el.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    document.body.append(el);
+    video.findActive = () => el;
+    panel = mountPanel({ annotator: a, video, identity: { key: "url:t", title: "T" }, download: () => {} });
+    const r = shadow();
+    const pick = btn(r, "Pick on video");
+    pick.click();
+    el.dispatchEvent(new MouseEvent("click", { clientX: 500, clientY: 500, bubbles: true }));
+    expect((r.querySelector("input[name=target-polygon]") as HTMLInputElement).value).toBe("");
+    pick.click(); // cancel
+    expect(pick.textContent).toBe("Pick on video");
+    el.dispatchEvent(new MouseEvent("click", { clientX: 50, clientY: 50, bubbles: true }));
+    expect((r.querySelector("input[name=target-polygon]") as HTMLInputElement).value).toBe("");
+    el.remove();
+    panel!.destroy();
+  });
+
+  it("reports when there is no video to pick on", () => {
+    const { r } = mountTarget();
+    btn(r, "Pick on video").click();
+    expect(statusText(r)).toContain("No video");
+    panel!.destroy();
+  });
+
+  it("clicking a listed profile loads it back into the fields", () => {
+    const { r } = mountTarget({ target_profiles: [profile({ notes: "left rig" })] });
+    (r.querySelector(".item") as HTMLElement).click();
+    expect((r.querySelector("input[name=target-section]") as HTMLInputElement).value).toBe("s1");
+    expect((r.querySelector("input[name=target-polygon]") as HTMLInputElement).value)
+      .toBe("0.200,0.500 0.800,0.500 0.950,0.980 0.050,0.980");
+    expect((r.querySelector("input[name=target-notes]") as HTMLInputElement).value).toBe("left rig");
+    panel!.destroy();
+  });
+
+  it("lists saved profiles and deletes the selected one", () => {
+    const { saved, r } = mountTarget({ target_profiles: [profile()] });
+    expect(r.querySelectorAll(".item")).toHaveLength(1);
+    (r.querySelector(".item") as HTMLElement).click();
+    btn(r, "Delete profile").click();
+    expect(saved.clip?.target_profiles).toHaveLength(0);
+    panel!.destroy();
+  });
+});
+
+describe("sparse target-state review", () => {
+  function mountReview(clip?: Partial<ClipMeta>) {
+    const a = new Annotator();
+    const saved: { rows?: ReviewRow[]; csv?: string } = {};
+    panel = mountPanel({
+      annotator: a,
+      video: new DirectVideoHandler(),
+      identity: { key: "url:t", title: "T" },
+      download: () => {},
+      clip: { ...emptyClipMeta(), ...clip },
+      persistReviews: (rows) => (saved.rows = [...rows]),
+      downloadReviews: (c) => (saved.csv = c),
+    });
+    return { a, saved, r: shadow() };
+  }
+
+  it("offers exactly three answers and nothing about a neighbouring court", () => {
+    const { r } = mountReview({ target_profiles: [profile()] });
+    const sel = r.querySelector("select[name=review-state]") as HTMLSelectElement;
+    expect([...sel.options].map((o) => o.value)).toEqual(["rallying", "not_rallying", "unclear"]);
+    panel!.destroy();
+  });
+
+  it("refuses a review before any target profile exists", () => {
+    const { saved, r } = mountReview();
+    setField(r.querySelector("input[name=review-start]"), "412.5");
+    setField(r.querySelector("input[name=review-end]"), "418.25");
+    btn(r, "Save review").click();
+    expect(statusText(r)).toContain("Save a target profile first");
     expect(saved.csv).toBeUndefined();
     panel!.destroy();
   });
 
-  it("saves a labelled interval into its own CSV, stamped with the target court", () => {
-    const { saved, r } = mountWin({ target_court_id: "c1" });
-    setField(r.querySelector("input[name=win-start]"), "12.5");
-    setField(r.querySelector("input[name=win-end]"), "18.25");
-    setField(r.querySelector("select[name=win-label]"), "adjacent_court_rally");
-    setField(r.querySelector("input[name=win-notes]"), "left neighbour");
-    btn(r, "Save window").click();
-    expect(saved.csv).toContain("1,12.500,18.250,adjacent_court_rally,c1,left neighbour");
+  it("saves an answer against the camera section", () => {
+    const { saved, r } = mountReview({ target_profiles: [profile()] });
+    setField(r.querySelector("input[name=review-start]"), "412.5");
+    setField(r.querySelector("input[name=review-end]"), "418.25");
+    setField(r.querySelector("select[name=review-state]"), "not_rallying");
+    btn(r, "Save review").click();
+    expect(saved.csv).toContain("1,412.500,418.250,not_rallying,s1,operator,");
     expect(saved.rows).toHaveLength(1);
     panel!.destroy();
   });
 
-  it("tolerates reversed marks and refuses a zero-length window", () => {
-    const { saved, r } = mountWin({ target_court_id: "c1" });
-    setField(r.querySelector("input[name=win-start]"), "9");
-    setField(r.querySelector("input[name=win-end]"), "9");
-    btn(r, "Save window").click();
-    expect(statusText(r)).toContain("later than");
-    setField(r.querySelector("input[name=win-start]"), "20");
-    setField(r.querySelector("input[name=win-end]"), "15");
-    btn(r, "Save window").click();
-    expect(saved.csv).toContain("1,15.000,20.000,");
+  it("shows no quota or progress tally - this is sparse evidence, not a count gate", () => {
+    const { r } = mountReview({ target_profiles: [profile()] });
+    expect(statusText(r)).not.toMatch(/\/12|of 12/);
+    expect((r.textContent || "")).not.toMatch(/\/12/);
     panel!.destroy();
   });
 
-  it("shows a live per-label tally against the 12-of-each target", () => {
-    const { r } = mountWin({ target_court_id: "c1" });
-    const tallyEl = [...r.querySelectorAll(".mini")].find((e) => (e.textContent || "").includes("0/12"));
-    expect(tallyEl).toBeTruthy();
-    setField(r.querySelector("input[name=win-start]"), "1");
-    setField(r.querySelector("input[name=win-end]"), "2");
-    setField(r.querySelector("select[name=win-label]"), "simultaneous_rallies");
-    btn(r, "Save window").click();
-    expect([...r.querySelectorAll(".mini")].some((e) => (e.textContent || "").includes("1/12"))).toBe(true);
+  it("surfaces a legacy neighborhood file as refused, not as data", () => {
+    const a = new Annotator();
+    panel = mountPanel({
+      annotator: a,
+      video: new DirectVideoHandler(),
+      identity: { key: "url:t", title: "T" },
+      download: () => {},
+      clip: { ...emptyClipMeta(), target_profiles: [profile()] },
+      legacyWindowsPresent: true,
+    });
+    const r = shadow();
+    const note = [...r.querySelectorAll(".warn")].map((e) => e.textContent || "").join(" ");
+    expect(note).toContain("NOT read");
     panel!.destroy();
   });
 
-  it("undo clears an in-progress mark, then drops the last saved window", () => {
-    const { saved, r } = mountWin({ target_court_id: "c1" });
-    setField(r.querySelector("input[name=win-start]"), "1");
-    setField(r.querySelector("input[name=win-end]"), "2");
-    btn(r, "Save window").click();
-    setField(r.querySelector("input[name=win-start]"), "5");
-    const undo = [...r.querySelectorAll("button")].filter((b) => b.textContent === "Undo last").pop()!;
-    undo.click();
-    expect(statusText(r)).toContain("Cleared");
-    undo.click();
-    expect(saved.rows).toHaveLength(0);
-    undo.click();
-    expect(statusText(r)).toContain("No windows");
-    panel!.destroy();
-  });
-
-  it("the window track never touches the rally CSV", () => {
+  it("the review track never touches the rally CSV", () => {
     let rallyCsv = "";
     const a = new Annotator();
     panel = mountPanel({
@@ -385,13 +538,13 @@ describe("window track section", () => {
       video: new DirectVideoHandler(),
       identity: { key: "url:t", title: "T" },
       download: (c) => (rallyCsv = c),
-      clip: { ...emptyClipMeta(), target_court_id: "c1" },
-      downloadWindows: () => {},
+      clip: { ...emptyClipMeta(), target_profiles: [profile()] },
+      downloadReviews: () => {},
     });
     const r = shadow();
-    setField(r.querySelector("input[name=win-start]"), "1");
-    setField(r.querySelector("input[name=win-end]"), "2");
-    btn(r, "Save window").click();
+    setField(r.querySelector("input[name=review-start]"), "1");
+    setField(r.querySelector("input[name=review-end]"), "2");
+    btn(r, "Save review").click();
     expect(rallyCsv).toBe("");
     expect(a.rows).toHaveLength(0);
     panel!.destroy();

@@ -11,6 +11,35 @@
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
 
+  WHAT'S NEW IN v2.0.0  (target-first correction)
+    - The neighborhood WINDOW track is REMOVED. Nothing in this tool asks the
+      operator to identify or time a rally on a surrounding court: that turned the
+      neighbours into an exhaustive annotation problem, and the complete
+      prominent-match timeline already makes every non-target instant an implicit
+      negative. Only the prominent target match is indexed.
+    - New TARGET screen: one persistent target profile per static camera section
+      (camera_section_id, target_court_id, camera_profile_id, a play-volume polygon
+      NORMALIZED to the frame, and setup_validity supported/unsupported/unclear).
+      Invalid geometry or a missing identity FAILS CLOSED -- it is refused, never
+      coerced (docs/TARGET_REVIEW.md).
+    - New REVIEW screen: sparse target-state answers to <video>.target-review.csv,
+      with exactly three answers -- rallying / not_rallying / unclear -- all about
+      the TARGET court. No quota, no tally, no sweep.
+    - clipmeta.json is now version 2 (adds target_profiles, drops the top-level
+      target_court_id). A v1 file is read and upgraded on the next save; its old
+      target_court_id is offered as the first profile's default and never promoted
+      automatically.
+    - A legacy <video>.windows.csv is DETECTED AND REFUSED: never read, never
+      converted, never imported. It is diagnostic material from a withdrawn design.
+
+  WHAT'S NEW IN v1.8.1
+    - Fix (data safety): Refresh repointed the CSV/sidecar paths at the newly
+      playing video but did NOT repaint the Clip info / Windows screens, so their
+      boxes still showed the PREVIOUS video's values. Saving then wrote video A's
+      venue/court counts into video B's clipmeta.json. Refresh now rebuilds those
+      screens from the freshly loaded state, and a video switch drops the
+      in-progress fields instead of carrying them across.
+
   WHAT'S NEW IN v1.8.0
     - Three screens, switched from a nav row at the top: RALLIES (unchanged),
       CLIP INFO, and WINDOWS.
@@ -22,8 +51,7 @@
       docs/CLIP_METADATA.md).
     - WINDOWS writes <video>.windows.csv -- a second track of time intervals tagged
       target_rally / adjacent_court_rally / simultaneous_rallies /
-      target_court_non_rally / empty, with a live per-label tally (see
-      docs/WINDOW_LABELS.md).
+      target_court_non_rally / empty. (REMOVED in v2.0.0 -- see above.)
     - The status panel now carries a LABEL-COMPLETENESS readout (span coverage +
       unlabelled tail), warning at the same thresholds the collector blocks on, so
       a half-finished pass is caught while annotating rather than at import.
@@ -103,7 +131,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "1.8.0"
+local VERSION = "2.0.0"
 
 function descriptor()
   return {
@@ -145,22 +173,28 @@ local SPORTS = {
 }
 local HEADER = "rally_number,start_time,end_time,ending_reason,sport,shots_count\n"
 
--- The WINDOW track (docs/WINDOW_LABELS.md): time intervals carrying a category, kept in
--- their own file because a window may overlap a rally or sit between rallies -- it is not
--- more columns on the rally row. Vocabulary is badminton-highlight-indexer §4.4, verbatim.
-local WIN_HEADER = "window_number,start_time,end_time,window_label,target_court_id,notes\n"
-local WINDOW_LABELS = {
-  "target_rally", "adjacent_court_rally", "simultaneous_rallies",
-  "target_court_non_rally", "empty",
-}
--- §4.4 asks for 12 reviewed windows of each hard-negative subtype plus 12 matched
--- target_rally controls; the tally in the status panel counts against this.
-local WINDOW_TARGET_EACH = 12
+-- Sparse TARGET-STATE review (docs/TARGET_REVIEW.md). One question about one interval:
+-- was the TARGET court rallying? These three answers are the whole vocabulary -- there is
+-- deliberately no way to say anything about a surrounding court, because the operator is
+-- never asked to identify or time one.
+local REVIEW_HEADER =
+  "review_number,start_time,end_time,target_state,camera_section_id,source,notes\n"
+local TARGET_STATES = { "rallying", "not_rallying", "unclear" }
+
+-- Whether a static camera section is one the target-first pipeline can serve. "unclear" is a
+-- real, recordable answer: more useful than a guessed "supported".
+local SETUP_VALIDITY = { "supported", "unsupported", "unclear" }
+
+-- The withdrawn neighborhood vocabulary. Kept ONLY to recognise a legacy file and refuse it --
+-- never to offer it. A `target_rally` window was a sampled span under a contract that no
+-- longer exists; a `rallying` review is an answer to a mined question. Equating them would
+-- launder withdrawn assumptions into new training truth.
+local LEGACY_WINDOW_MARKERS = { "window_label", "adjacent_court_rally", "simultaneous_rallies" }
 
 -- Format played on the TARGET court. "" is a real, savable choice meaning NOT SET -- it
 -- writes JSON null, so a forgotten pick can never record a guessed format.
 local MATCH_FORMATS = { "singles", "doubles", "mixed" }
-local CLIPMETA_VERSION = 1
+local CLIPMETA_VERSION = 2
 
 -- Label-completeness thresholds, copied from sports-data-collector's report spec so the
 -- readout here and the gate there cannot disagree (src/reporting/spec.yaml):
@@ -195,9 +229,46 @@ local SPORT_ID = {}
 STRINGS = {
   ["en"] = {
     ["label.sport"] = "Sport:",
+    ["btn.saveTarget"] = "Save target profile",
+    ["btn.deleteProfile"] = "Delete profile",
+    ["btn.saveReview"] = "Save review",
+    ["btn.saveReviewN"] = "Save review (#{n})",
+    ["label.cameraSection"] = "Camera section ID:",
+    ["label.cameraProfile"] = "Camera profile ID:",
+    ["label.polygon"] = "Play volume (x,y 0-1):",
+    ["label.setupValidity"] = "Setup validity:",
+    ["label.profiles"] = "Target profiles (click one to load it):",
+    ["label.targetState"] = "Was the target rallying?",
+    ["label.recentReviews"] = "Reviews (click one, then Delete):",
+    ["validity.supported"] = "supported",
+    ["validity.unsupported"] = "unsupported",
+    ["validity.unclear"] = "unclear",
+    ["state.rallying"] = "rallying",
+    ["state.not_rallying"] = "not rallying",
+    ["state.unclear"] = "unclear",
+    ["target.saved"] = "Saved target profile '{section}' ({n}-point play volume).",
+    ["target.deleted"] = "Deleted target profile '{section}'.",
+    ["target.needSelect"] = "Click a target profile in the list first.",
+    ["target.needSection"] = "Camera section ID is required - it identifies the static section this profile describes.",
+    ["target.needCourt"] = "Target court ID is required - use the number the venue paints on the court.",
+    ["target.duplicateSection"] = "Camera section '{section}' already has a target profile - re-saving replaces it.",
+    ["target.polygonSyntax"] = "Play volume must be points like '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
+    ["target.polygonTooFewPoints"] = "A play volume needs at least 3 points (4 for the usual quadrilateral).",
+    ["target.polygonRange"] = "Play-volume coordinates are NORMALIZED: every x and y must be between 0 and 1, not pixels.",
+    ["target.needProfile"] = "Save a target profile first - a review answers a question about one camera section.",
+    ["review.saved"] = "Saved review #{n}: {s} → {e} [{state}].",
+    ["review.deleted"] = "Deleted review #{n}. {count} remaining.",
+    ["review.removed"] = "Removed last review #{n}. {count} remaining.",
+    ["review.nothing"] = "No reviews to remove.",
+    ["legacy.windowsPresent"] = "A legacy neighborhood window file exists for this clip. It is diagnostic material only: it is NOT read, converted or imported here.",
+    ["nav.target"] = "Target",
+    ["nav.review"] = "Review",
+    ["btn.loadProfile"] = "Load selected",
+    ["target.loaded"] = "Loaded target profile '{section}'. Edit the fields, then Save target profile.",
+    ["target.mode"] = "Target profiles: {count} saved. One per static camera section.",
+    ["review.mode"] = "Sparse review: answer whether the TARGET court was rallying. No quota, no sweep.",
     ["nav.rallies"] = "Rallies",
     ["nav.clip"] = "Clip info",
-    ["nav.windows"] = "Windows",
     ["label.venue"] = "Venue ID:",
     ["label.cameraSetup"] = "Camera setup ID:",
     ["label.courtsVisible"] = "Courts visible:",
@@ -207,40 +278,21 @@ STRINGS = {
     ["label.matchFormat"] = "Match format:",
     ["label.captureTime"] = "Capture time (UTC):",
     ["label.notes"] = "Notes:",
-    ["label.windowLabel"] = "Window label:",
-    ["label.nextWindow"] = "Next window #:",
-    ["label.recentWindows"] = "Recent windows (select one, then Edit/Delete):",
     ["fmt.unset"] = "(not set)",
     ["fmt.singles"] = "singles",
     ["fmt.doubles"] = "doubles",
     ["fmt.mixed"] = "mixed",
-    ["wlabel.target_rally"] = "target rally",
-    ["wlabel.adjacent_court_rally"] = "adjacent-court rally",
-    ["wlabel.simultaneous_rallies"] = "simultaneous rallies",
-    ["wlabel.target_court_non_rally"] = "target court, no rally",
-    ["wlabel.empty"] = "empty",
     ["btn.saveClip"] = "Save clip info",
-    ["btn.saveWindow"] = "Save window",
-    ["btn.saveWindowN"] = "Save window (#{n})",
-    ["btn.saveWindowChangesN"] = "Save changes (#{n})",
     ["clip.saved"] = "Saved clip info: {summary}",
     ["clip.loaded"] = "Loaded the clip info already recorded for this video.",
     ["clip.invalidActive"] = "Courts in play ({active}) cannot exceed courts visible ({visible}) -- a court cannot be in play without being in frame.",
     ["clip.invalidPartial"] = "Only-partly-visible ({partial}) cannot exceed courts visible ({visible}).",
     ["clip.invalidNumber"] = "{field} needs a whole number of {min} or more -- or leave it BLANK to record 'not screened'.",
     ["clip.captureUnknown"] = "(not readable here -- probed from the container at import)",
-    ["clip.needTarget"] = "Set the Target court ID on the Clip info screen first -- 'adjacent' is undefined without a target court.",
-    ["win.saved"] = "Saved window #{n}: {start} -> {end}  [{label}].",
-    ["win.updated"] = "Updated window #{n}: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "Deleted window #{n}. {count} remaining.",
-    ["win.removed"] = "Removed last window #{n}. {count} remaining.",
-    ["win.modeNew"] = "Mode: new window  (Mark START, Mark END, pick the label, Save window).",
-    ["win.modeEdit"] = "Mode: EDITING window #{n}  (Save changes to commit, Undo last to cancel).",
     ["cov.line"] = "Labelled to {to}s of {dur}s ({pct}% span)  |  unlabelled tail {tail}s  |  largest gap {gap}s",
     ["cov.tail"] = "WARNING: {tail}s at the END carry no labels. If play continues there, this pass is unfinished (import blocks over {limit}s).",
     ["cov.span"] = "Note: labels span under {limit}% of the clip -- expected for a long idle outro, a red flag for an interrupted pass.",
     ["cov.unknown"] = "Clip duration unknown -- no completeness readout (never guessed).",
-    ["tally.line"] = "Windows: {counts}   (§4.4 wants {target} of each)",
     ["label.start"] = "Start (s):",
     ["label.end"] = "End (s):",
     ["label.next"] = "Next rally #:",
@@ -324,9 +376,46 @@ STRINGS = {
   },
   ["kn"] = {
     ["label.sport"] = "ಕ್ರೀಡೆ:",
+    ["btn.saveTarget"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ",
+    ["btn.deleteProfile"] = "ಪ್ರೊಫೈಲ್ ಅಳಿಸಿ",
+    ["btn.saveReview"] = "ಪರಿಶೀಲನೆ ಉಳಿಸಿ",
+    ["btn.saveReviewN"] = "ಪರಿಶೀಲನೆ ಉಳಿಸಿ (#{n})",
+    ["label.cameraSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ ID:",
+    ["label.cameraProfile"] = "ಕ್ಯಾಮೆರಾ ಪ್ರೊಫೈಲ್ ID:",
+    ["label.polygon"] = "ಆಟದ ಪ್ರದೇಶ (x,y 0-1):",
+    ["label.setupValidity"] = "ಸೆಟಪ್ ಸಿಂಧುತ್ವ:",
+    ["label.profiles"] = "ಗುರಿ ಪ್ರೊಫೈಲ್‌ಗಳು (ಲೋಡ್ ಮಾಡಲು ಒಂದನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ):",
+    ["label.targetState"] = "ಗುರಿ ಕೋರ್ಟ್ ರ್ಯಾಲಿಯಲ್ಲಿತ್ತೇ?",
+    ["label.recentReviews"] = "ಪರಿಶೀಲನೆಗಳು (ಒಂದನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ, ನಂತರ ಅಳಿಸಿ):",
+    ["validity.supported"] = "ಬೆಂಬಲಿತ",
+    ["validity.unsupported"] = "ಬೆಂಬಲಿಸದ",
+    ["validity.unclear"] = "ಅಸ್ಪಷ್ಟ",
+    ["state.rallying"] = "ರ್ಯಾಲಿ ನಡೆಯುತ್ತಿದೆ",
+    ["state.not_rallying"] = "ರ್ಯಾಲಿ ಇಲ್ಲ",
+    ["state.unclear"] = "ಅಸ್ಪಷ್ಟ",
+    ["target.saved"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಉಳಿಸಲಾಯಿತು ({n}-ಬಿಂದು ಆಟದ ಪ್ರದೇಶ).",
+    ["target.deleted"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಅಳಿಸಲಾಯಿತು.",
+    ["target.needSelect"] = "ಮೊದಲು ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ಗುರಿ ಪ್ರೊಫೈಲ್ ಕ್ಲಿಕ್ ಮಾಡಿ.",
+    ["target.needSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ ID ಅಗತ್ಯ - ಈ ಪ್ರೊಫೈಲ್ ವಿವರಿಸುವ ಸ್ಥಿರ ವಿಭಾಗವನ್ನು ಇದು ಗುರುತಿಸುತ್ತದೆ.",
+    ["target.needCourt"] = "ಗುರಿ ಕೋರ್ಟ್ ID ಅಗತ್ಯ - ಸ್ಥಳವು ಕೋರ್ಟ್‌ಗೆ ಬರೆದ ಸಂಖ್ಯೆ ಬಳಸಿ.",
+    ["target.duplicateSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ '{section}' ಗೆ ಈಗಾಗಲೇ ಗುರಿ ಪ್ರೊಫೈಲ್ ಇದೆ - ಮತ್ತೆ ಉಳಿಸಿದರೆ ಬದಲಾಗುತ್ತದೆ.",
+    ["target.polygonSyntax"] = "ಆಟದ ಪ್ರದೇಶವು '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' ರೀತಿಯ ಬಿಂದುಗಳಾಗಿರಬೇಕು.",
+    ["target.polygonTooFewPoints"] = "ಆಟದ ಪ್ರದೇಶಕ್ಕೆ ಕನಿಷ್ಠ 3 ಬಿಂದುಗಳು ಬೇಕು (ಸಾಮಾನ್ಯ ಚತುರ್ಭುಜಕ್ಕೆ 4).",
+    ["target.polygonRange"] = "ಆಟದ ಪ್ರದೇಶದ ನಿರ್ದೇಶಾಂಕಗಳು ಸಾಮಾನ್ಯೀಕೃತ: ಪ್ರತಿ x ಮತ್ತು y 0 ರಿಂದ 1 ರ ನಡುವೆ ಇರಬೇಕು, ಪಿಕ್ಸೆಲ್ ಅಲ್ಲ.",
+    ["target.needProfile"] = "ಮೊದಲು ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ - ಪರಿಶೀಲನೆಯು ಒಂದು ಕ್ಯಾಮೆರಾ ವಿಭಾಗದ ಬಗ್ಗೆ ಉತ್ತರಿಸುತ್ತದೆ.",
+    ["review.saved"] = "ಪರಿಶೀಲನೆ #{n} ಉಳಿಸಲಾಯಿತು: {s} → {e} [{state}].",
+    ["review.deleted"] = "ಪರಿಶೀಲನೆ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
+    ["review.removed"] = "ಕೊನೆಯ ಪರಿಶೀಲನೆ #{n} ತೆಗೆಯಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
+    ["review.nothing"] = "ತೆಗೆಯಲು ಯಾವುದೇ ಪರಿಶೀಲನೆ ಇಲ್ಲ.",
+    ["legacy.windowsPresent"] = "ಈ ಕ್ಲಿಪ್‌ಗೆ ಹಳೆಯ ನೆರೆ-ಕೋರ್ಟ್ ವಿಂಡೋ ಫೈಲ್ ಇದೆ. ಅದು ಕೇವಲ ರೋಗನಿರ್ಣಯ ಸಾಮಗ್ರಿ: ಇಲ್ಲಿ ಓದಲಾಗುವುದಿಲ್ಲ, ಪರಿವರ್ತಿಸಲಾಗುವುದಿಲ್ಲ, ಆಮದು ಮಾಡಲಾಗುವುದಿಲ್ಲ.",
+    ["nav.target"] = "ಗುರಿ",
+    ["nav.review"] = "ಪರಿಶೀಲನೆ",
+    ["btn.loadProfile"] = "ಆಯ್ದದ್ದನ್ನು ಲೋಡ್ ಮಾಡಿ",
+    ["target.loaded"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಲೋಡ್ ಆಯಿತು. ಕ್ಷೇತ್ರಗಳನ್ನು ಸಂಪಾದಿಸಿ, ನಂತರ ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ.",
+    ["target.mode"] = "ಗುರಿ ಪ್ರೊಫೈಲ್‌ಗಳು: {count} ಉಳಿಸಲಾಗಿದೆ. ಪ್ರತಿ ಸ್ಥಿರ ಕ್ಯಾಮೆರಾ ವಿಭಾಗಕ್ಕೆ ಒಂದು.",
+    ["review.mode"] = "ವಿರಳ ಪರಿಶೀಲನೆ: ಗುರಿ ಕೋರ್ಟ್ ರ್ಯಾಲಿಯಲ್ಲಿತ್ತೇ ಎಂದು ಉತ್ತರಿಸಿ. ಕೋಟಾ ಇಲ್ಲ, ಸಂಪೂರ್ಣ ಪಾಸ್ ಇಲ್ಲ.",
     ["nav.rallies"] = "ರ್ಯಾಲಿಗಳು",
     ["nav.clip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ",
-    ["nav.windows"] = "ವಿಂಡೋಗಳು",
     ["label.venue"] = "ಸ್ಥಳ ID:",
     ["label.cameraSetup"] = "ಕ್ಯಾಮೆರಾ ಸೆಟಪ್ ID:",
     ["label.courtsVisible"] = "ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳು:",
@@ -336,40 +425,21 @@ STRINGS = {
     ["label.matchFormat"] = "ಪಂದ್ಯದ ಸ್ವರೂಪ:",
     ["label.captureTime"] = "ಸೆರೆಹಿಡಿದ ಸಮಯ (UTC):",
     ["label.notes"] = "ಟಿಪ್ಪಣಿಗಳು:",
-    ["label.windowLabel"] = "ವಿಂಡೋ ಲೇಬಲ್:",
-    ["label.nextWindow"] = "ಮುಂದಿನ ವಿಂಡೋ #:",
-    ["label.recentWindows"] = "ಇತ್ತೀಚಿನ ವಿಂಡೋಗಳು (ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ಸಂಪಾದಿಸಿ/ಅಳಿಸಿ):",
     ["fmt.unset"] = "(ಹೊಂದಿಸಿಲ್ಲ)",
     ["fmt.singles"] = "ಸಿಂಗಲ್ಸ್",
     ["fmt.doubles"] = "ಡಬಲ್ಸ್",
     ["fmt.mixed"] = "ಮಿಶ್ರ",
-    ["wlabel.target_rally"] = "ಗುರಿ ರ್ಯಾಲಿ",
-    ["wlabel.adjacent_court_rally"] = "ಪಕ್ಕದ ಕೋರ್ಟ್ ರ್ಯಾಲಿ",
-    ["wlabel.simultaneous_rallies"] = "ಏಕಕಾಲದ ರ್ಯಾಲಿಗಳು",
-    ["wlabel.target_court_non_rally"] = "ಗುರಿ ಕೋರ್ಟ್, ರ್ಯಾಲಿ ಇಲ್ಲ",
-    ["wlabel.empty"] = "ಖಾಲಿ",
     ["btn.saveClip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಿ",
-    ["btn.saveWindow"] = "ವಿಂಡೋ ಉಳಿಸಿ",
-    ["btn.saveWindowN"] = "ವಿಂಡೋ ಉಳಿಸಿ (#{n})",
-    ["btn.saveWindowChangesN"] = "ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ (#{n})",
     ["clip.saved"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary}",
     ["clip.loaded"] = "ಈ ವೀಡಿಯೋಗಾಗಿ ಈಗಾಗಲೇ ದಾಖಲಾದ ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಯಿತು.",
     ["clip.invalidActive"] = "ಆಟವಿರುವ ಕೋರ್ಟ್‌ಗಳು ({active}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು -- ಚೌಕಟ್ಟಿನಲ್ಲಿ ಇಲ್ಲದೆ ಕೋರ್ಟ್ ಆಟದಲ್ಲಿರಲಾಗದು.",
     ["clip.invalidPartial"] = "ಭಾಗಶಃ ಕಾಣುವವು ({partial}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು.",
     ["clip.invalidNumber"] = "{field} ಗೆ {min} ಅಥವಾ ಹೆಚ್ಚಿನ ಪೂರ್ಣ ಸಂಖ್ಯೆ ಬೇಕು -- ಅಥವಾ 'ಪರಿಶೀಲಿಸಿಲ್ಲ' ಎಂದು ದಾಖಲಿಸಲು ಖಾಲಿ ಬಿಡಿ.",
     ["clip.captureUnknown"] = "(ಇಲ್ಲಿ ಓದಲಾಗದು -- ಆಮದಿನ ವೇಳೆ ಕಂಟೇನರ್‌ನಿಂದ ಪಡೆಯಲಾಗುತ್ತದೆ)",
-    ["clip.needTarget"] = "ಮೊದಲು ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಪರದೆಯಲ್ಲಿ ಗುರಿ ಕೋರ್ಟ್ ID ಹೊಂದಿಸಿ -- ಗುರಿ ಕೋರ್ಟ್ ಇಲ್ಲದೆ 'ಪಕ್ಕದ' ಎಂಬುದಕ್ಕೆ ಅರ್ಥವಿಲ್ಲ.",
-    ["win.saved"] = "ವಿಂಡೋ #{n} ಉಳಿಸಲಾಯಿತು: {start} -> {end}  [{label}].",
-    ["win.updated"] = "ವಿಂಡೋ #{n} ಅಪ್‌ಡೇಟ್ ಆಯಿತು: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "ವಿಂಡೋ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["win.removed"] = "ಕೊನೆಯ ವಿಂಡೋ #{n} ತೆಗೆಯಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["win.modeNew"] = "ಮೋಡ್: ಹೊಸ ವಿಂಡೋ  (ಆರಂಭ ಗುರುತಿಸಿ, ಅಂತ್ಯ ಗುರುತಿಸಿ, ಲೇಬಲ್ ಆಯ್ಕೆಮಾಡಿ, ವಿಂಡೋ ಉಳಿಸಿ).",
-    ["win.modeEdit"] = "ಮೋಡ್: ವಿಂಡೋ #{n} ಸಂಪಾದಿಸುತ್ತಿದೆ  (ಕಮಿಟ್ ಮಾಡಲು ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ, ರದ್ದುಗೊಳಿಸಲು ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ).",
     ["cov.line"] = "{dur}ಸೆ ಯಲ್ಲಿ {to}ಸೆ ವರೆಗೆ ಲೇಬಲ್ ({pct}% ವ್ಯಾಪ್ತಿ)  |  ಲೇಬಲ್ ಇಲ್ಲದ ಕೊನೆ {tail}ಸೆ  |  ದೊಡ್ಡ ಅಂತರ {gap}ಸೆ",
     ["cov.tail"] = "ಎಚ್ಚರಿಕೆ: ಕೊನೆಯಲ್ಲಿ {tail}ಸೆ ಗೆ ಯಾವುದೇ ಲೇಬಲ್ ಇಲ್ಲ. ಅಲ್ಲಿ ಆಟ ಮುಂದುವರಿದರೆ ಈ ಪಾಸ್ ಅಪೂರ್ಣ ({limit}ಸೆ ಮೀರಿದರೆ ಆಮದು ತಡೆಯುತ್ತದೆ).",
     ["cov.span"] = "ಸೂಚನೆ: ಲೇಬಲ್‌ಗಳು ಕ್ಲಿಪ್‌ನ {limit}% ಗಿಂತ ಕಡಿಮೆ ವ್ಯಾಪಿಸಿವೆ -- ದೀರ್ಘ ನಿಷ್ಕ್ರಿಯ ಅಂತ್ಯಕ್ಕೆ ಸಹಜ, ಅಡಚಣೆಯಾದ ಪಾಸ್‌ಗೆ ಎಚ್ಚರಿಕೆ.",
     ["cov.unknown"] = "ಕ್ಲಿಪ್ ಅವಧಿ ತಿಳಿದಿಲ್ಲ -- ಪೂರ್ಣತೆಯ ವಾಚನ ಇಲ್ಲ (ಎಂದಿಗೂ ಊಹಿಸುವುದಿಲ್ಲ).",
-    ["tally.line"] = "ವಿಂಡೋಗಳು: {counts}   (§4.4 ಪ್ರತಿಯೊಂದರ {target} ಬಯಸುತ್ತದೆ)",
     ["label.start"] = "ಆರಂಭ (ಸೆ):",
     ["label.end"] = "ಅಂತ್ಯ (ಸೆ):",
     ["label.next"] = "ಮುಂದಿನ ರ್ಯಾಲಿ #:",
@@ -453,9 +523,46 @@ STRINGS = {
   },
   ["hi"] = {
     ["label.sport"] = "खेल:",
+    ["btn.saveTarget"] = "लक्ष्य प्रोफ़ाइल सहेजें",
+    ["btn.deleteProfile"] = "प्रोफ़ाइल हटाएँ",
+    ["btn.saveReview"] = "समीक्षा सहेजें",
+    ["btn.saveReviewN"] = "समीक्षा सहेजें (#{n})",
+    ["label.cameraSection"] = "कैमरा सेक्शन ID:",
+    ["label.cameraProfile"] = "कैमरा प्रोफ़ाइल ID:",
+    ["label.polygon"] = "खेल क्षेत्र (x,y 0-1):",
+    ["label.setupValidity"] = "सेटअप वैधता:",
+    ["label.profiles"] = "लक्ष्य प्रोफ़ाइलें (लोड करने के लिए एक पर क्लिक करें):",
+    ["label.targetState"] = "क्या लक्ष्य कोर्ट पर रैली चल रही थी?",
+    ["label.recentReviews"] = "समीक्षाएँ (एक पर क्लिक करें, फिर हटाएँ):",
+    ["validity.supported"] = "समर्थित",
+    ["validity.unsupported"] = "असमर्थित",
+    ["validity.unclear"] = "अस्पष्ट",
+    ["state.rallying"] = "रैली चल रही है",
+    ["state.not_rallying"] = "रैली नहीं",
+    ["state.unclear"] = "अस्पष्ट",
+    ["target.saved"] = "लक्ष्य प्रोफ़ाइल '{section}' सहेजी गई ({n}-बिंदु खेल क्षेत्र)।",
+    ["target.deleted"] = "लक्ष्य प्रोफ़ाइल '{section}' हटाई गई।",
+    ["target.needSelect"] = "पहले सूची में एक लक्ष्य प्रोफ़ाइल पर क्लिक करें।",
+    ["target.needSection"] = "कैमरा सेक्शन ID आवश्यक है - यह उस स्थिर सेक्शन की पहचान करता है जिसका यह प्रोफ़ाइल वर्णन करता है।",
+    ["target.needCourt"] = "लक्ष्य कोर्ट ID आवश्यक है - वही नंबर उपयोग करें जो स्थल ने कोर्ट पर लिखा है।",
+    ["target.duplicateSection"] = "कैमरा सेक्शन '{section}' के पास पहले से एक लक्ष्य प्रोफ़ाइल है - दोबारा सहेजने पर वह बदल जाएगी।",
+    ["target.polygonSyntax"] = "खेल क्षेत्र '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' जैसे बिंदुओं में होना चाहिए।",
+    ["target.polygonTooFewPoints"] = "खेल क्षेत्र के लिए कम से कम 3 बिंदु चाहिए (सामान्य चतुर्भुज के लिए 4)।",
+    ["target.polygonRange"] = "खेल क्षेत्र के निर्देशांक सामान्यीकृत हैं: हर x और y 0 और 1 के बीच होना चाहिए, पिक्सेल नहीं।",
+    ["target.needProfile"] = "पहले एक लक्ष्य प्रोफ़ाइल सहेजें - समीक्षा एक कैमरा सेक्शन के बारे में उत्तर देती है।",
+    ["review.saved"] = "समीक्षा #{n} सहेजी गई: {s} → {e} [{state}]।",
+    ["review.deleted"] = "समीक्षा #{n} हटाई गई। {count} शेष।",
+    ["review.removed"] = "अंतिम समीक्षा #{n} हटाई गई। {count} शेष।",
+    ["review.nothing"] = "हटाने के लिए कोई समीक्षा नहीं।",
+    ["legacy.windowsPresent"] = "इस क्लिप के लिए एक पुरानी पड़ोसी-कोर्ट विंडो फ़ाइल मौजूद है। वह केवल नैदानिक सामग्री है: यहाँ न पढ़ी जाती है, न बदली जाती है, न आयात होती है।",
+    ["nav.target"] = "लक्ष्य",
+    ["nav.review"] = "समीक्षा",
+    ["btn.loadProfile"] = "चयनित लोड करें",
+    ["target.loaded"] = "लक्ष्य प्रोफ़ाइल '{section}' लोड हुई। फ़ील्ड संपादित करें, फिर लक्ष्य प्रोफ़ाइल सहेजें।",
+    ["target.mode"] = "लक्ष्य प्रोफ़ाइलें: {count} सहेजी गईं। हर स्थिर कैमरा सेक्शन के लिए एक।",
+    ["review.mode"] = "विरल समीक्षा: बताएँ कि लक्ष्य कोर्ट पर रैली चल रही थी या नहीं। कोई कोटा नहीं, कोई पूरा पास नहीं।",
     ["nav.rallies"] = "रैलियाँ",
     ["nav.clip"] = "क्लिप जानकारी",
-    ["nav.windows"] = "विंडो",
     ["label.venue"] = "स्थल ID:",
     ["label.cameraSetup"] = "कैमरा सेटअप ID:",
     ["label.courtsVisible"] = "दिखने वाले कोर्ट:",
@@ -465,40 +572,21 @@ STRINGS = {
     ["label.matchFormat"] = "मैच प्रारूप:",
     ["label.captureTime"] = "रिकॉर्डिंग समय (UTC):",
     ["label.notes"] = "टिप्पणियाँ:",
-    ["label.windowLabel"] = "विंडो लेबल:",
-    ["label.nextWindow"] = "अगली विंडो #:",
-    ["label.recentWindows"] = "हाल की विंडो (एक चुनें, फिर संपादित/हटाएँ):",
     ["fmt.unset"] = "(सेट नहीं)",
     ["fmt.singles"] = "एकल",
     ["fmt.doubles"] = "युगल",
     ["fmt.mixed"] = "मिश्रित",
-    ["wlabel.target_rally"] = "लक्ष्य रैली",
-    ["wlabel.adjacent_court_rally"] = "बगल के कोर्ट की रैली",
-    ["wlabel.simultaneous_rallies"] = "एक साथ रैलियाँ",
-    ["wlabel.target_court_non_rally"] = "लक्ष्य कोर्ट, रैली नहीं",
-    ["wlabel.empty"] = "खाली",
     ["btn.saveClip"] = "क्लिप जानकारी सहेजें",
-    ["btn.saveWindow"] = "विंडो सहेजें",
-    ["btn.saveWindowN"] = "विंडो सहेजें (#{n})",
-    ["btn.saveWindowChangesN"] = "बदलाव सहेजें (#{n})",
     ["clip.saved"] = "क्लिप जानकारी सहेजी गई: {summary}",
     ["clip.loaded"] = "इस वीडियो के लिए पहले से दर्ज क्लिप जानकारी लोड की गई।",
     ["clip.invalidActive"] = "खेल वाले कोर्ट ({active}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते -- फ्रेम में हुए बिना कोई कोर्ट खेल में नहीं हो सकता।",
     ["clip.invalidPartial"] = "आंशिक रूप से दिखने वाले ({partial}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते।",
     ["clip.invalidNumber"] = "{field} के लिए {min} या उससे बड़ी पूर्ण संख्या चाहिए -- या 'जाँचा नहीं गया' दर्ज करने के लिए इसे खाली छोड़ें।",
     ["clip.captureUnknown"] = "(यहाँ पढ़ा नहीं जा सकता -- आयात के समय कंटेनर से लिया जाता है)",
-    ["clip.needTarget"] = "पहले क्लिप जानकारी स्क्रीन पर लक्ष्य कोर्ट ID सेट करें -- लक्ष्य कोर्ट के बिना 'बगल का' अर्थहीन है।",
-    ["win.saved"] = "विंडो #{n} सहेजी गई: {start} -> {end}  [{label}]।",
-    ["win.updated"] = "विंडो #{n} अपडेट हुई: {start} -> {end}  [{label}]।",
-    ["win.deleted"] = "विंडो #{n} हटाई गई। {count} शेष।",
-    ["win.removed"] = "अंतिम विंडो #{n} हटाई गई। {count} शेष।",
-    ["win.modeNew"] = "मोड: नई विंडो  (शुरू चिह्नित करें, समाप्त चिह्नित करें, लेबल चुनें, विंडो सहेजें)।",
-    ["win.modeEdit"] = "मोड: विंडो #{n} संपादित हो रही है  (कमिट करने के लिए बदलाव सहेजें, रद्द करने के लिए अंतिम पूर्ववत करें)।",
     ["cov.line"] = "{dur}से में से {to}से तक लेबल ({pct}% विस्तार)  |  बिना लेबल का अंत {tail}से  |  सबसे बड़ा अंतराल {gap}से",
     ["cov.tail"] = "चेतावनी: अंत में {tail}से पर कोई लेबल नहीं है। यदि वहाँ खेल जारी है तो यह पास अधूरा है ({limit}से से अधिक पर आयात रुक जाता है)।",
     ["cov.span"] = "ध्यान दें: लेबल क्लिप के {limit}% से कम में फैले हैं -- लंबे निष्क्रिय अंत के लिए सामान्य, बाधित पास के लिए चेतावनी।",
     ["cov.unknown"] = "क्लिप की अवधि अज्ञात -- कोई पूर्णता रीडआउट नहीं (कभी अनुमान नहीं)।",
-    ["tally.line"] = "विंडो: {counts}   (§4.4 को प्रत्येक के {target} चाहिए)",
     ["label.start"] = "शुरू (से):",
     ["label.end"] = "समाप्त (से):",
     ["label.next"] = "अगली रैली #:",
@@ -582,9 +670,46 @@ STRINGS = {
   },
   ["te"] = {
     ["label.sport"] = "క్రీడ:",
+    ["btn.saveTarget"] = "లక్ష్య ప్రొఫైల్ సేవ్ చేయి",
+    ["btn.deleteProfile"] = "ప్రొఫైల్ తొలగించు",
+    ["btn.saveReview"] = "సమీక్ష సేవ్ చేయి",
+    ["btn.saveReviewN"] = "సమీక్ష సేవ్ చేయి (#{n})",
+    ["label.cameraSection"] = "కెమెరా విభాగం ID:",
+    ["label.cameraProfile"] = "కెమెరా ప్రొఫైల్ ID:",
+    ["label.polygon"] = "ఆట ప్రాంతం (x,y 0-1):",
+    ["label.setupValidity"] = "సెటప్ చెల్లుబాటు:",
+    ["label.profiles"] = "లక్ష్య ప్రొఫైల్‌లు (లోడ్ చేయడానికి ఒకదానిపై క్లిక్ చేయండి):",
+    ["label.targetState"] = "లక్ష్య కోర్టు ర్యాలీలో ఉందా?",
+    ["label.recentReviews"] = "సమీక్షలు (ఒకదానిపై క్లిక్ చేసి, తర్వాత తొలగించు):",
+    ["validity.supported"] = "మద్దతు ఉంది",
+    ["validity.unsupported"] = "మద్దతు లేదు",
+    ["validity.unclear"] = "అస్పష్టం",
+    ["state.rallying"] = "ర్యాలీ జరుగుతోంది",
+    ["state.not_rallying"] = "ర్యాలీ లేదు",
+    ["state.unclear"] = "అస్పష్టం",
+    ["target.saved"] = "లక్ష్య ప్రొఫైల్ '{section}' సేవ్ అయింది ({n}-బిందువుల ఆట ప్రాంతం).",
+    ["target.deleted"] = "లక్ష్య ప్రొఫైల్ '{section}' తొలగించబడింది.",
+    ["target.needSelect"] = "ముందుగా జాబితాలో ఒక లక్ష్య ప్రొఫైల్‌పై క్లిక్ చేయండి.",
+    ["target.needSection"] = "కెమెరా విభాగం ID అవసరం - ఈ ప్రొఫైల్ వివరించే స్థిర విభాగాన్ని ఇది గుర్తిస్తుంది.",
+    ["target.needCourt"] = "లక్ష్య కోర్టు ID అవసరం - వేదిక కోర్టుపై రాసిన సంఖ్యను వాడండి.",
+    ["target.duplicateSection"] = "కెమెరా విభాగం '{section}' కు ఇప్పటికే లక్ష్య ప్రొఫైల్ ఉంది - మళ్లీ సేవ్ చేస్తే అది మారుతుంది.",
+    ["target.polygonSyntax"] = "ఆట ప్రాంతం '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' వంటి బిందువులుగా ఉండాలి.",
+    ["target.polygonTooFewPoints"] = "ఆట ప్రాంతానికి కనీసం 3 బిందువులు కావాలి (సాధారణ చతుర్భుజానికి 4).",
+    ["target.polygonRange"] = "ఆట ప్రాంత నిర్దేశాంకాలు సాధారణీకరించబడ్డాయి: ప్రతి x, y 0 నుండి 1 మధ్య ఉండాలి, పిక్సెల్‌లు కాదు.",
+    ["target.needProfile"] = "ముందుగా లక్ష్య ప్రొఫైల్ సేవ్ చేయండి - సమీక్ష ఒక కెమెరా విభాగం గురించి సమాధానం ఇస్తుంది.",
+    ["review.saved"] = "సమీక్ష #{n} సేవ్ అయింది: {s} → {e} [{state}].",
+    ["review.deleted"] = "సమీక్ష #{n} తొలగించబడింది. {count} మిగిలాయి.",
+    ["review.removed"] = "చివరి సమీక్ష #{n} తీసివేయబడింది. {count} మిగిలాయి.",
+    ["review.nothing"] = "తీసివేయడానికి సమీక్షలు లేవు.",
+    ["legacy.windowsPresent"] = "ఈ క్లిప్‌కు పాత పొరుగు-కోర్టు విండో ఫైల్ ఉంది. అది కేవలం విశ్లేషణ సామగ్రి: ఇక్కడ చదవబడదు, మార్చబడదు, దిగుమతి కాదు.",
+    ["nav.target"] = "లక్ష్యం",
+    ["nav.review"] = "సమీక్ష",
+    ["btn.loadProfile"] = "ఎంచుకున్నది లోడ్ చేయి",
+    ["target.loaded"] = "లక్ష్య ప్రొఫైల్ '{section}' లోడ్ అయింది. ఫీల్డ్‌లు సవరించి, తర్వాత లక్ష్య ప్రొఫైల్ సేవ్ చేయండి.",
+    ["target.mode"] = "లక్ష్య ప్రొఫైల్‌లు: {count} సేవ్ అయ్యాయి. ప్రతి స్థిర కెమెరా విభాగానికి ఒకటి.",
+    ["review.mode"] = "అరుదైన సమీక్ష: లక్ష్య కోర్టు ర్యాలీలో ఉందా అని సమాధానం ఇవ్వండి. కోటా లేదు, పూర్తి పాస్ లేదు.",
     ["nav.rallies"] = "ర్యాలీలు",
     ["nav.clip"] = "క్లిప్ సమాచారం",
-    ["nav.windows"] = "విండోలు",
     ["label.venue"] = "వేదిక ID:",
     ["label.cameraSetup"] = "కెమెరా సెటప్ ID:",
     ["label.courtsVisible"] = "కనిపించే కోర్టులు:",
@@ -594,40 +719,21 @@ STRINGS = {
     ["label.matchFormat"] = "మ్యాచ్ ఫార్మాట్:",
     ["label.captureTime"] = "రికార్డ్ సమయం (UTC):",
     ["label.notes"] = "గమనికలు:",
-    ["label.windowLabel"] = "విండో లేబుల్:",
-    ["label.nextWindow"] = "తదుపరి విండో #:",
-    ["label.recentWindows"] = "ఇటీవలి విండోలు (ఒకటి ఎంచుకోండి, తర్వాత సవరించు/తొలగించు):",
     ["fmt.unset"] = "(సెట్ చేయలేదు)",
     ["fmt.singles"] = "సింగిల్స్",
     ["fmt.doubles"] = "డబుల్స్",
     ["fmt.mixed"] = "మిశ్రమ",
-    ["wlabel.target_rally"] = "లక్ష్య ర్యాలీ",
-    ["wlabel.adjacent_court_rally"] = "పక్క కోర్టు ర్యాలీ",
-    ["wlabel.simultaneous_rallies"] = "ఏకకాల ర్యాలీలు",
-    ["wlabel.target_court_non_rally"] = "లక్ష్య కోర్టు, ర్యాలీ లేదు",
-    ["wlabel.empty"] = "ఖాళీ",
     ["btn.saveClip"] = "క్లిప్ సమాచారం సేవ్ చేయి",
-    ["btn.saveWindow"] = "విండో సేవ్ చేయి",
-    ["btn.saveWindowN"] = "విండో సేవ్ చేయి (#{n})",
-    ["btn.saveWindowChangesN"] = "మార్పులు సేవ్ చేయి (#{n})",
     ["clip.saved"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary}",
     ["clip.loaded"] = "ఈ వీడియో కోసం ఇప్పటికే నమోదైన క్లిప్ సమాచారం లోడ్ అయింది.",
     ["clip.invalidActive"] = "ఆట జరుగుతున్న కోర్టులు ({active}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు -- ఫ్రేమ్‌లో లేకుండా కోర్టు ఆటలో ఉండలేదు.",
     ["clip.invalidPartial"] = "పాక్షికంగా కనిపించేవి ({partial}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు.",
     ["clip.invalidNumber"] = "{field} కు {min} లేదా అంతకంటే ఎక్కువ పూర్ణ సంఖ్య కావాలి -- లేదా 'పరిశీలించలేదు' అని నమోదు చేయడానికి ఖాళీగా వదలండి.",
     ["clip.captureUnknown"] = "(ఇక్కడ చదవలేము -- దిగుమతి సమయంలో కంటైనర్ నుండి తీసుకోబడుతుంది)",
-    ["clip.needTarget"] = "ముందుగా క్లిప్ సమాచారం స్క్రీన్‌లో లక్ష్య కోర్టు ID సెట్ చేయండి -- లక్ష్య కోర్టు లేకుండా 'పక్క' అనేదానికి అర్థం లేదు.",
-    ["win.saved"] = "విండో #{n} సేవ్ అయింది: {start} -> {end}  [{label}].",
-    ["win.updated"] = "విండో #{n} నవీకరించబడింది: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "విండో #{n} తొలగించబడింది. {count} మిగిలాయి.",
-    ["win.removed"] = "చివరి విండో #{n} తీసివేయబడింది. {count} మిగిలాయి.",
-    ["win.modeNew"] = "మోడ్: కొత్త విండో  (ప్రారంభం గుర్తించు, ముగింపు గుర్తించు, లేబుల్ ఎంచుకో, విండో సేవ్ చేయి).",
-    ["win.modeEdit"] = "మోడ్: విండో #{n} సవరిస్తోంది  (కమిట్ చేయడానికి మార్పులు సేవ్ చేయి, రద్దు చేయడానికి చివరిది రద్దు చేయి).",
     ["cov.line"] = "{dur}సె లో {to}సె వరకు లేబుల్ ({pct}% విస్తృతి)  |  లేబుల్ లేని ముగింపు {tail}సె  |  అతిపెద్ద ఖాళీ {gap}సె",
     ["cov.tail"] = "హెచ్చరిక: చివర {tail}సె కు ఎలాంటి లేబుల్ లేదు. అక్కడ ఆట కొనసాగితే ఈ పాస్ అసంపూర్ణం ({limit}సె దాటితే దిగుమతి ఆగుతుంది).",
     ["cov.span"] = "గమనిక: లేబుళ్లు క్లిప్‌లో {limit}% కంటే తక్కువ విస్తరించాయి -- సుదీర్ఘ నిష్క్రియ ముగింపుకు సహజం, అంతరాయమైన పాస్‌కు హెచ్చరిక.",
     ["cov.unknown"] = "క్లిప్ నిడివి తెలియదు -- పరిపూర్ణత రీడౌట్ లేదు (ఎప్పుడూ ఊహించము).",
-    ["tally.line"] = "విండోలు: {counts}   (§4.4 ప్రతిదానికి {target} కోరుతుంది)",
     ["label.start"] = "ప్రారంభం (s):",
     ["label.end"] = "ముగింపు (s):",
     ["label.next"] = "తదుపరి ర్యాలీ #:",
@@ -711,9 +817,46 @@ STRINGS = {
   },
   ["es"] = {
     ["label.sport"] = "Deporte:",
+    ["btn.saveTarget"] = "Guardar perfil objetivo",
+    ["btn.deleteProfile"] = "Eliminar perfil",
+    ["btn.saveReview"] = "Guardar revisión",
+    ["btn.saveReviewN"] = "Guardar revisión (#{n})",
+    ["label.cameraSection"] = "ID de sección de cámara:",
+    ["label.cameraProfile"] = "ID de perfil de cámara:",
+    ["label.polygon"] = "Zona de juego (x,y 0-1):",
+    ["label.setupValidity"] = "Validez del montaje:",
+    ["label.profiles"] = "Perfiles objetivo (haz clic en uno para cargarlo):",
+    ["label.targetState"] = "¿Había punto en la pista objetivo?",
+    ["label.recentReviews"] = "Revisiones (haz clic en una y luego Eliminar):",
+    ["validity.supported"] = "admitido",
+    ["validity.unsupported"] = "no admitido",
+    ["validity.unclear"] = "poco claro",
+    ["state.rallying"] = "con punto en juego",
+    ["state.not_rallying"] = "sin punto en juego",
+    ["state.unclear"] = "poco claro",
+    ["target.saved"] = "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos).",
+    ["target.deleted"] = "Perfil objetivo '{section}' eliminado.",
+    ["target.needSelect"] = "Haz clic primero en un perfil objetivo de la lista.",
+    ["target.needSection"] = "El ID de sección de cámara es obligatorio: identifica la sección estática que describe este perfil.",
+    ["target.needCourt"] = "El ID de pista objetivo es obligatorio: usa el número que la sede pinta en la pista.",
+    ["target.duplicateSection"] = "La sección de cámara '{section}' ya tiene un perfil objetivo: volver a guardar lo reemplaza.",
+    ["target.polygonSyntax"] = "La zona de juego debe ser puntos como '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
+    ["target.polygonTooFewPoints"] = "Una zona de juego necesita al menos 3 puntos (4 para el cuadrilátero habitual).",
+    ["target.polygonRange"] = "Las coordenadas de la zona de juego están NORMALIZADAS: cada x e y debe estar entre 0 y 1, no en píxeles.",
+    ["target.needProfile"] = "Guarda primero un perfil objetivo: una revisión responde sobre una sección de cámara.",
+    ["review.saved"] = "Revisión #{n} guardada: {s} → {e} [{state}].",
+    ["review.deleted"] = "Revisión #{n} eliminada. Quedan {count}.",
+    ["review.removed"] = "Se quitó la última revisión #{n}. Quedan {count}.",
+    ["review.nothing"] = "No hay revisiones que quitar.",
+    ["legacy.windowsPresent"] = "Existe un archivo antiguo de ventanas de pistas vecinas para este clip. Es solo material de diagnóstico: no se lee, ni se convierte, ni se importa aquí.",
+    ["nav.target"] = "Objetivo",
+    ["nav.review"] = "Revisión",
+    ["btn.loadProfile"] = "Cargar seleccionado",
+    ["target.loaded"] = "Perfil objetivo '{section}' cargado. Edita los campos y luego Guardar perfil objetivo.",
+    ["target.mode"] = "Perfiles objetivo: {count} guardados. Uno por sección de cámara estática.",
+    ["review.mode"] = "Revisión dispersa: responde si había punto en la pista objetivo. Sin cuota y sin barrido.",
     ["nav.rallies"] = "Puntos",
     ["nav.clip"] = "Datos del clip",
-    ["nav.windows"] = "Ventanas",
     ["label.venue"] = "ID de sede:",
     ["label.cameraSetup"] = "ID de cámara:",
     ["label.courtsVisible"] = "Pistas visibles:",
@@ -723,40 +866,21 @@ STRINGS = {
     ["label.matchFormat"] = "Formato del partido:",
     ["label.captureTime"] = "Hora de grabación (UTC):",
     ["label.notes"] = "Notas:",
-    ["label.windowLabel"] = "Etiqueta de ventana:",
-    ["label.nextWindow"] = "Ventana n.º siguiente:",
-    ["label.recentWindows"] = "Ventanas recientes (selecciona una y luego Editar/Eliminar):",
     ["fmt.unset"] = "(sin definir)",
     ["fmt.singles"] = "individual",
     ["fmt.doubles"] = "dobles",
     ["fmt.mixed"] = "mixto",
-    ["wlabel.target_rally"] = "punto en la pista objetivo",
-    ["wlabel.adjacent_court_rally"] = "punto en pista contigua",
-    ["wlabel.simultaneous_rallies"] = "puntos simultáneos",
-    ["wlabel.target_court_non_rally"] = "pista objetivo, sin punto",
-    ["wlabel.empty"] = "vacío",
     ["btn.saveClip"] = "Guardar datos del clip",
-    ["btn.saveWindow"] = "Guardar ventana",
-    ["btn.saveWindowN"] = "Guardar ventana (n.º {n})",
-    ["btn.saveWindowChangesN"] = "Guardar cambios (n.º {n})",
     ["clip.saved"] = "Datos del clip guardados: {summary}",
     ["clip.loaded"] = "Se cargaron los datos del clip ya registrados para este vídeo.",
     ["clip.invalidActive"] = "Las pistas en juego ({active}) no pueden superar las pistas visibles ({visible}): una pista no puede estar en juego sin estar en cuadro.",
     ["clip.invalidPartial"] = "Las parcialmente visibles ({partial}) no pueden superar las pistas visibles ({visible}).",
     ["clip.invalidNumber"] = "{field} necesita un número entero de {min} o más, o déjalo EN BLANCO para registrar «sin revisar».",
     ["clip.captureUnknown"] = "(no legible aquí: se obtiene del contenedor al importar)",
-    ["clip.needTarget"] = "Define primero el ID de pista objetivo en la pantalla Datos del clip: «contigua» no significa nada sin una pista objetivo.",
-    ["win.saved"] = "Ventana n.º {n} guardada: {start} -> {end}  [{label}].",
-    ["win.updated"] = "Ventana n.º {n} actualizada: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "Ventana n.º {n} eliminada. Quedan {count}.",
-    ["win.removed"] = "Se quitó la última ventana n.º {n}. Quedan {count}.",
-    ["win.modeNew"] = "Modo: ventana nueva  (Marcar INICIO, Marcar FIN, elegir la etiqueta, Guardar ventana).",
-    ["win.modeEdit"] = "Modo: EDITANDO la ventana n.º {n}  (Guardar cambios para confirmar, Deshacer último para cancelar).",
     ["cov.line"] = "Etiquetado hasta {to}s de {dur}s ({pct}% de extensión)  |  cola sin etiquetar {tail}s  |  hueco mayor {gap}s",
     ["cov.tail"] = "AVISO: {tail}s al FINAL no tienen etiquetas. Si allí sigue el juego, la pasada está incompleta (la importación se bloquea por encima de {limit}s).",
     ["cov.span"] = "Nota: las etiquetas abarcan menos del {limit}% del clip: normal con un final inactivo largo, señal de alarma si la pasada se interrumpió.",
     ["cov.unknown"] = "Duración del clip desconocida: sin lectura de completitud (nunca se adivina).",
-    ["tally.line"] = "Ventanas: {counts}   (§4.4 pide {target} de cada una)",
     ["label.start"] = "Inicio (s):",
     ["label.end"] = "Fin (s):",
     ["label.next"] = "Próximo rally #:",
@@ -840,9 +964,46 @@ STRINGS = {
   },
   ["da"] = {
     ["label.sport"] = "Sportsgren:",
+    ["btn.saveTarget"] = "Gem målprofil",
+    ["btn.deleteProfile"] = "Slet profil",
+    ["btn.saveReview"] = "Gem gennemgang",
+    ["btn.saveReviewN"] = "Gem gennemgang (#{n})",
+    ["label.cameraSection"] = "Kamerasektions-ID:",
+    ["label.cameraProfile"] = "Kameraprofil-ID:",
+    ["label.polygon"] = "Spilzone (x,y 0-1):",
+    ["label.setupValidity"] = "Opsætningens gyldighed:",
+    ["label.profiles"] = "Målprofiler (klik på én for at indlæse den):",
+    ["label.targetState"] = "Var der duel på målbanen?",
+    ["label.recentReviews"] = "Gennemgange (klik på én, og derefter Slet):",
+    ["validity.supported"] = "understøttet",
+    ["validity.unsupported"] = "ikke understøttet",
+    ["validity.unclear"] = "uklart",
+    ["state.rallying"] = "duel i gang",
+    ["state.not_rallying"] = "ingen duel",
+    ["state.unclear"] = "uklart",
+    ["target.saved"] = "Målprofil '{section}' gemt ({n}-punkts spilzone).",
+    ["target.deleted"] = "Målprofil '{section}' slettet.",
+    ["target.needSelect"] = "Klik først på en målprofil i listen.",
+    ["target.needSection"] = "Kamerasektions-ID er påkrævet - det identificerer den statiske sektion, profilen beskriver.",
+    ["target.needCourt"] = "Målbane-ID er påkrævet - brug det nummer, stedet har malet på banen.",
+    ["target.duplicateSection"] = "Kamerasektionen '{section}' har allerede en målprofil - gemmes den igen, erstattes den.",
+    ["target.polygonSyntax"] = "Spilzonen skal være punkter som '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
+    ["target.polygonTooFewPoints"] = "En spilzone kræver mindst 3 punkter (4 til den sædvanlige firkant).",
+    ["target.polygonRange"] = "Spilzonens koordinater er NORMALISEREDE: hver x og y skal ligge mellem 0 og 1, ikke pixels.",
+    ["target.needProfile"] = "Gem først en målprofil - en gennemgang svarer på et spørgsmål om én kamerasektion.",
+    ["review.saved"] = "Gennemgang #{n} gemt: {s} → {e} [{state}].",
+    ["review.deleted"] = "Gennemgang #{n} slettet. {count} tilbage.",
+    ["review.removed"] = "Fjernede sidste gennemgang #{n}. {count} tilbage.",
+    ["review.nothing"] = "Ingen gennemgange at fjerne.",
+    ["legacy.windowsPresent"] = "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her.",
+    ["nav.target"] = "Mål",
+    ["nav.review"] = "Gennemgang",
+    ["btn.loadProfile"] = "Indlæs valgte",
+    ["target.loaded"] = "Målprofil '{section}' indlæst. Ret felterne, og gem så målprofilen.",
+    ["target.mode"] = "Målprofiler: {count} gemt. Én pr. statisk kamerasektion.",
+    ["review.mode"] = "Spredt gennemgang: svar på, om der var duel på målbanen. Ingen kvote, ingen gennemsøgning.",
     ["nav.rallies"] = "Dueller",
     ["nav.clip"] = "Klipinfo",
-    ["nav.windows"] = "Vinduer",
     ["label.venue"] = "Steds-ID:",
     ["label.cameraSetup"] = "Kameraopsætnings-ID:",
     ["label.courtsVisible"] = "Synlige baner:",
@@ -852,40 +1013,21 @@ STRINGS = {
     ["label.matchFormat"] = "Kampformat:",
     ["label.captureTime"] = "Optagetidspunkt (UTC):",
     ["label.notes"] = "Noter:",
-    ["label.windowLabel"] = "Vinduesetiket:",
-    ["label.nextWindow"] = "Næste vindue #:",
-    ["label.recentWindows"] = "Seneste vinduer (vælg ét, og derefter Rediger/Slet):",
     ["fmt.unset"] = "(ikke angivet)",
     ["fmt.singles"] = "single",
     ["fmt.doubles"] = "double",
     ["fmt.mixed"] = "mixed",
-    ["wlabel.target_rally"] = "duel på målbanen",
-    ["wlabel.adjacent_court_rally"] = "duel på nabobane",
-    ["wlabel.simultaneous_rallies"] = "samtidige dueller",
-    ["wlabel.target_court_non_rally"] = "målbane, ingen duel",
-    ["wlabel.empty"] = "tom",
     ["btn.saveClip"] = "Gem klipinfo",
-    ["btn.saveWindow"] = "Gem vindue",
-    ["btn.saveWindowN"] = "Gem vindue (#{n})",
-    ["btn.saveWindowChangesN"] = "Gem ændringer (#{n})",
     ["clip.saved"] = "Klipinfo gemt: {summary}",
     ["clip.loaded"] = "Indlæste den klipinfo, der allerede er registreret for denne video.",
     ["clip.invalidActive"] = "Baner med spil ({active}) kan ikke overstige synlige baner ({visible}) -- en bane kan ikke være i spil uden at være i billedet.",
     ["clip.invalidPartial"] = "Delvist synlige ({partial}) kan ikke overstige synlige baner ({visible}).",
     ["clip.invalidNumber"] = "{field} kræver et helt tal på {min} eller derover -- eller lad feltet stå TOMT for at registrere \"ikke screenet\".",
     ["clip.captureUnknown"] = "(kan ikke læses her -- hentes fra containeren ved import)",
-    ["clip.needTarget"] = "Angiv først målbane-ID'et på skærmen Klipinfo -- \"nabo\" er udefineret uden en målbane.",
-    ["win.saved"] = "Gemte vindue #{n}: {start} -> {end}  [{label}].",
-    ["win.updated"] = "Opdaterede vindue #{n}: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "Slettede vindue #{n}. {count} tilbage.",
-    ["win.removed"] = "Fjernede sidste vindue #{n}. {count} tilbage.",
-    ["win.modeNew"] = "Tilstand: nyt vindue  (Markér START, Markér SLUT, vælg etiket, Gem vindue).",
-    ["win.modeEdit"] = "Tilstand: REDIGERER vindue #{n}  (Gem ændringer for at bekræfte, Fortryd sidste for at annullere).",
     ["cov.line"] = "Mærket til {to}s af {dur}s ({pct}% dækning)  |  umærket slutning {tail}s  |  største hul {gap}s",
     ["cov.tail"] = "ADVARSEL: {tail}s til SIDST har ingen mærker. Hvis spillet fortsætter der, er gennemgangen ufærdig (import blokerer over {limit}s).",
     ["cov.span"] = "Bemærk: mærkerne dækker under {limit}% af klippet -- forventeligt ved en lang stille udtoning, et rødt flag ved en afbrudt gennemgang.",
     ["cov.unknown"] = "Klippets varighed er ukendt -- ingen fuldstændighedsvisning (der gættes aldrig).",
-    ["tally.line"] = "Vinduer: {counts}   (§4.4 ønsker {target} af hver)",
     ["label.start"] = "Start (s):",
     ["label.end"] = "Slut (s):",
     ["label.next"] = "Næste dueloptræk #:",
@@ -969,9 +1111,46 @@ STRINGS = {
   },
   ["id"] = {
     ["label.sport"] = "Olahraga:",
+    ["btn.saveTarget"] = "Simpan profil target",
+    ["btn.deleteProfile"] = "Hapus profil",
+    ["btn.saveReview"] = "Simpan tinjauan",
+    ["btn.saveReviewN"] = "Simpan tinjauan (#{n})",
+    ["label.cameraSection"] = "ID bagian kamera:",
+    ["label.cameraProfile"] = "ID profil kamera:",
+    ["label.polygon"] = "Area main (x,y 0-1):",
+    ["label.setupValidity"] = "Validitas penataan:",
+    ["label.profiles"] = "Profil target (klik satu untuk memuatnya):",
+    ["label.targetState"] = "Apakah lapangan target sedang reli?",
+    ["label.recentReviews"] = "Tinjauan (klik satu, lalu Hapus):",
+    ["validity.supported"] = "didukung",
+    ["validity.unsupported"] = "tidak didukung",
+    ["validity.unclear"] = "tidak jelas",
+    ["state.rallying"] = "sedang reli",
+    ["state.not_rallying"] = "tidak reli",
+    ["state.unclear"] = "tidak jelas",
+    ["target.saved"] = "Profil target '{section}' tersimpan (area main {n} titik).",
+    ["target.deleted"] = "Profil target '{section}' dihapus.",
+    ["target.needSelect"] = "Klik dulu satu profil target di daftar.",
+    ["target.needSection"] = "ID bagian kamera wajib diisi - ini menandai bagian statis yang dijelaskan profil ini.",
+    ["target.needCourt"] = "ID lapangan target wajib diisi - pakai nomor yang ditulis lokasi di lapangan.",
+    ["target.duplicateSection"] = "Bagian kamera '{section}' sudah punya profil target - menyimpan lagi akan menggantinya.",
+    ["target.polygonSyntax"] = "Area main harus berupa titik seperti '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
+    ["target.polygonTooFewPoints"] = "Area main perlu minimal 3 titik (4 untuk segi empat biasa).",
+    ["target.polygonRange"] = "Koordinat area main DINORMALISASI: setiap x dan y harus antara 0 dan 1, bukan piksel.",
+    ["target.needProfile"] = "Simpan dulu profil target - tinjauan menjawab pertanyaan tentang satu bagian kamera.",
+    ["review.saved"] = "Tinjauan #{n} tersimpan: {s} → {e} [{state}].",
+    ["review.deleted"] = "Tinjauan #{n} dihapus. Sisa {count}.",
+    ["review.removed"] = "Tinjauan terakhir #{n} dihapus. Sisa {count}.",
+    ["review.nothing"] = "Tidak ada tinjauan untuk dihapus.",
+    ["legacy.windowsPresent"] = "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini.",
+    ["nav.target"] = "Target",
+    ["nav.review"] = "Tinjau",
+    ["btn.loadProfile"] = "Muat yang dipilih",
+    ["target.loaded"] = "Profil target '{section}' dimuat. Sunting isiannya, lalu Simpan profil target.",
+    ["target.mode"] = "Profil target: {count} tersimpan. Satu per bagian kamera statis.",
+    ["review.mode"] = "Tinjauan jarang: jawab apakah lapangan target sedang reli. Tanpa kuota, tanpa penyisiran.",
     ["nav.rallies"] = "Reli",
     ["nav.clip"] = "Info klip",
-    ["nav.windows"] = "Jendela",
     ["label.venue"] = "ID lokasi:",
     ["label.cameraSetup"] = "ID penataan kamera:",
     ["label.courtsVisible"] = "Lapangan terlihat:",
@@ -981,40 +1160,21 @@ STRINGS = {
     ["label.matchFormat"] = "Format pertandingan:",
     ["label.captureTime"] = "Waktu perekaman (UTC):",
     ["label.notes"] = "Catatan:",
-    ["label.windowLabel"] = "Label jendela:",
-    ["label.nextWindow"] = "Jendela berikutnya #:",
-    ["label.recentWindows"] = "Jendela terbaru (pilih satu, lalu Edit/Hapus):",
     ["fmt.unset"] = "(belum diisi)",
     ["fmt.singles"] = "tunggal",
     ["fmt.doubles"] = "ganda",
     ["fmt.mixed"] = "campuran",
-    ["wlabel.target_rally"] = "reli lapangan target",
-    ["wlabel.adjacent_court_rally"] = "reli lapangan sebelah",
-    ["wlabel.simultaneous_rallies"] = "reli bersamaan",
-    ["wlabel.target_court_non_rally"] = "lapangan target, bukan reli",
-    ["wlabel.empty"] = "kosong",
     ["btn.saveClip"] = "Simpan info klip",
-    ["btn.saveWindow"] = "Simpan jendela",
-    ["btn.saveWindowN"] = "Simpan jendela (#{n})",
-    ["btn.saveWindowChangesN"] = "Simpan perubahan (#{n})",
     ["clip.saved"] = "Info klip tersimpan: {summary}",
     ["clip.loaded"] = "Memuat info klip yang sudah tercatat untuk video ini.",
     ["clip.invalidActive"] = "Lapangan yang dimainkan ({active}) tidak boleh melebihi lapangan terlihat ({visible}) -- sebuah lapangan tidak bisa dimainkan tanpa berada dalam bingkai.",
     ["clip.invalidPartial"] = "Yang terlihat sebagian ({partial}) tidak boleh melebihi lapangan terlihat ({visible}).",
     ["clip.invalidNumber"] = "{field} memerlukan bilangan bulat {min} atau lebih -- atau biarkan KOSONG untuk mencatat 'belum disaring'.",
     ["clip.captureUnknown"] = "(tidak terbaca di sini -- diambil dari kontainer saat impor)",
-    ["clip.needTarget"] = "Isi dulu ID lapangan target di layar Info klip -- 'sebelah' tak bermakna tanpa lapangan target.",
-    ["win.saved"] = "Jendela #{n} tersimpan: {start} -> {end}  [{label}].",
-    ["win.updated"] = "Jendela #{n} diperbarui: {start} -> {end}  [{label}].",
-    ["win.deleted"] = "Jendela #{n} dihapus. Sisa {count}.",
-    ["win.removed"] = "Jendela terakhir #{n} dihapus. Sisa {count}.",
-    ["win.modeNew"] = "Mode: jendela baru  (Tandai MULAI, Tandai SELESAI, pilih label, Simpan jendela).",
-    ["win.modeEdit"] = "Mode: MENGEDIT jendela #{n}  (Simpan perubahan untuk menyimpan, Urungkan terakhir untuk membatalkan).",
     ["cov.line"] = "Berlabel sampai {to}d dari {dur}d ({pct}% rentang)  |  ekor tanpa label {tail}d  |  jeda terbesar {gap}d",
     ["cov.tail"] = "PERINGATAN: {tail}d di AKHIR tidak berlabel. Jika permainan masih berlanjut di sana, pelabelan belum selesai (impor diblokir di atas {limit}d).",
     ["cov.span"] = "Catatan: label mencakup kurang dari {limit}% klip -- wajar untuk penutup yang lama sepi, tanda bahaya untuk pelabelan yang terputus.",
     ["cov.unknown"] = "Durasi klip tidak diketahui -- tanpa pembacaan kelengkapan (tidak pernah menebak).",
-    ["tally.line"] = "Jendela: {counts}   (§4.4 meminta {target} untuk masing-masing)",
     ["label.start"] = "Mulai (d):",
     ["label.end"] = "Akhir (d):",
     ["label.next"] = "Reli berikutnya #:",
@@ -1182,6 +1342,22 @@ local function jenc(v, pad)
   if ty == "number" then return jnum(v) end
   if ty == "boolean" then return v and "true" or "false" end
   if ty == "string" then return jstr(v) end
+  if ty == "table" and v.__list then
+    if #v.__list == 0 then return "[]" end
+    local inner, out = pad .. "  ", {}
+    for _, item in ipairs(v.__list) do out[#out + 1] = inner .. jenc(item, inner) end
+    return "[\n" .. table.concat(out, ",\n") .. "\n" .. pad .. "]"
+  end
+  if ty == "table" and v.__pts then
+    -- Points stay on one line each: a polygon is far more readable as [x, y] rows than as
+    -- eight separate numbers.
+    local out = {}
+    for _, pt in ipairs(v.__pts) do
+      out[#out + 1] = pad .. "  [" .. jnum(pt[1]) .. ", " .. jnum(pt[2]) .. "]"
+    end
+    if #out == 0 then return "[]" end
+    return "[\n" .. table.concat(out, ",\n") .. "\n" .. pad .. "]"
+  end
   if ty == "table" and v.__obj then
     if #v.__obj == 0 then return "{}" end
     local inner, out = pad .. "  ", {}
@@ -1332,10 +1508,11 @@ local w_help            -- the help panel widget; nil when hidden (toggled via d
 local w_lang            -- language-selector dropdown (en/kn/hi/te/es/da/id)
 
 local w_venue, w_camera, w_visible, w_active, w_partial   -- Clip info screen inputs
-local w_target, w_format, w_capture, w_notes              -- Clip info screen inputs
-local w_win_start, w_win_end, w_win_next, w_win_notes     -- Windows screen inputs
-local w_win_label                                         -- window-label dropdown
-local w_win_list, w_win_save                              -- Windows screen list + Save button
+local w_format, w_capture, w_notes                        -- Clip info screen inputs
+local w_sec, w_court, w_profile, w_poly, w_tnotes         -- Target screen inputs
+local w_validity, w_profile_list                          -- Target screen dropdown + list
+local w_rv_start, w_rv_end, w_rv_notes                    -- Review screen inputs
+local w_rv_state, w_rv_section, w_rv_list, w_rv_save      -- Review screen dropdowns/list/button
 
 local rows = {}         -- in-memory rally rows: { n, s, e, reason, sport, [shots], [extra] }
 local mode = "new"      -- "new" (marking a fresh rally) or "edit" (editing a row)
@@ -1357,21 +1534,25 @@ local clip = {}                 -- venue_id, camera_setup_id, court_count, activ
                                 -- capture_time_utc, notes
 local clip_path                 -- <video-stem>.clipmeta.json
 
--- WINDOW track: its own file, its own numbering, its own edit mode (docs/WINDOW_LABELS.md).
-local wins = {}                 -- { n, s, e, label, court, notes }
-local win_mode = "new"
-local win_edit_index = nil
-local win_path                  -- <video-stem>.windows.csv
+-- TARGET PROFILES: one per static camera section, held on the clip (docs/TARGET_REVIEW.md).
+local profiles = {}             -- { section, court, profile_id, poly = {{x,y},...}, validity, notes }
+local selected_section = nil    -- which profile the list has selected
+local legacy_target_court = nil -- a v1 clipmeta's top-level target_court_id, kept as a default only
+
+-- SPARSE TARGET-STATE REVIEW: its own file, its own numbering.
+local reviews = {}              -- { n, s, e, state, section, source, notes }
+local review_path               -- <video-stem>.target-review.csv
+local legacy_windows_present = false   -- a withdrawn-design windows.csv is sitting there
 
 -- Rally form values survive a dialog rebuild (screen or language switch). Without this,
 -- switching screens mid-rally would silently discard an unsaved START -> END -- exactly the
 -- data loss the v1.6.4 armed-guard exists to prevent.
 local form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = SPORTS[1] }
-local win_form = { start = "", stop = "", next = "", notes = "", label = WINDOW_LABELS[1] }
+local rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
 
 -- Forward declarations: the button callbacks below are defined BEFORE the dialog builders
 -- they call. Without these the callbacks would resolve these names as (nil) globals.
-local capture_form, win_refresh, create_dialog
+local capture_form, target_refresh, create_dialog, rebuild_after_sync
 
 --------------------------------------------------------------------------------
 -- Helpers (declared before the global callbacks that capture them)
@@ -1515,7 +1696,8 @@ local function save_all()
 end
 
 --------------------------------------------------------------------------------
--- Clip metadata sidecar + window track (docs/CLIP_METADATA.md, docs/WINDOW_LABELS.md)
+-- Clip metadata sidecar + target profiles + review track
+-- (docs/CLIP_METADATA.md, docs/TARGET_REVIEW.md)
 --------------------------------------------------------------------------------
 
 -- Swap the ".rallies.csv" tail of out_path for another sidecar suffix, so all three files
@@ -1593,8 +1775,56 @@ end
 
 -- Read the sidecar back so re-opening a clip resumes its screening rather than re-asking.
 -- A corrupt file leaves `clip` empty and says so, instead of masquerading as "not screened".
+-- Validate a target profile. FAILS CLOSED: returns a message key + vars on any violation, and
+-- the caller refuses the save. Nothing is coerced, clamped or half-accepted.
+local function validate_profile(p, others)
+  if not p.section or p.section == "" then return "target.needSection" end
+  if not p.court or p.court == "" then return "target.needCourt" end
+  for _, o in ipairs(others or {}) do
+    if o.section == p.section then return "target.duplicateSection", { section = p.section } end
+  end
+  if type(p.poly) ~= "table" or #p.poly < 3 then return "target.polygonTooFewPoints" end
+  for _, pt in ipairs(p.poly) do
+    if type(pt) ~= "table" or #pt ~= 2 or type(pt[1]) ~= "number" or type(pt[2]) ~= "number" then
+      return "target.polygonSyntax"
+    end
+    -- The polygon is NORMALIZED to the frame. A pixel coordinate is a different thing wearing
+    -- the same shape, and accepting it would produce geometry that is wrong but well-formed.
+    if pt[1] < 0 or pt[1] > 1 or pt[2] < 0 or pt[2] > 1 then return "target.polygonRange" end
+  end
+  return nil
+end
+
+-- "x,y x,y ..." (also ; separated) -> a point list, or nil + a message key.
+local function parse_polygon(text)
+  text = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if text == "" then return nil, "target.polygonTooFewPoints" end
+  local pts = {}
+  for tok in text:gmatch("[^%s;]+") do
+    local x, y = tok:match("^(-?[%d%.]+),(-?[%d%.]+)$")
+    if not x then return nil, "target.polygonSyntax" end
+    local nx, ny = tonumber(x), tonumber(y)
+    if not nx or not ny then return nil, "target.polygonSyntax" end
+    if nx < 0 or nx > 1 or ny < 0 or ny > 1 then return nil, "target.polygonRange" end
+    pts[#pts + 1] = { nx, ny }
+  end
+  if #pts < 3 then return nil, "target.polygonTooFewPoints" end
+  return pts
+end
+
+local function format_polygon(poly)
+  local out = {}
+  for _, pt in ipairs(poly or {}) do
+    out[#out + 1] = string.format("%.3f,%.3f", pt[1], pt[2])
+  end
+  return table.concat(out, " ")
+end
+
 local function load_clipmeta()
   clip = {}
+  profiles = {}
+  legacy_target_court = nil
+  selected_section = nil
   clip_path = sidecar_path(".clipmeta.json")
   if not clip_path then return nil end
   local f = io.open(clip_path, "r")
@@ -1602,12 +1832,43 @@ local function load_clipmeta()
   local body = f:read("*a"); f:close()
   local doc, why = jdec(body or "")
   if type(doc) ~= "table" then return why or "unreadable" end
-  for _, k in ipairs({ "venue_id", "camera_setup_id", "target_court_id", "match_format",
+  for _, k in ipairs({ "venue_id", "camera_setup_id", "match_format",
                        "capture_time_utc", "notes", "sport" }) do
     if type(doc[k]) == "string" and doc[k] ~= "" then clip[k] = doc[k] end
   end
   for _, k in ipairs({ "court_count", "active_court_count", "partially_visible_court_count" }) do
     if type(doc[k]) == "number" then clip[k] = math.floor(doc[k]) end
+  end
+  -- MIGRATION: v1 kept the court id at the top level. Keep it as the first profile's DEFAULT,
+  -- never as a profile -- one without a validated section and polygon would fail its own check.
+  if type(doc.target_court_id) == "string" and doc.target_court_id ~= "" then
+    legacy_target_court = doc.target_court_id
+  end
+  if type(doc.target_profiles) == "table" then
+    for _, raw in ipairs(doc.target_profiles) do
+      if type(raw) == "table" then
+        local poly = {}
+        if type(raw.play_volume_polygon) == "table" then
+          for _, pt in ipairs(raw.play_volume_polygon) do
+            if type(pt) == "table" and type(pt[1]) == "number" and type(pt[2]) == "number" then
+              poly[#poly + 1] = { pt[1], pt[2] }
+            end
+          end
+        end
+        local validity = "unclear"        -- an unknown value degrades to unclear, never supported
+        for _, v in ipairs(SETUP_VALIDITY) do if raw.setup_validity == v then validity = v end end
+        local p = {
+          section = type(raw.camera_section_id) == "string" and raw.camera_section_id or "",
+          court = type(raw.target_court_id) == "string" and raw.target_court_id or "",
+          profile_id = type(raw.camera_profile_id) == "string" and raw.camera_profile_id or nil,
+          poly = poly, validity = validity,
+          notes = type(raw.notes) == "string" and raw.notes ~= "" and raw.notes or nil,
+        }
+        -- A stored profile that no longer validates is DROPPED: half-valid geometry read back
+        -- as truth is worse than an absent profile.
+        if validate_profile(p, profiles) == nil then profiles[#profiles + 1] = p end
+      end
+    end
   end
   return nil
 end
@@ -1626,6 +1887,21 @@ local function save_clipmeta_file()
       { "rally_count", cov.rally_count },
     })
   end
+  local prof_arr = {}
+  for _, p in ipairs(profiles) do
+    local pts = {}
+    for _, pt in ipairs(p.poly) do
+      pts[#pts + 1] = { __arr2 = true, x = pt[1], y = pt[2] }
+    end
+    prof_arr[#prof_arr + 1] = jobj({
+      { "camera_section_id", p.section },
+      { "target_court_id", p.court },
+      { "camera_profile_id", p.profile_id },
+      { "play_volume_polygon", { __pts = p.poly } },
+      { "setup_validity", p.validity },
+      { "notes", p.notes },
+    })
+  end
   -- Key order is fixed here, not derived from a hash, so a re-save diffs cleanly.
   local doc = jobj({
     { "clipmeta_version", CLIPMETA_VERSION },
@@ -1636,12 +1912,12 @@ local function save_clipmeta_file()
     { "camera_setup_id", clip.camera_setup_id },
     { "capture_time_utc", clip.capture_time_utc },
     { "capture_time_source", clip.capture_time_utc and "container" or nil },
-    { "target_court_id", clip.target_court_id },
     { "court_count", clip.court_count },
     { "active_court_count", clip.active_court_count },
     { "partially_visible_court_count", clip.partially_visible_court_count },
     { "match_format", clip.match_format },
     { "notes", clip.notes },
+    { "target_profiles", { __list = prof_arr } },
     { "label_completeness", covobj },
   })
   local tmp = clip_path .. ".tmp"
@@ -1663,11 +1939,28 @@ local function csv_safe(s)
   return (tostring(s):gsub("[\r\n]+", " "):gsub(",", ";"))
 end
 
-local function load_windows()
-  wins = {}
-  win_path = sidecar_path(".windows.csv")
-  if not win_path then return end
-  local f = io.open(win_path, "r")
+-- A withdrawn-design windows.csv is DETECTED and REFUSED: never read into the review track,
+-- never converted, never imported. Its labels asserted facts about surrounding courts under a
+-- contract that no longer exists (docs/TARGET_REVIEW.md).
+local function detect_legacy_windows()
+  legacy_windows_present = false
+  local p = sidecar_path(".windows.csv")
+  if not p then return end
+  local f = io.open(p, "r")
+  if not f then return end
+  local head = f:read(4096) or ""
+  f:close()
+  for _, marker in ipairs(LEGACY_WINDOW_MARKERS) do
+    if head:find(marker, 1, true) then legacy_windows_present = true; return end
+  end
+  legacy_windows_present = true    -- a windows.csv at all is legacy by name
+end
+
+local function load_reviews()
+  reviews = {}
+  review_path = sidecar_path(".target-review.csv")
+  if not review_path then return end
+  local f = io.open(review_path, "r")
   if not f then return end
   for line in f:lines() do
     line = line:gsub("\r$", "")
@@ -1676,11 +1969,16 @@ local function load_windows()
       for field in (line .. ","):gmatch("([^,]*),") do parts[#parts + 1] = field end
       local n = tonumber(parts[1])
       if n and n == math.floor(n) then
-        local s, e = tonumber(parts[2]) or 0, tonumber(parts[3]) or 0
-        if e > s then
-          wins[#wins + 1] = { n = math.floor(n), s = s, e = e,
-                              label = (parts[4] ~= "" and parts[4]) or WINDOW_LABELS[1],
-                              court = parts[5] or "", notes = parts[6] or "" }
+        local st = (parts[4] or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        local known = false
+        for _, v in ipairs(TARGET_STATES) do if v == st then known = true end end
+        local a, b = tonumber(parts[2]) or 0, tonumber(parts[3]) or 0
+        -- An unknown state is DROPPED. This is what stops a legacy neighborhood label from
+        -- being read back in as though it were a target-state answer.
+        if known and b > a then
+          reviews[#reviews + 1] = { n = math.floor(n), s = a, e = b, state = st,
+                                    section = parts[5] or "", source = parts[6] or "operator",
+                                    notes = parts[7] or "" }
         end
       end
     end
@@ -1688,20 +1986,20 @@ local function load_windows()
   f:close()
 end
 
-local function save_windows()
-  if not win_path then return false, "no window path resolved" end
-  local tmp = win_path .. ".tmp"
+local function save_reviews()
+  if not review_path then return false, "no review path resolved" end
+  local tmp = review_path .. ".tmp"
   local f, err = io.open(tmp, "w")
   if not f then return false, tostring(err) end
-  f:write(WIN_HEADER)
-  for _, r in ipairs(wins) do
-    f:write(string.format("%d,%.3f,%.3f,%s,%s,%s\n", r.n, r.s, r.e, r.label,
-                          csv_safe(r.court), csv_safe(r.notes)))
+  f:write(REVIEW_HEADER)
+  for _, r in ipairs(reviews) do
+    f:write(string.format("%d,%.3f,%.3f,%s,%s,%s,%s\n", r.n, r.s, r.e, r.state,
+                          csv_safe(r.section), csv_safe(r.source), csv_safe(r.notes)))
   end
   f:close()
-  if os.rename(tmp, win_path) then return true end
-  os.remove(win_path)
-  local ok, rerr = os.rename(tmp, win_path)
+  if os.rename(tmp, review_path) then return true end
+  os.remove(review_path)
+  local ok, rerr = os.rename(tmp, review_path)
   if not ok then return false, tostring(rerr) end
   return true
 end
@@ -1764,30 +2062,31 @@ local function next_free_from(start)
   return n
 end
 
--- The window track keeps its own numbering, independent of the rally track: a window is
--- not a rally, and the two files are read separately downstream.
-local function next_window_number()
+-- The review track keeps its own numbering, independent of the rally track.
+local function next_review_number()
   local maxn = 0
-  for _, r in ipairs(wins) do if r.n > maxn then maxn = r.n end end
+  for _, r in ipairs(reviews) do if r.n > maxn then maxn = r.n end end
   return maxn + 1
 end
 
-local function index_of_window(n)
-  for i, r in ipairs(wins) do if r.n == n then return i end end
+local function index_of_review(n)
+  for i, r in ipairs(reviews) do if r.n == n then return i end end
   return nil
 end
 
-local function planned_next_window()
-  local v = get_field_num(w_win_next)
-  if v and v >= 1 then return math.floor(v) end
-  return next_window_number()
-end
-
-local function selected_window_number()
-  if not w_win_list then return nil end
-  local sel = w_win_list:get_selection()
+local function selected_review_number()
+  if not w_rv_list then return nil end
+  local sel = w_rv_list:get_selection()
   if type(sel) ~= "table" then return nil end
   for id, _ in pairs(sel) do return tonumber(id) or id end
+  return nil
+end
+
+local function selected_profile_index()
+  if not w_profile_list then return nil end
+  local sel = w_profile_list:get_selection()
+  if type(sel) ~= "table" then return nil end
+  for id, _ in pairs(sel) do return tonumber(id) end
   return nil
 end
 
@@ -1924,29 +2223,22 @@ local function coverage_lines()
   return out
 end
 
--- Per-label window tally against §4.4's per-subtype minimum, so an operator can see what is
--- still missing instead of counting rows afterwards.
-local function tally_line()
-  local counts, parts = {}, {}
-  for _, l in ipairs(WINDOW_LABELS) do counts[l] = 0 end
-  for _, r in ipairs(wins) do if counts[r.label] then counts[r.label] = counts[r.label] + 1 end end
-  for _, l in ipairs(WINDOW_LABELS) do
-    parts[#parts + 1] = string.format("%s %d/%d", t("wlabel." .. l), counts[l], WINDOW_TARGET_EACH)
-  end
-  return esc(t("tally.line", { counts = table.concat(parts, " · "), target = WINDOW_TARGET_EACH })) .. "<br>"
+-- One line naming a legacy neighborhood file, so the operator knows it is there and knows it
+-- is being ignored rather than quietly read.
+local function legacy_line()
+  if not legacy_windows_present then return "" end
+  return "<b>" .. esc(t("legacy.windowsPresent")) .. "</b><br>"
 end
 
 local function set_status(msg)
   if not w_status then return end
   local mode_line, body
-  if screen == "windows" then
-    if win_mode == "edit" and win_edit_index and wins[win_edit_index] then
-      mode_line = t("win.modeEdit", { n = wins[win_edit_index].n })
-    else
-      mode_line = t("win.modeNew")
-    end
-    body = esc(mode_line) .. "<br>" .. tally_line()
-      .. esc(t("status.csvPath", { path = win_path or "-" }))
+  if screen == "review" then
+    body = legacy_line() .. esc(t("review.mode")) .. "<br>"
+      .. esc(t("status.csvPath", { path = review_path or "-" }))
+  elseif screen == "target" then
+    body = esc(t("target.mode", { count = #profiles })) .. "<br>"
+      .. esc(t("status.csvPath", { path = clip_path or "-" }))
   elseif screen == "clip" then
     body = coverage_lines() .. esc(t("status.csvPath", { path = clip_path or "-" }))
   else
@@ -2002,19 +2294,26 @@ local function sync_to_current_video()
   local new_path = resolve_out_path()
   if new_path == out_path then
     load_rows()                  -- re-read in case the file changed on disk
-    load_clipmeta(); load_windows()
+    load_clipmeta(); load_reviews(); detect_legacy_windows()
     refresh_next_field()
     refresh_list(); refresh_buttons()
+    -- The Clip info / Target / Review screens paint from widgets, not from state, so a
+    -- reload alone would leave them showing pre-reload text. Rebuild those screens.
+    if screen ~= "rally" then rebuild_after_sync(false) end
     set_status(t("sync.refreshed", { count = #rows }))
     return
   end
   out_path = new_path            -- switched videos -> repoint + resume that file
   load_rows()
-  load_clipmeta(); load_windows()   -- all three tracks share the stem and move together
+  load_clipmeta(); load_reviews(); detect_legacy_windows()   -- every track shares the stem
   reset_form()
   refresh_next_field()
   refresh_list()
   refresh_buttons()
+  -- Switching video must not carry the previous clip's fields across. Without this the
+  -- Clip info boxes still held video A's venue/court counts while `clip_path` already
+  -- pointed at video B, so a Save would have written A's metadata into B's sidecar.
+  rebuild_after_sync(true)
   set_status(t("sync.switched", { count = #rows, n = next_rally_number() }))
 end
 
@@ -2033,7 +2332,7 @@ local function adopt_current_video_csv()
   if p == out_path then return end       -- already pointing there (defensive)
   out_path = p
   load_rows()                            -- pick up rallies already saved for this video
-  load_clipmeta(); load_windows()        -- and its clip info / windows, for the same reason
+  load_clipmeta(); load_reviews(); detect_legacy_windows()   -- and its clip info / reviews too
   refresh_next_field()
   refresh_list()
 end
@@ -2231,7 +2530,6 @@ function save_clip_info()
   clip.match_format = (fid ~= nil and fid ~= 0) and MATCH_FORMATS[fid] or nil
   clip.venue_id = opt_text(w_venue)
   clip.camera_setup_id = opt_text(w_camera)
-  clip.target_court_id = opt_text(w_target)
   clip.notes = opt_text(w_notes)
   clip.court_count, clip.active_court_count, clip.partially_visible_court_count =
     visible, active, partial
@@ -2246,132 +2544,146 @@ function save_clip_info()
 end
 
 --------------------------------------------------------------------------------
--- Window track (docs/WINDOW_LABELS.md)
+-- Target profiles (docs/TARGET_REVIEW.md)
 --------------------------------------------------------------------------------
-function mark_win_start()
-  if not w_win_start then return end
+function save_target_profile()
+  if not w_sec then return end
+  local poly, perr = parse_polygon(w_poly and w_poly:get_text() or "")
+  if not poly then set_status(t(perr)); return end
+  local vid = w_validity and w_validity:get_value() or 1
+  local p = {
+    section = opt_text(w_sec) or "",
+    court = opt_text(w_court) or "",
+    profile_id = opt_text(w_profile),
+    poly = poly,
+    validity = SETUP_VALIDITY[vid] or SETUP_VALIDITY[#SETUP_VALIDITY],
+    notes = opt_text(w_tnotes),
+  }
+  -- Re-saving an existing section REPLACES it, so the duplicate check excludes it.
+  local others, at = {}, nil
+  for i, o in ipairs(profiles) do
+    if o.section == p.section then at = i else others[#others + 1] = o end
+  end
+  local key, vars = validate_profile(p, others)
+  if key then set_status(t(key, vars)); return end
+
+  if at then profiles[at] = p else profiles[#profiles + 1] = p end
+  selected_section = p.section
+  local ok, err = save_clipmeta_file()
+  if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  target_refresh()
+  set_status(t("target.saved", { section = p.section, n = #poly }))
+end
+
+function delete_target_profile()
+  local idx = selected_profile_index()
+  if not idx or not profiles[idx] then set_status(t("target.needSelect")); return end
+  local section = profiles[idx].section
+  table.remove(profiles, idx)
+  selected_section = nil
+  local ok, err = save_clipmeta_file()
+  if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  target_refresh()
+  set_status(t("target.deleted", { section = section }))
+end
+
+-- Load the selected profile back into the fields. VLC dropdowns have no set_value, so showing
+-- its validity as selected means rebuilding the grid -- the same widget-swap the reason
+-- dropdown uses.
+function edit_target_profile()
+  local idx = selected_profile_index()
+  if not idx or not profiles[idx] then set_status(t("target.needSelect")); return end
+  selected_section = profiles[idx].section
+  if d then d:delete(); d = nil end
+  create_dialog()
+  set_status(t("target.loaded", { section = selected_section }))
+end
+
+--------------------------------------------------------------------------------
+-- Sparse target-state review (docs/TARGET_REVIEW.md)
+--------------------------------------------------------------------------------
+function mark_rv_start()
+  if not w_rv_start then return end
   local now = now_seconds()
   if not now then set_status(t("markStart.noMedia")); return end
-  if win_mode == "new" and get_field_num(w_win_start) and get_field_num(w_win_end) then
-    set_status(t("markStart.armed")); return       -- same unsaved-work guard as the rally track
-  end
   adopt_current_video_csv()
-  w_win_start:set_text(string.format("%.3f", now))
-  win_refresh()
+  w_rv_start:set_text(string.format("%.3f", now))
+  target_refresh()
   set_status(t("markStart.set", { clock = fmt_clock(now) }))
 end
 
-function mark_win_end()
-  if not w_win_end then return end
+function mark_rv_end()
+  if not w_rv_end then return end
   local now = now_seconds()
   if not now then set_status(t("markEnd.noMedia")); return end
-  w_win_end:set_text(string.format("%.3f", now))
-  win_refresh()
+  w_rv_end:set_text(string.format("%.3f", now))
+  target_refresh()
   set_status(t("markEnd.set", { clock = fmt_clock(now) }))
 end
 
-local function reset_win_form()
-  win_mode = "new"
-  win_edit_index = nil
-  if w_win_start then w_win_start:set_text("") end
-  if w_win_end then w_win_end:set_text("") end
-  if w_win_notes then w_win_notes:set_text("") end
+local function reset_rv_form()
+  if w_rv_start then w_rv_start:set_text("") end
+  if w_rv_end then w_rv_end:set_text("") end
+  if w_rv_notes then w_rv_notes:set_text("") end
 end
 
-function save_window()
+function save_review()
   adopt_current_video_csv()
-  local s = get_field_num(w_win_start)
-  local e = get_field_num(w_win_end)
-  if not s then set_status(t("save.needStart")); return end
-  if not e then set_status(t("save.needEnd")); return end
-  if e < s then s, e = e, s end
-  if e <= s then set_status(t("save.zeroLen")); return end
-  -- "adjacent" is meaningless without a target court, so a window cannot be saved before
-  -- the clip's target_court_id is recorded.
-  if not clip.target_court_id then set_status(t("clip.needTarget")); return end
+  local a = get_field_num(w_rv_start)
+  local b = get_field_num(w_rv_end)
+  if not a then set_status(t("save.needStart")); return end
+  if not b then set_status(t("save.needEnd")); return end
+  if b < a then a, b = b, a end
+  if b <= a then set_status(t("save.zeroLen")); return end
+  -- A review answers a question about a camera section, so there is nothing to answer until a
+  -- target profile exists.
+  if #profiles == 0 then set_status(t("target.needProfile")); return end
 
-  local lid = w_win_label and w_win_label:get_value() or 1
-  local label = WINDOW_LABELS[lid] or WINDOW_LABELS[1]
-  local notes = (w_win_notes and w_win_notes:get_text()) or ""
-
-  local msg
-  if win_mode == "edit" and win_edit_index and wins[win_edit_index] then
-    local r = wins[win_edit_index]
-    r.s, r.e, r.label, r.court, r.notes = s, e, label, clip.target_court_id, notes
-    local ok, err = save_windows()
-    if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
-    msg = t("win.updated", { n = r.n, start = fmt_clock(s), ["end"] = fmt_clock(e),
-                             label = t("wlabel." .. label) })
-  else
-    local n = planned_next_window()
-    if index_of_window(n) then set_status(t("save.duplicate", { n = n })); return end
-    wins[#wins + 1] = { n = n, s = s, e = e, label = label,
-                        court = clip.target_court_id, notes = notes }
-    local ok, err = save_windows()
-    if not ok then wins[#wins] = nil; set_status(t("save.writeFailed", { err = tostring(err) })); return end
-    local nxt = n + 1
-    while index_of_window(nxt) do nxt = nxt + 1 end
-    if w_win_next then w_win_next:set_text(tostring(nxt)) end
-    msg = t("win.saved", { n = n, start = fmt_clock(s), ["end"] = fmt_clock(e),
-                           label = t("wlabel." .. label) })
+  local sid = w_rv_state and w_rv_state:get_value() or 1
+  local state = TARGET_STATES[sid] or TARGET_STATES[1]
+  local secid = w_rv_section and w_rv_section:get_value() or 1
+  local section = (profiles[secid] and profiles[secid].section) or profiles[1].section
+  local n = next_review_number()
+  reviews[#reviews + 1] = { n = n, s = a, e = b, state = state, section = section,
+                            source = "operator",
+                            notes = (w_rv_notes and w_rv_notes:get_text()) or "" }
+  local ok, err = save_reviews()
+  if not ok then
+    reviews[#reviews] = nil
+    set_status(t("save.writeFailed", { err = tostring(err) })); return
   end
-  reset_win_form()
-  win_refresh()
-  set_status(msg)
+  reset_rv_form()
+  target_refresh()
+  set_status(t("review.saved", { n = n, start = fmt_clock(a), ["end"] = fmt_clock(b),
+                                 state = t("state." .. state) }))
 end
 
-function edit_window()
-  if win_mode == "new" and get_field_num(w_win_start) and get_field_num(w_win_end) then
-    set_status(t("edit.armedGuard")); return
-  end
-  local n = selected_window_number()
-  if not n then set_status(t("edit.needSelect")); return end
-  local idx = index_of_window(n)
-  if not idx then set_status(t("edit.notFound", { n = n })); return end
-  local r = wins[idx]
-  -- VLC dropdowns have no set_value, so showing the row's label as selected means
-  -- rebuilding the grid -- the same widget-swap trick the reason dropdown uses. Seed the
-  -- form first so the rebuilt screen comes back with this window loaded.
-  win_form.start = string.format("%.3f", r.s)
-  win_form.stop = string.format("%.3f", r.e)
-  win_form.notes = r.notes or ""
-  win_form.label = r.label
-  if d then d:delete(); d = nil end
-  create_dialog()
-  win_mode = "edit"; win_edit_index = idx
-  win_refresh()
-  set_status(t("edit.editing", { n = r.n }))
-end
-
-function delete_window()
-  local n = selected_window_number()
+function delete_review()
+  local n = selected_review_number()
   if not n then set_status(t("del.needSelect")); return end
-  local idx = index_of_window(n)
+  local idx = index_of_review(n)
   if not idx then set_status(t("edit.notFound", { n = n })); return end
-  table.remove(wins, idx)
-  local ok, err = save_windows()
+  table.remove(reviews, idx)
+  local ok, err = save_reviews()
   if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
-  reset_win_form()
-  if w_win_next then w_win_next:set_text(tostring(next_window_number())) end
-  win_refresh()
-  set_status(t("win.deleted", { n = n, count = #wins }))
+  target_refresh()
+  set_status(t("review.deleted", { n = n, count = #reviews }))
 end
 
-function undo_window()
-  if win_mode == "edit" then
-    reset_win_form(); win_refresh(); set_status(t("undo.cancelled")); return
+function undo_review()
+  if get_field_num(w_rv_start) or get_field_num(w_rv_end) then
+    reset_rv_form(); target_refresh(); set_status(t("undo.cleared")); return
   end
-  if get_field_num(w_win_start) or get_field_num(w_win_end) then
-    reset_win_form(); win_refresh(); set_status(t("undo.cleared")); return
+  if #reviews == 0 then set_status(t("review.nothing")); return end
+  local last = reviews[#reviews]
+  reviews[#reviews] = nil
+  local ok, err = save_reviews()
+  if not ok then
+    reviews[#reviews + 1] = last
+    set_status(t("save.writeFailed", { err = tostring(err) })); return
   end
-  if #wins == 0 then set_status(t("undo.nothing")); return end
-  local last = wins[#wins]
-  wins[#wins] = nil
-  local ok, err = save_windows()
-  if not ok then wins[#wins + 1] = last; set_status(t("save.writeFailed", { err = tostring(err) })); return end
-  if w_win_next then w_win_next:set_text(tostring(next_window_number())) end
-  win_refresh()
-  set_status(t("win.removed", { n = last.n, count = #wins }))
+  target_refresh()
+  set_status(t("review.removed", { n = last.n, count = #reviews }))
 end
 
 -- Playback control (verified available to VLC 3.x extensions). pause() is a TOGGLE
@@ -2430,35 +2742,38 @@ function capture_form()
     local sid = w_sport:get_value()
     form.sport = (sid ~= nil and SPORTS[sid]) or form.sport
   end
-  if w_win_start then win_form.start = w_win_start:get_text() or "" end
-  if w_win_end then win_form.stop = w_win_end:get_text() or "" end
-  if w_win_next then win_form.next = w_win_next:get_text() or "" end
-  if w_win_notes then win_form.notes = w_win_notes:get_text() or "" end
-  if w_win_label then
-    local lid = w_win_label:get_value()
-    win_form.label = (lid ~= nil and WINDOW_LABELS[lid]) or win_form.label
+  if w_rv_start then rv_form.start = w_rv_start:get_text() or "" end
+  if w_rv_end then rv_form.stop = w_rv_end:get_text() or "" end
+  if w_rv_notes then rv_form.notes = w_rv_notes:get_text() or "" end
+  if w_rv_state then
+    local sid = w_rv_state:get_value()
+    rv_form.state = (sid ~= nil and TARGET_STATES[sid]) or rv_form.state
   end
 end
 
--- Repaint the window list + Save caption. Mirrors refresh_list/refresh_buttons for the
--- second track, which has its own numbering and its own edit mode.
-function win_refresh()
-  if w_win_list then
-    w_win_list:clear()
-    for _, r in ipairs(wins) do
-      local label = string.format("#%d   %s -> %s   [%s]", r.n, fmt_clock(r.s), fmt_clock(r.e),
-        t("wlabel." .. r.label))
-      if r.notes ~= nil and r.notes ~= "" then label = label .. "   " .. r.notes end
-      w_win_list:add_value(label, r.n)
+-- Repaint the profile list, the review list and the review Save caption.
+function target_refresh()
+  if w_profile_list then
+    w_profile_list:clear()
+    for i, p in ipairs(profiles) do
+      w_profile_list:add_value(string.format("%s -> %s  [%s]  %dpt", p.section, p.court,
+        t("validity." .. p.validity), #p.poly), i)
     end
   end
-  if w_win_save then
-    if win_mode == "edit" and win_edit_index and wins[win_edit_index] then
-      w_win_save:set_text(t("btn.saveWindowChangesN", { n = wins[win_edit_index].n }))
-    elseif w_win_start and get_field_num(w_win_start) and get_field_num(w_win_end) then
-      w_win_save:set_text(t("btn.saveWindowN", { n = planned_next_window() }))
+  if w_rv_list then
+    w_rv_list:clear()
+    for _, r in ipairs(reviews) do
+      local label = string.format("#%d   %s -> %s   [%s]  %s", r.n, fmt_clock(r.s), fmt_clock(r.e),
+        t("state." .. r.state), r.section or "")
+      if r.notes ~= nil and r.notes ~= "" then label = label .. "   " .. r.notes end
+      w_rv_list:add_value(label, r.n)
+    end
+  end
+  if w_rv_save then
+    if w_rv_start and get_field_num(w_rv_start) and get_field_num(w_rv_end) then
+      w_rv_save:set_text(t("btn.saveReviewN", { n = next_review_number() }))
     else
-      w_win_save:set_text(t("btn.saveWindow"))
+      w_rv_save:set_text(t("btn.saveReview"))
     end
   end
   if d then d:update() end
@@ -2468,10 +2783,10 @@ end
 -- a colour (VLC gives an extension no button styling, and a caret is language-neutral).
 local function build_nav()
   local function cap(key, mine) return (screen == mine and "\226\150\184 " or "") .. t(key) end
-  d:add_button(cap("nav.rallies", "rally"),   show_rallies, 1, 1, 1, 1)
-  d:add_button(cap("nav.clip",    "clip"),    show_clip,    2, 1, 1, 1)
-  d:add_button(cap("nav.windows", "windows"), show_windows, 3, 1, 1, 1)
-  w_help_btn = d:add_button(t("btn.help"), show_help, 4, 1, 1, 1)
+  d:add_button(cap("nav.rallies", "rally"),  show_rallies, 1, 1, 1, 1)
+  d:add_button(cap("nav.clip",    "clip"),   show_clip,    2, 1, 1, 1)
+  d:add_button(cap("nav.target",  "target"), show_target,  3, 1, 1, 1)
+  d:add_button(cap("nav.review",  "review"), show_review,  4, 1, 1, 1)
 end
 
 local function build_language_row(row)
@@ -2488,6 +2803,7 @@ local function build_rally_screen()
   d:add_label(t("label.sport"), 1, 2, 1, 1)
   w_sport = d:add_dropdown(2, 2, 2, 1)
   rebuild_sport_selected(form.sport)           -- badminton unless the operator changed it
+  w_help_btn = d:add_button(t("btn.help"), show_help, 4, 2, 1, 1)
 
   -- Playback controls -- one row of 3: Back 5s | Play / Pause (toggle) | Fwd 5s.
   d:add_button(t("btn.back5"),     seek_back,  1, 3, 1, 1)
@@ -2547,8 +2863,6 @@ local function build_clip_screen()
 
   d:add_label(t("label.courtsPartial"), 1, 4, 1, 1)
   w_partial = d:add_text_input(txt(clip.partially_visible_court_count), 2, 4, 1, 1)
-  d:add_label(t("label.targetCourt"), 3, 4, 1, 1)
-  w_target = d:add_text_input(txt(clip.target_court_id), 4, 4, 1, 1)
 
   -- "(not set)" is added FIRST so it shows selected, i.e. the default writes null.
   d:add_label(t("label.matchFormat"), 1, 5, 1, 1)
@@ -2575,6 +2889,7 @@ local function build_clip_screen()
   w_notes = d:add_text_input(txt(clip.notes), 2, 6, 3, 1)
 
   d:add_button(t("btn.saveClip"), save_clip_info, 1, 7, 1, 1)
+  w_help_btn = d:add_button(t("btn.help"), show_help, 2, 7, 1, 1)
   d:add_button(t("btn.refresh"), refresh_now, 4, 7, 1, 1)
 
   w_status = d:add_html("", 1, 8, 4, 2)
@@ -2582,48 +2897,96 @@ local function build_clip_screen()
   help_row = 11
 end
 
-local function build_windows_screen()
+-- Target profile: one per static camera section. Fields prefill from the selected profile so
+-- editing is load-change-save, and geometry is validated fail-closed on save.
+local function build_target_screen()
+  local sel
+  for _, p in ipairs(profiles) do if p.section == selected_section then sel = p end end
+  local function txt(v) return v ~= nil and tostring(v) or "" end
+
+  d:add_label(t("label.cameraSection"), 1, 2, 1, 1)
+  w_sec = d:add_text_input(txt(sel and sel.section), 2, 2, 1, 1)
+  d:add_label(t("label.targetCourt"), 3, 2, 1, 1)
+  -- A v1 sidecar's top-level target_court_id becomes the DEFAULT here and nothing more: it is
+  -- never promoted into a profile without a human supplying a section and a polygon.
+  w_court = d:add_text_input(txt(sel and sel.court or legacy_target_court), 4, 2, 1, 1)
+
+  d:add_label(t("label.cameraProfile"), 1, 3, 1, 1)
+  w_profile = d:add_text_input(txt(sel and sel.profile_id or clip.camera_setup_id), 2, 3, 1, 1)
+  d:add_label(t("label.setupValidity"), 3, 3, 1, 1)
+  w_validity = d:add_dropdown(4, 3, 1, 1)
+  local pick = (sel and sel.validity) or SETUP_VALIDITY[1]
+  for i, v in ipairs(SETUP_VALIDITY) do                 -- selected first => shown selected
+    if v == pick then w_validity:add_value(t("validity." .. v), i) end
+  end
+  for i, v in ipairs(SETUP_VALIDITY) do
+    if v ~= pick then w_validity:add_value(t("validity." .. v), i) end
+  end
+
+  d:add_label(t("label.polygon"), 1, 4, 1, 1)
+  w_poly = d:add_text_input(sel and format_polygon(sel.poly) or "", 2, 4, 3, 1)
+  d:add_label(t("label.notes"), 1, 5, 1, 1)
+  w_tnotes = d:add_text_input(txt(sel and sel.notes), 2, 5, 3, 1)
+
+  d:add_button(t("btn.saveTarget"), save_target_profile, 1, 6, 1, 1)
+  w_help_btn = d:add_button(t("btn.help"), show_help, 2, 6, 1, 1)
+  d:add_button(t("btn.loadProfile"), edit_target_profile, 3, 6, 1, 1)
+  d:add_button(t("btn.deleteProfile"), delete_target_profile, 4, 6, 1, 1)
+
+  w_status = d:add_html("", 1, 7, 4, 2)
+  d:add_label(t("label.profiles"), 1, 9, 4, 1)
+  w_profile_list = d:add_list(1, 10, 4, 3)
+
+  build_language_row(13)
+  help_row = 14
+  target_refresh()
+end
+
+-- Sparse target-state review: one question, three answers, about the TARGET court only.
+-- There is deliberately no quota, no tally and no per-category progress -- this is
+-- active-learning evidence, not a count gate.
+local function build_review_screen()
   d:add_button(t("btn.back5"),     seek_back,  1, 2, 1, 1)
   d:add_button(t("btn.playPause"), play_pause, 2, 2, 2, 1)
   d:add_button(t("btn.fwd5"),      seek_fwd,   4, 2, 1, 1)
 
   d:add_label(t("label.start"), 1, 3, 1, 1)
-  w_win_start = d:add_text_input(win_form.start, 2, 3, 1, 1)
+  w_rv_start = d:add_text_input(rv_form.start, 2, 3, 1, 1)
   d:add_label(t("label.end"), 3, 3, 1, 1)
-  w_win_end = d:add_text_input(win_form.stop, 4, 3, 1, 1)
+  w_rv_end = d:add_text_input(rv_form.stop, 4, 3, 1, 1)
 
-  d:add_label(t("label.nextWindow"), 1, 4, 1, 1)
-  w_win_next = d:add_text_input("", 2, 4, 1, 1)
-  d:add_label(t("label.windowLabel"), 3, 4, 1, 1)
-
-  w_win_label = d:add_dropdown(3, 5, 1, 1)
-  local pick = win_form.label or WINDOW_LABELS[1]
-  for i, v in ipairs(WINDOW_LABELS) do                      -- selected first => shown selected
-    if v == pick then w_win_label:add_value(t("wlabel." .. v), i) end
+  d:add_label(t("label.cameraSection"), 1, 4, 1, 1)
+  w_rv_section = d:add_dropdown(2, 4, 1, 1)
+  for i, p in ipairs(profiles) do w_rv_section:add_value(p.section, i) end
+  d:add_label(t("label.targetState"), 3, 4, 1, 1)
+  w_rv_state = d:add_dropdown(4, 4, 1, 1)
+  local pick = rv_form.state or TARGET_STATES[1]
+  for i, v in ipairs(TARGET_STATES) do
+    if v == pick then w_rv_state:add_value(t("state." .. v), i) end
   end
-  for i, v in ipairs(WINDOW_LABELS) do
-    if v ~= pick then w_win_label:add_value(t("wlabel." .. v), i) end
+  for i, v in ipairs(TARGET_STATES) do
+    if v ~= pick then w_rv_state:add_value(t("state." .. v), i) end
   end
-  d:add_button(t("btn.markStart"), mark_win_start, 1, 5, 1, 1)
-  d:add_button(t("btn.markEnd"),   mark_win_end,   2, 5, 1, 1)
-  w_win_save = d:add_button(t("btn.saveWindow"), save_window, 4, 5, 1, 1)
 
-  d:add_label(t("label.notes"), 1, 6, 1, 1)
-  w_win_notes = d:add_text_input(win_form.notes, 2, 6, 3, 1)
+  d:add_label(t("label.notes"), 1, 5, 1, 1)
+  w_rv_notes = d:add_text_input(rv_form.notes, 2, 5, 3, 1)
+
+  d:add_button(t("btn.markStart"), mark_rv_start, 1, 6, 1, 1)
+  d:add_button(t("btn.markEnd"),   mark_rv_end,   2, 6, 1, 1)
+  w_rv_save = d:add_button(t("btn.saveReview"), save_review, 3, 6, 1, 1)
+  w_help_btn = d:add_button(t("btn.help"), show_help, 4, 6, 1, 1)
 
   w_status = d:add_html("", 1, 7, 4, 2)
-  d:add_label(t("label.recentWindows"), 1, 9, 4, 1)
-  w_win_list = d:add_list(1, 10, 4, 4)
+  d:add_label(t("label.recentReviews"), 1, 9, 4, 1)
+  w_rv_list = d:add_list(1, 10, 4, 4)
 
-  d:add_button(t("btn.edit"),   edit_window,     1, 14, 1, 1)
-  d:add_button(t("btn.delete"), delete_window,   2, 14, 1, 1)
-  d:add_button(t("btn.undo"),   undo_window,     3, 14, 1, 1)
-  d:add_button(t("btn.refresh"), refresh_now,    4, 14, 1, 1)
+  d:add_button(t("btn.delete"),  delete_review, 1, 14, 1, 1)
+  d:add_button(t("btn.undo"),    undo_review,   2, 14, 1, 1)
+  d:add_button(t("btn.refresh"), refresh_now,   4, 14, 1, 1)
 
   build_language_row(15)
   help_row = 16
-  if w_win_next then w_win_next:set_text(tostring(next_window_number())) end
-  win_refresh()
+  target_refresh()
 end
 
 function create_dialog()
@@ -2633,13 +2996,16 @@ function create_dialog()
   w_status, w_reason, w_sport, w_start, w_end, w_list, w_save = nil, nil, nil, nil, nil, nil, nil
   w_mark_start, w_mark_end, w_undo, w_next, w_shots, w_help = nil, nil, nil, nil, nil, nil
   w_venue, w_camera, w_visible, w_active, w_partial = nil, nil, nil, nil, nil
-  w_target, w_format, w_capture, w_notes = nil, nil, nil, nil
-  w_win_start, w_win_end, w_win_next, w_win_notes, w_win_label, w_win_list, w_win_save =
+  w_format, w_capture, w_notes = nil, nil, nil
+  w_sec, w_court, w_profile, w_poly, w_tnotes = nil, nil, nil, nil, nil
+  w_validity, w_profile_list = nil, nil
+  w_rv_start, w_rv_end, w_rv_notes, w_rv_state, w_rv_section, w_rv_list, w_rv_save =
     nil, nil, nil, nil, nil, nil, nil
 
   build_nav()
   if screen == "clip" then build_clip_screen()
-  elseif screen == "windows" then build_windows_screen()
+  elseif screen == "target" then build_target_screen()
+  elseif screen == "review" then build_review_screen()
   else build_rally_screen() end
 
   d:show()
@@ -2654,6 +3020,21 @@ function create_dialog()
   end
 end
 
+-- Repaint the current screen from freshly loaded state after Refresh repointed the files.
+-- `switched_video` = true drops the in-progress form, because those values belong to the
+-- video we just navigated away from.
+function rebuild_after_sync(switched_video)
+  if switched_video then
+    form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = form.sport }
+    rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
+    selected_section = nil
+  else
+    capture_form()
+  end
+  if d then d:delete(); d = nil end
+  create_dialog()
+end
+
 -- Screen switches go through one place so the in-progress form is always captured first.
 local function switch_screen(name)
   if screen == name then return end
@@ -2664,7 +3045,8 @@ local function switch_screen(name)
 end
 function show_rallies() switch_screen("rally") end
 function show_clip()    switch_screen("clip") end
-function show_windows() switch_screen("windows") end
+function show_target()  switch_screen("target") end
+function show_review()  switch_screen("review") end
 
 -- Apply the language picker: read it, persist it, and rebuild the dialog in the new
 -- language. Defined after create_dialog so it can call it (the dialog is recreated, like a
@@ -2694,18 +3076,18 @@ function activate()
   load_lang()             -- restore the saved language before building the dialog
   mode = "new"
   edit_index = nil
-  win_mode = "new"
-  win_edit_index = nil
   screen = "rally"
   form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = SPORTS[1] }
-  win_form = { start = "", stop = "", next = "", notes = "", label = WINDOW_LABELS[1] }
+  rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
+  selected_section = nil
   w_help = nil
   w_reason = nil          -- niled so the first rebuild on a re-enable doesn't del a stale handle
   out_path = resolve_out_path()
   out_path_is_fallback = (current_media_path() == nil)   -- no video yet -> adopt its CSV lazily on first Mark
   load_rows()             -- continue an existing CSV (numbering + recent list)
-  load_clipmeta()         -- and the clip's screening metadata / window track, if recorded
-  load_windows()
+  load_clipmeta()         -- capture metadata + target profiles, if recorded
+  load_reviews()
+  detect_legacy_windows() -- a withdrawn-design windows.csv is flagged, never read
   create_dialog()
 end
 

@@ -37,13 +37,12 @@ The rally CSV says **when** each rally happened. Two optional sidecars record wh
 | File | What it holds | Format |
 |---|---|---|
 | `<clip>.rallies.csv` | one row per rally — start/end/reason/sport/shots | [CSV_FORMAT.md](docs/CSV_FORMAT.md) |
-| `<clip>.clipmeta.json` | per-clip facts: venue, camera setup, **courts visible vs courts in play**, target court, match format | [CLIP_METADATA.md](docs/CLIP_METADATA.md) |
-| `<clip>.windows.csv` | labelled time windows: `target_rally` / `adjacent_court_rally` / `simultaneous_rallies` / `target_court_non_rally` / `empty` | [WINDOW_LABELS.md](docs/WINDOW_LABELS.md) |
+| `<clip>.clipmeta.json` | per-clip capture metadata + a **target profile per static camera section** (court id, play-volume polygon, setup validity) | [CLIP_METADATA.md](docs/CLIP_METADATA.md) · [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
+| `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` | [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
 
-The two sidecars are optional — the rally CSV alone still ingests exactly as before. They exist
-because the operator already knows those facts while labelling, and reconstructing them later from
-sampled frames is expensive and unreliable: two attempts to infer adjacent-court play from pixels
-failed calibration outright.
+Both sidecars are optional — the rally CSV alone still ingests exactly as before. **Only the
+prominent target match is ever indexed**: nothing here asks you to identify or time a rally on a
+neighbouring court.
 
 ## Generating rally annotations — pick your front-end
 
@@ -101,10 +100,25 @@ the match format, then **Save clip info**. Leave anything you did not check **bl
 records "not screened", which is different from recording a negative. **Courts in play** may never
 exceed **courts visible**, and the tool refuses the save if it does.
 
-**Windows** (optional): mark an interval and tag it `target_rally`, `adjacent_court_rally`,
-`simultaneous_rallies`, `target_court_non_rally` or `empty`. Set the **Target court ID** in Clip
-info first — "adjacent" has no meaning without a target court. A running tally shows how many of
-each label you have.
+Before drawing a play-volume polygon, build an **empty-court still** — no live frame has all four
+corners unobstructed:
+
+```bash
+node tools/court_still.mjs "<clip>.MP4"
+```
+
+It temporal-medians 25 frames across the clip, which erases every player and leaves the lines, and
+writes `<clip>.court.png` next to the video. It only makes an image: it detects nothing, proposes
+nothing, and never touches a label file.
+
+**Target** (optional): save one **target profile per static camera section** — the section id, the
+court this recording indexes, the camera profile, a normalized play-volume polygon for that court,
+and whether the setup is `supported` / `unsupported` / `unclear`. Invalid geometry is refused rather
+than coerced.
+
+**Review** (optional, sparse): answer **was the target court rallying?** for an interval —
+`rallying`, `not_rallying` or `unclear`. There is no quota and no sweep: these are a handful of
+answers about uncertain stretches, and no surrounding match is ever identified or timed.
 
 **Output:** `<video-stem>.rallies.csv` next to the video (falls back to your home dir if the path can't be
 resolved). Re-opening the extension **continues** rally numbering from the existing file — no duplicate IDs.
@@ -167,10 +181,11 @@ in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the 
       fully localized** — the browser extension and the *entire* VLC dialog (chrome, status messages, and
       the in-dialog ending-reason guide). Machine drafts pending native review — see
       [docs/LOCALIZATION.md](docs/LOCALIZATION.md).
-- [x] **Per-clip metadata + a window track (v1.8.0)** — a **Clip info** screen writing
-      `<clip>.clipmeta.json` (venue / camera setup / courts visible vs in play / match format), a
-      **Windows** screen writing `<clip>.windows.csv` with the five-label vocabulary, and a
-      label-completeness readout that warns on an unfinished pass. Both front-ends, all 7 languages.
+- [x] **Per-clip metadata + target-first profiles (v2.0.0)** — a **Clip info** screen writing
+      `<clip>.clipmeta.json`, a **Target** screen holding one profile per static camera section
+      (court id, play-volume polygon, setup validity), a sparse **Review** screen writing
+      `<clip>.target-review.csv`, and a label-completeness readout that warns on an unfinished pass.
+      Both front-ends, all 7 languages.
 - [ ] Optional per-sport reason presets / hotkeys.
 - [x] **Browser front-end for web video incl. YouTube** — Chrome MV3 extension emitting the same CSV
       ([web/](web/)). Firefox/Safari build legs and embedded-iframe (`youtube.com/embed`) support are

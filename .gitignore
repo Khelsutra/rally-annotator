@@ -1,6 +1,12 @@
-# Rally label outputs (user data, not source)
+# Rally label outputs (user data, not source) -- all three tracks
 *.rallies.csv
+*.clipmeta.json
+*.target-review.csv
+*.windows.csv
 rally_labels.csv
+
+# Derived viewing aids (regenerable from the video; see tools/court_still.mjs)
+*.court.png
 
 # OS / editor junk
 .DS_Store

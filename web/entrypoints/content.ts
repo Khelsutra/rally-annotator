@@ -3,10 +3,10 @@ import { Annotator } from "../src/state/annotator";
 import { DirectVideoHandler } from "../src/video/directVideo";
 import {
   deriveIdentity, loadRows, saveRows, csvFilename,
-  loadClip, saveClip, loadWindows, saveWindows,
+  loadClip, saveClip, loadReviews, saveReviews, hasLegacyWindows,
 } from "../src/persist/store";
 import { clipmetaFilename } from "../src/state/clipmeta";
-import { windowsFilename } from "../src/state/windows";
+import { reviewFilename } from "../src/state/targetReview";
 import { mountPanel } from "../src/ui/panel";
 import { getLocale, setLocale, negotiateLocale, type Locale } from "../src/i18n";
 import type { RuntimeMessage } from "../src/messages";
@@ -27,7 +27,8 @@ export default defineContentScript({
     // The clip sidecar and window track resume from the same per-video identity as the
     // rallies, so re-opening a video restores what was screened rather than re-asking.
     const clip = await loadClip(identity.key);
-    const windows = await loadWindows(identity.key);
+    const reviews = await loadReviews(identity.key);
+    const legacyWindowsPresent = await hasLegacyWindows(identity.key);
 
     // LD-i8: seed the locale from the stored preference, falling back to the browser language.
     const stored = await browser.storage.local.get("lang");
@@ -56,13 +57,14 @@ export default defineContentScript({
       video,
       identity,
       clip: clip ?? undefined,
-      windows,
+      reviews,
+      legacyWindowsPresent,
       download: (csv) => send(csvFilename(identity.title), csv),
       downloadClipMeta: (json) =>
         send(clipmetaFilename(identity.title), json, "application/json"),
-      downloadWindows: (csv) => send(windowsFilename(identity.title), csv),
+      downloadReviews: (csv) => send(reviewFilename(identity.title), csv),
       persistClip: (c) => void saveClip(identity.key, c),
-      persistWindows: (w) => void saveWindows(identity.key, w),
+      persistReviews: (r) => void saveReviews(identity.key, r),
       onLocaleChange: (locale: Locale) => {
         void browser.storage.local.set({ lang: locale });
       },

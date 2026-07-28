@@ -13,6 +13,7 @@ Issues and PRs are welcome: live test reports per sport/OS, browser-extension fe
 |---|---|---|
 | `vlc/rally_annotator.lua` | The VLC 3.x plugin (local-file labeling) | Lua 5.1 · `test/dialog_test.lua` |
 | `web/` | The browser extension (web video, incl. YouTube) | TypeScript (WXT MV3) · Vitest + Playwright |
+| `tools/` | Local helper scripts (empty-court still) | Node 22 · `web/test/courtStill.test.ts` |
 | `docs/` | Shared contract: CSV format, clip-metadata sidecar, window labels, ending-reason guide | — |
 
 Read [web/DESIGN.md](web/DESIGN.md) (locked decisions) and [web/TESTING.md](web/TESTING.md) before

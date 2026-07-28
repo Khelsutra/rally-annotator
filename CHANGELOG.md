@@ -1,5 +1,80 @@
 # Changelog
 
+## v2.0.0 — 2026-07-28 — target-first correction
+
+**Breaking:** the neighborhood window track is removed. Nothing in this tool asks the operator to
+identify or time a rally on a surrounding court. That design turned the neighbours into an
+exhaustive annotation problem — a ten-minute multicourt clip could take hours — and none of it is
+what the product indexes. The complete prominent-match timeline already makes every non-target
+instant an implicit negative, so the exhaustive pass bought nothing it did not already have.
+
+- **Removed:** the `target_rally` / `adjacent_court_rally` / `simultaneous_rallies` /
+  `target_court_non_rally` / `empty` vocabulary, `<clip>.windows.csv`, the per-label tally and the
+  12-of-each quota, from both front-ends, both schemas, all 7 locale catalogs, the docs and the
+  tests. A test asserts no localized string anywhere still offers a withdrawn label.
+- **New — target profiles.** A **Target** screen saves one profile per **static camera section**:
+  `camera_section_id`, `target_court_id`, `camera_profile_id`, a play-volume polygon **normalized to
+  the frame**, and `setup_validity` (`supported` / `unsupported` / `unclear`). They live in
+  `<clip>.clipmeta.json` under `target_profiles`. On the web you can **click the court's corners on
+  the video** and the coordinates are normalized against its rendered box.
+  - **Validation fails closed.** A missing section or court, a duplicate section, fewer than 3
+    points, or **any coordinate outside 0…1** is refused — never coerced or clamped. Pixel
+    coordinates are the likeliest operator mistake and the one that would be wrong yet perfectly
+    well-formed, so they are rejected explicitly. A stored profile that no longer validates is
+    dropped on load rather than half-read.
+- **New — sparse target-state review** → `<clip>.target-review.csv`, with exactly three answers:
+  **`rallying` / `not_rallying` / `unclear`**, all about the **target** court. No quota, no tally,
+  no sweep — this is active-learning evidence, not a count gate. A review cannot be saved before a
+  target profile exists, because it answers a question about a camera section.
+- **Legacy `<clip>.windows.csv` is detected and refused** — never read, never converted, never
+  imported, in either front-end or in extension storage. A row whose state is not one of the three
+  answers is dropped by the parser, which is what stops a withdrawn label from re-entering as
+  target-state truth. The status panel says one line so you know the file is there and is being
+  ignored.
+- **`clipmeta.json` is version 2.** `target_profiles` is added and the top-level `target_court_id`
+  is dropped (it belongs to a section, not to the whole clip). A v1 file is read and upgraded on the
+  next save; its old `target_court_id` becomes the **default** for the first profile you create and
+  is never promoted into one automatically.
+- Per-clip `venue_id`, `camera_setup_id`, `court_count`, `active_court_count`,
+  `partially_visible_court_count` and `match_format` remain, reframed in the docs as **capture
+  metadata**: they describe the room, and are not background-event truth, training quotas, or
+  permission to time a neighbouring rally.
+- **New tool — `tools/court_still.mjs`.** Builds an **empty-court still** to draw the play-volume
+  polygon against: it samples 25 frames across the clip and takes their **temporal median**, which
+  on a fixed camera erases everything that moves (players, shuttles) and keeps everything that does
+  not (the lines). Writes `<clip>.court.png` next to the video. Zero dependencies beyond ffmpeg.
+  It produces an **image only** — it detects nothing, proposes nothing, and never touches a label
+  file, which is what keeps the polygon a human-from-scratch label with no model in its provenance.
+  (Sampling at rally START/END would be the *worst* choice: that is exactly when players stand on
+  the lines.)
+- Docs: `docs/WINDOW_LABELS.md` → **[docs/TARGET_REVIEW.md](docs/TARGET_REVIEW.md)**; new locked
+  decisions LD-15 in [web/DESIGN.md](web/DESIGN.md).
+- Suite **171 assertions** (was 160); web **156 tests** (was 126) at 95.7% statements; 8 E2E green.
+
+## v1.8.1 — 2026-07-28
+- **Fix (data safety): Refresh could write one video's clip metadata into another's sidecar.**
+  Refresh repointed `<video>.rallies.csv` / `.clipmeta.json` / `.windows.csv` at the newly playing
+  video and reloaded them into memory, but did **not** repaint the **Clip info** and **Windows**
+  screens — those paint from their widgets. So after switching videos the boxes still held the
+  *previous* clip's venue and court counts while the save path already pointed at the new clip, and
+  **Save clip info** would have written video A's screening into video B's file. Refresh now
+  rebuilds those screens from the freshly loaded state, and a video switch clears the in-progress
+  fields instead of carrying them across. Regression test asserts the fields clear, that B's sidecar
+  carries `null` where A had values, and that A's own sidecar is left intact. (Rallies screen was
+  never affected — its list and counters already repainted.)
+- **Documented `active_court_count` when the count changes mid-clip:** record the **maximum**
+  concurrent count over the whole clip, because the field answers a *capability* question
+  (`can_supply_adjacent_court_negatives = active >= 2`). The time structure belongs to the window
+  track, which records exactly when a neighbour was live.
+- **Documented the identifier conventions**, with the values actually in use (`venue_id: Boxhill`;
+  `camera_setup_id: bxh-elevated-baseline` / `bxh-lowside-3court` / `bxh-lowside-singlecourt`), and
+  locked `target_court_id` to **the venue's own painted court number** — it survives a camera move,
+  where a frame-relative scheme silently re-points at a different court. The doc's worked examples
+  now use those real values instead of an invented naming style.
+- `.gitignore` now covers `*.clipmeta.json` and `*.windows.csv` — they are user data, like the
+  rally CSV, and were previously committable by accident.
+- Suite **160 assertions** (was 150).
+
 ## v1.8.0 — 2026-07-28
 - **Per-clip screening metadata → `<clip>.clipmeta.json`.** A new **Clip info** screen records what
   the camera was looking at — venue, camera setup, **courts visible** vs **courts in play** (two

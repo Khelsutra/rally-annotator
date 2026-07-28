@@ -6,20 +6,29 @@ is free: the operator is already watching the video.
 
 ```json
 {
-  "clipmeta_version": 1,
-  "generator": "rally-annotator-vlc/1.8.0",
+  "clipmeta_version": 2,
+  "generator": "rally-annotator-vlc/2.0.0",
   "clip_name": "GX010150",
   "sport": "badminton",
-  "venue_id": "bxh_indiranagar",
-  "camera_setup_id": "bxh_low_side_a",
+  "venue_id": "Boxhill",
+  "camera_setup_id": "bxh-lowside-3court",
   "capture_time_utc": null,
   "capture_time_source": null,
-  "target_court_id": "c1",
   "court_count": 2,
   "active_court_count": 1,
   "partially_visible_court_count": 0,
   "match_format": "doubles",
-  "notes": "divider excludes the right-hand court; it is empty throughout",
+  "notes": "divider excludes the right-hand court",
+  "target_profiles": [
+    {
+      "camera_section_id": "s1",
+      "target_court_id": "3",
+      "camera_profile_id": "bxh-lowside-3court",
+      "play_volume_polygon": [[0.208, 0.541], [0.775, 0.541], [0.942, 0.983], [0.061, 0.983]],
+      "setup_validity": "supported",
+      "notes": null
+    }
+  ],
   "label_completeness": null
 }
 ```
@@ -28,7 +37,7 @@ is free: the operator is already watching the video.
 
 Reconstructing these facts later, from sampled frames, was tried and failed:
 
-- Two automated attempts to infer "does this clip have adjacent-court play?" from pixels **failed
+- Two automated attempts to read how busy the venue was straight from pixels **failed
   calibration**. Motion energy above the target net line scored an attested single-court clip
   *higher* than three of four known multicourt clips. Camera shake, lighting, spectators and the
   target court's own far-side player all pollute the signal.
@@ -42,7 +51,7 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 
 | Field | Type | Unset | Notes |
 |---|---|---|---|
-| `clipmeta_version` | int | — | Always present. `1` today. Readers must reject a version they don't know. |
+| `clipmeta_version` | int | — | Always present. **`2`** today; `1` files are read and upgraded in memory (see [Migration](#migration-from-clipmeta_version-1)). Readers must reject a version they don't know. |
 | `generator` | string | — | `rally-annotator-<frontend>/<version>`, e.g. `rally-annotator-web/0.2.0`. |
 | `clip_name` | string | `null` | Video stem (VLC) or the page's video title (web). Provenance only — never a source of dates. |
 | `sport` | enum | `null` | Same vocabulary as the rally CSV: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. |
@@ -50,38 +59,101 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 | `camera_setup_id` | string | `null` | Stable identifier for the camera **placement/framing**. Two materially different setups at one venue count as distinct. An absent value is never assumed to differ from anything. |
 | `capture_time_utc` | string | `null` | ISO-8601 UTC, **container-derived only** — see [Capture time](#capture-time). |
 | `capture_time_source` | enum | `null` | `container` when a container tag supplied it; `null` when unknown. There is deliberately **no** `operator` value. |
-| `target_court_id` | string | `null` | Stable id for the court being labelled, so "adjacent" is well defined. Required before window labels mean anything. |
 | `court_count` | int ≥ 1 | `null` | Courts **visible in frame**, including any that are only partly visible. |
-| `active_court_count` | int ≥ 1 | `null` | Visible courts **with play on them**, including the target court. Never greater than `court_count`. |
+| `active_court_count` | int ≥ 1 | `null` | Visible courts **with play on them**, including the target court, **at the clip's busiest moment** — see [When the count changes mid-clip](#when-the-count-changes-mid-clip). Never greater than `court_count`. |
 | `partially_visible_court_count` | int ≥ 0 | `null` | How many of the `court_count` courts are only partly in frame. Never greater than `court_count`. |
 | `match_format` | enum | `null` | `singles` / `doubles` / `mixed`, for the **target** court. |
 | `notes` | string | `null` | Free text — occlusions, partial courts, mid-clip changes. |
+| `target_profiles` | array | `[]` | One **target profile per static camera section** — the court this recording actually indexes, and its geometry. Schema, validation and the `setup_validity` vocabulary live in [TARGET_REVIEW.md](TARGET_REVIEW.md). |
 | `label_completeness` | object | `null` | Derived snapshot; see [Label completeness](#label-completeness). |
 
 ### `court_count` and `active_court_count` are two fields on purpose
 
-Conflating them makes a clip look usable for work it cannot do. A clip can show a neighbouring
-court that sits **empty for its whole duration**: multicourt geometry, single-court content. It
-supplies no adjacent-court training examples however many court lines are in shot.
+Both are **capture metadata**: they describe the room the recording was made in. Neither is
+background-event truth, a training quota, or permission to time a neighbouring rally — only the
+prominent target match is ever indexed (see [TARGET_REVIEW.md](TARGET_REVIEW.md)).
+
+They stay separate because collapsing them loses real information. A clip can show a neighbouring
+court that sits **empty for its whole duration**: multicourt geometry, single-court content. "Four
+courts in shot" and "four courts being played on" describe very different footage, and a single
+number cannot say which you have.
 
 Owner-reviewed examples from the reference corpus:
 
-| Clip | `court_count` | `active_court_count` | `partially_visible_court_count` | Can supply adjacent-court negatives |
+| Clip | `court_count` | `active_court_count` | `partially_visible_court_count` | |
 |---|---|---|---|---|
-| `GX010150` | 2 | 1 | 0 | **no** — a divider excludes the neighbour |
-| `adarsh_avi_singles` | 2 | 1 | 1 | **no** — the right-hand court is empty throughout; a third court on the left is <20 % visible |
-| `Badminton_BXH_2` | 4 | 3 | 0 | **yes** — target court plus two other live games, one idle court on the right |
+| `GX010150` | 2 | 1 | 0 | a divider excludes the neighbour |
+| `adarsh_avi_singles` | 2 | 1 | 1 | the right-hand court is empty throughout; a third court on the left is <20 % visible |
+| `Badminton_BXH_2` | 4 | 3 | 0 | target court plus two other live games, one idle court on the right |
 
 `adarsh_avi_singles` is why `partially_visible_court_count` exists: the sliver of court on the left
 is real and the operator should be able to record it **and say so**, rather than silently round it
 away or inflate `court_count` with no qualifier.
 
+### When the count changes mid-clip
+
+It usually does — a neighbouring court finishes a game, sits idle, then a new pair walks on. **You
+do not track that here.** `active_court_count` is **one number for the whole clip: the most courts
+that were in play at any one time.** Record the maximum, not an average and not the state at the
+end.
+
+It is a coarse note about how busy the venue was, nothing more. Nothing downstream may read a
+per-moment claim out of it, because it does not contain one — and recording *when* a neighbour was
+playing is explicitly not this tool's job.
+
+If the variation is worth a human note — "court 3 idle until ~6:00, then a doubles game" — put it in
+`notes`. Do not try to encode it in the count.
+
+### The three identifiers: how to choose them
+
+`venue_id`, `camera_setup_id` and `target_court_id` are free text — there is no enum, here or in
+`sports-data-collector`. They are nevertheless **identity keys, not descriptions**: downstream
+gating counts *distinct values*, and the collector's rule is that an **absent value is never assumed
+to differ from anything**. A typo invents a venue, or a camera setup, and quietly inflates the
+apparent diversity of a training split.
+
+So the only real requirement is that you reuse the **exact same string** for the same thing, every
+time. Values already in use in this corpus:
+
+| Field | Values in use |
+|---|---|
+| `venue_id` | `Boxhill` |
+| `camera_setup_id` | `bxh-elevated-baseline` · `bxh-lowside-3court` · `bxh-lowside-singlecourt` |
+
+`camera_setup_id` identifies a **placement and framing**, not a camera. Move the tripod somewhere
+materially different and it is a new setup, because that is what makes it count toward setup
+representativeness. Two clips shot from the same spot on different days share one id.
+
+#### `target_court_id` — use the venue's own court numbering
+
+`target_court_id` now lives inside a **target profile**, not at the top level, because it is a
+property of a camera section rather than of the whole file (see
+[TARGET_REVIEW.md](TARGET_REVIEW.md)). The naming rule is unchanged:
+
+**Name the target court by the number the venue itself paints on it.** At Boxhill that is Boxhill's
+court numbering; at any other venue, that venue's own numbering.
+
+This beats a frame-relative scheme (`c1` = leftmost) because it **survives a camera move**. A
+frame-relative id silently re-points at a different slab of floor the moment the tripod shifts, so
+two clips of the same physical court disagree about which court they are. A painted number is a
+property of the building, so it stays true across every setup, session and clip.
+
+The target court is not something to look up: **it is the court whose rallies you are putting in
+`<clip>.rallies.csv`** — the one prominent match this recording indexes.
+
+Rules that make the id load-bearing rather than decorative:
+
+- Non-empty, and **stable within the clip**.
+- The **same physical court carries the same id in every clip**, across setups and sessions.
+- If a venue does not number its courts, pick a scheme, write it down here, and keep it — the cost
+  is not in choosing badly, it is in choosing differently twice.
+
 ### Unset is not "no"
 
 Every field defaults to `null` and stays `null` until the operator sets it. `null` means
 **not screened**; it must never be collapsed into a `0`, a `false`, or a plausible default.
-`sports-data-collector` depends on this distinction — `can_supply_adjacent_court_negatives` is
-`None` for an unscreened clip and `False` only for one that was screened and found single-active
+`sports-data-collector` depends on this distinction: its screening fields are `Optional`, and a
+`None` there means "nobody has looked", which is not the same claim as a recorded zero
 (`src/core/schemas/base.py`).
 
 Concretely, the annotator will **not** write a field the operator left blank, and the
@@ -169,12 +241,13 @@ imports with no schema work:
 | `sport` | `sport` | `--sport` |
 | `capture_time_utc` | `capture_time_utc` | *(none — the collector probes the container itself)* |
 | `notes` | `candidate_reason` | `--candidate-reason` |
-| `target_court_id` | **no home yet** | — |
+| `target_profiles[].target_court_id` | **no home yet** | — |
+| `target_profiles[]` (section id, polygon, validity) | **no home yet** | — |
 | `partially_visible_court_count` | **no home yet** | — |
 | `label_completeness` | recomputed at import | — |
 
-`can_supply_adjacent_court_negatives` is **derived** by the collector from `active_court_count >= 2`
-— the sidecar deliberately does not carry it, so there is one place it can be wrong.
+The collector derives anything it wants from these fields; the sidecar carries only what the
+operator observed, so there is exactly one place each fact can be wrong.
 
 The two "no home yet" fields are recorded regardless: they are cheap for the operator now and
 expensive to reconstruct later, which is the whole premise of this file. Until the collector grows
@@ -185,7 +258,7 @@ Importing today, until a sidecar reader lands on the collector side:
 ```bash
 python -m src.cli.curate import-local --sport badminton \
   --video-path GX010150.MP4 --annotations-path GX010150.rallies.csv \
-  --venue-id bxh_indiranagar --camera-setup-id bxh_low_side_a \
+  --venue-id Boxhill --camera-setup-id bxh-lowside-3court \
   --court-count 2 --active-court-count 1
 ```
 
@@ -199,5 +272,18 @@ python -m src.cli.curate import-local --sport badminton \
 - Stable key order and 2-space indentation, so a re-save produces a readable diff rather than a
   reshuffle.
 
+### Migration from `clipmeta_version` 1
+
+A v1 file has no `target_profiles` and carries a top-level `target_court_id`. Reading one:
+
+- every other field is read unchanged;
+- `target_profiles` starts **empty** — no profile is invented, because a profile without a validated
+  camera section and polygon would fail its own validation;
+- the v1 `target_court_id` is kept aside and offered as the **default** when you create the first
+  profile, so the value is not lost but is never promoted without a human;
+- saving writes `clipmeta_version: 2`.
+
+A v1 file is therefore upgraded on the next save, and a v1 file you never touch stays valid on disk.
+
 See also: [CSV_FORMAT.md](CSV_FORMAT.md) (the rally track) and
-[WINDOW_LABELS.md](WINDOW_LABELS.md) (the window track).
+[TARGET_REVIEW.md](TARGET_REVIEW.md) (target profiles + sparse target-state review).
