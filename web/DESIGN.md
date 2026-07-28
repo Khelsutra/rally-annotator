@@ -133,6 +133,30 @@ OFL Noto fonts, AI-draft → native-review). The reason/sport **values** and CSV
 English (LD-3 byte-compatibility is preserved across all languages). Full design + locked decisions:
 [../docs/LOCALIZATION.md](../docs/LOCALIZATION.md).
 
+### LD-13 — Per-clip metadata and the window track are SEPARATE artifacts, not more CSV columns
+**Decision.** Screening metadata goes to `<clip>.clipmeta.json` and labelled time windows to
+`<clip>.windows.csv`; the rally CSV is unchanged and still ingests exactly as before. All three
+share one per-video identity (`rally:` / `clip:` / `win:` prefixes in `chrome.storage.local`) so
+they resume together. Pure logic lives in `src/state/clipmeta.ts` and `src/state/windows.ts`,
+mirroring the VLC extension's output.
+**Why.** Clip metadata is per-**clip**, not per-rally — putting it on every rally row would repeat
+it N times and make it editable in N places. A window is not a rally: it may overlap one or sit
+between two, and it carries a different vocabulary, so it needs its own numbering and its own file.
+**Consequence.** Three downloads instead of one (the sandbox still cannot write next to a web
+video, LD-3). The background worker's download message now carries a `mime` so the JSON sidecar is
+not saved as `text/csv`.
+
+### LD-14 — An unset screening field is `null`, and the UI cannot express a guess
+**Decision.** Blank inputs serialize to `null`; the `match_format` picker's first option is an
+explicit *(not set)*; `capture_time_utc` is **read-only** with no text box at all.
+**Why (verified).** `sports-data-collector` distinguishes *unscreened* (`None`) from *screened and
+found single-court* (`False`) — collapsing them makes a clip look screened when it was not. And a
+typed capture date is exactly the failure the sidecar exists to prevent: in the reference archive a
+folder named `May 19 2026` holds files captured `2026-05-21`. The collector re-probes the container
+with ffprobe at import and that value is authoritative.
+**Consequence.** On the web there is no container to read, so `capture_time_utc` is always `null`
+there and the field renders as an explanation rather than an input.
+
 ## Deferred / north star (not locked — tracked work)
 
 - **LD-10 — YouTube/Vimeo embed handler.** Inject into the provider frame (`all_frames` + host

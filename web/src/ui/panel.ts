@@ -9,12 +9,26 @@ import type { DirectVideoHandler } from "../video/directVideo";
 import type { VideoIdentity } from "../persist/store";
 import { VERSION } from "../version";
 import { t, getLocale, setLocale, SUPPORTED_LOCALES, LOCALE_LABELS, type Locale } from "../i18n";
+import {
+  MATCH_FORMATS, SPAN_WARN, TAIL_WARN_S, completeness, emptyClipMeta, optText, parseCount,
+  serializeClipMeta, validateClipMeta, type ClipMeta,
+} from "../state/clipmeta";
+import {
+  WINDOW_LABELS, WINDOW_TARGET_EACH, indexOfWindow, nextWindowNumber, serializeWindows,
+  tally, type WindowRow,
+} from "../state/windows";
 
 export interface PanelDeps {
   annotator: Annotator;
   video: DirectVideoHandler;
   identity: VideoIdentity;
   download: (csv: string) => void;
+  clip?: ClipMeta; // screening metadata already recorded for this video
+  windows?: WindowRow[]; // window track already recorded for this video
+  downloadClipMeta?: (json: string) => void;
+  downloadWindows?: (csv: string) => void;
+  persistClip?: (clip: ClipMeta) => void;
+  persistWindows?: (rows: WindowRow[]) => void;
   onLocaleChange?: (locale: Locale) => void; // optional: persist the choice (content script wires this)
 }
 
@@ -55,6 +69,9 @@ const STYLE = `
   position: fixed; top: 16px; right: 16px; width: 340px; z-index: 2147483647;
   background: #1e1f22; color: #e6e6e6; border: 1px solid #444; border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: 12px; user-select: none;
+  /* Expanding the clip-info or window section can make the card taller than the window;
+     without this the Save button below the fold is unreachable on a laptop screen. */
+  max-height: calc(100vh - 32px); overflow-y: auto;
 }
 .hdr { display: flex; align-items: center; gap: 6px; padding: 7px 9px; cursor: move;
   background: #2b2d31; border-radius: 8px 8px 0 0; }
@@ -85,6 +102,9 @@ button.primary:hover { background: #38805c; }
 .help { background: #15161a; border: 1px solid #333; border-radius: 5px; padding: 7px;
   line-height: 1.5; max-height: 260px; overflow-y: auto; color: #cfd3da; }
 .mini { font-size: 11px; color: #8b90a0; }
+.sect { display: flex; flex-direction: column; gap: 6px; padding: 7px; border: 1px solid #333;
+  border-radius: 5px; background: #17181c; }
+.warn { color: #f0b36b; }
 `;
 
 function h<K extends keyof HTMLElementTagNameMap>(
@@ -194,9 +214,79 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   body.append(h("div", { class: "grid2" }, undoBtn, refreshBtn));
   body.append(h("div", { class: "row" }, dlBtn));
 
+  // ---- clip info + windows (collapsed by default: the rally flow stays the front door) ----
+  const clipToggle = h("button");
+  const winToggle = h("button");
+  body.append(h("div", { class: "grid2" }, clipToggle, winToggle));
+
+  // Clip info. Every input starts EMPTY unless something was recorded, and an empty input
+  // is written as null ("not screened") — never 0, never a plausible default.
+  const clipBox = h("div", { class: "sect" });
+  clipBox.style.display = "none";
+  const clipFields: Record<string, HTMLInputElement> = {};
+  const clipLabels: Record<string, HTMLLabelElement> = {};
+  for (const f of ["venue", "cameraSetup", "courtsVisible", "courtsActive",
+                   "courtsPartial", "targetCourt", "notes"]) {
+    const lab = h("label");
+    const inp = h("input", { name: `clip-${f}` }) as HTMLInputElement;
+    clipLabels[f] = lab;
+    clipFields[f] = inp;
+    clipBox.append(h("div", { class: "row" }, lab, inp));
+  }
+  const fmtLabel = h("label");
+  const fmtSel = h("select", { name: "clip-matchFormat" }) as HTMLSelectElement;
+  fmtSel.append(h("option", { value: "" })); // "(not set)" first => the default writes null
+  for (const f of MATCH_FORMATS) fmtSel.append(h("option", { value: f }));
+  clipBox.append(h("div", { class: "row" }, fmtLabel, fmtSel));
+  // Capture time is READ-ONLY on purpose: there is no box to type a date into, because an
+  // operator-typed date is exactly the "folder says May 19, container says May 21" failure
+  // this sidecar exists to prevent. A web page exposes no container tags at all.
+  const capLabel = h("label");
+  const capValue = h("span", { class: "mini" });
+  clipBox.append(h("div", { class: "row" }, capLabel, capValue));
+  const saveClipBtn = h("button", { class: "primary" });
+  clipBox.append(h("div", { class: "row" }, saveClipBtn));
+  body.append(clipBox);
+
+  // Window track: its own numbering, its own file, its own list.
+  const winBox = h("div", { class: "sect" });
+  winBox.style.display = "none";
+  const winStartLabel = h("label");
+  const winStartIn = h("input", { name: "win-start" }) as HTMLInputElement;
+  const winEndLabel = h("label");
+  const winEndIn = h("input", { name: "win-end" }) as HTMLInputElement;
+  winBox.append(h("div", { class: "row" }, winStartLabel, winStartIn, winEndLabel, winEndIn));
+  const winLabelLabel = h("label");
+  const winLabelSel = h("select", { name: "win-label" }) as HTMLSelectElement;
+  for (const l of WINDOW_LABELS) winLabelSel.append(h("option", { value: l }));
+  winBox.append(h("div", { class: "row" }, winLabelLabel, winLabelSel));
+  const winNotesLabel = h("label");
+  const winNotesIn = h("input", { name: "win-notes" }) as HTMLInputElement;
+  winBox.append(h("div", { class: "row" }, winNotesLabel, winNotesIn));
+  const winMarkStart = h("button");
+  const winMarkEnd = h("button");
+  winBox.append(h("div", { class: "grid2" }, winMarkStart, winMarkEnd));
+  const winSaveBtn = h("button", { class: "primary" });
+  winBox.append(h("div", { class: "row" }, winSaveBtn));
+  const winTally = h("div", { class: "mini" });
+  winBox.append(winTally);
+  const winRecentLabel = h("div", { class: "mini" });
+  winBox.append(winRecentLabel);
+  const winList = h("div", { class: "list" });
+  winBox.append(winList);
+  const winDelBtn = h("button");
+  const winUndoBtn = h("button");
+  winBox.append(h("div", { class: "grid2" }, winDelBtn, winUndoBtn));
+  const winDlBtn = h("button");
+  winBox.append(h("div", { class: "row" }, winDlBtn));
+  body.append(winBox);
+
   // ---- state ----
   let selectedN: number | null = null;
   let lastMsg: Msg = { key: "status.ready" };
+  const clip: ClipMeta = deps.clip ? { ...deps.clip } : emptyClipMeta();
+  const windows: WindowRow[] = deps.windows ? [...deps.windows] : [];
+  let selectedWin: number | null = null;
 
   function setStatus(m: Msg) {
     lastMsg = m;
@@ -229,6 +319,79 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     dlBtn.textContent = t("btn.downloadCsv");
     recentLabel.textContent = t("label.recent");
     help.innerHTML = t("help.html");
+    clipToggle.textContent = t("btn.clipInfo");
+    winToggle.textContent = t("btn.windows");
+    clipLabels.venue.textContent = t("label.venue");
+    clipLabels.cameraSetup.textContent = t("label.cameraSetup");
+    clipLabels.courtsVisible.textContent = t("label.courtsVisible");
+    clipLabels.courtsActive.textContent = t("label.courtsActive");
+    clipLabels.courtsPartial.textContent = t("label.courtsPartial");
+    clipLabels.targetCourt.textContent = t("label.targetCourt");
+    clipLabels.notes.textContent = t("label.notes");
+    fmtLabel.textContent = t("label.matchFormat");
+    fmtSel.options[0].textContent = t("fmt.unset");
+    for (const f of MATCH_FORMATS) {
+      const o = Array.from(fmtSel.options).find((x) => x.value === f);
+      if (o) o.textContent = t("fmt." + f);
+    }
+    capLabel.textContent = t("label.captureTime");
+    capValue.textContent = t("clip.captureUnknown");
+    saveClipBtn.textContent = t("btn.saveClip");
+    winStartLabel.textContent = t("label.start");
+    winEndLabel.textContent = t("label.end");
+    winLabelLabel.textContent = t("label.windowLabel");
+    for (const o of Array.from(winLabelSel.options)) o.textContent = t("wlabel." + o.value);
+    winNotesLabel.textContent = t("label.notes");
+    winMarkStart.textContent = t("btn.markStart");
+    winMarkEnd.textContent = t("btn.markEnd");
+    winDelBtn.textContent = t("btn.delete");
+    winUndoBtn.textContent = t("btn.undo");
+    winDlBtn.textContent = t("btn.downloadWindows");
+    winRecentLabel.textContent = t("label.recentWindows");
+  }
+
+  // The completeness readout — the same formula and the same thresholds the collector
+  // blocks on, so a half-finished pass is caught here rather than at import.
+  function coverageHtml(): string {
+    const c = completeness(a.rows, video.duration());
+    if (!c) return "";
+    let out =
+      "<br>" +
+      esc(t("cov.line", {
+        to: c.labelled_to_s.toFixed(1), dur: c.video_duration_s.toFixed(1),
+        pct: (c.label_span_coverage * 100).toFixed(1),
+        tail: c.tail_unlabelled_s.toFixed(1), gap: c.largest_unlabelled_gap_s.toFixed(1),
+      }));
+    if (c.tail_unlabelled_s > TAIL_WARN_S) {
+      out += `<br><span class="warn">${esc(t("cov.tail", { tail: c.tail_unlabelled_s.toFixed(1), limit: TAIL_WARN_S }))}</span>`;
+    } else if (c.label_span_coverage < SPAN_WARN) {
+      out += "<br>" + esc(t("cov.span", { limit: Math.round(SPAN_WARN * 100) }));
+    }
+    return out;
+  }
+
+  function renderWindows() {
+    const counts = tally(windows);
+    winTally.textContent = t("tally.line", {
+      counts: WINDOW_LABELS.map((l) => `${t("wlabel." + l)} ${counts[l]}/${WINDOW_TARGET_EACH}`).join(" · "),
+      target: WINDOW_TARGET_EACH,
+    });
+    winSaveBtn.textContent =
+      winStartIn.value.trim() !== "" && winEndIn.value.trim() !== ""
+        ? t("btn.saveWindowN", { n: nextWindowNumber(windows) })
+        : t("btn.saveWindow");
+    winList.replaceChildren();
+    for (const r of windows) {
+      const item = h("div", {
+        class: "item" + (r.n === selectedWin ? " sel" : ""),
+        textContent: `#${r.n}  ${fmtClock(r.s)} → ${fmtClock(r.e)}  [${t("wlabel." + r.label)}]${r.notes ? "  " + r.notes : ""}`,
+      });
+      item.addEventListener("click", () => {
+        selectedWin = r.n;
+        renderWindows();
+      });
+      winList.append(item);
+    }
   }
 
   function render() {
@@ -264,6 +427,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     lines.push(t("status.footer", { now: fmtClock(video.peekNow()), count: a.rows.length }));
     status.innerHTML =
       lines.map(esc).join("<br>") +
+      coverageHtml() +
       `<br><span class="mini">${esc(t("status.csvLine", { key: deps.identity.key }))}</span>`;
     // list
     list.replaceChildren();
@@ -308,6 +472,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     deps.onLocaleChange?.(getLocale());
     applyI18n();
     render();
+    renderWindows();
   });
 
   backBtn.addEventListener("click", () =>
@@ -343,6 +508,152 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   dlBtn.addEventListener("click", () => {
     download(a.toCSV());
     setStatus({ key: "status.downloaded", params: { count: a.rows.length } });
+  });
+
+  // ---- clip info ----
+  function loadClipFields() {
+    clipFields.venue.value = clip.venue_id ?? "";
+    clipFields.cameraSetup.value = clip.camera_setup_id ?? "";
+    clipFields.courtsVisible.value = clip.court_count != null ? String(clip.court_count) : "";
+    clipFields.courtsActive.value = clip.active_court_count != null ? String(clip.active_court_count) : "";
+    clipFields.courtsPartial.value =
+      clip.partially_visible_court_count != null ? String(clip.partially_visible_court_count) : "";
+    clipFields.targetCourt.value = clip.target_court_id ?? "";
+    clipFields.notes.value = clip.notes ?? "";
+    fmtSel.value = clip.match_format ?? "";
+  }
+  loadClipFields();
+
+  saveClipBtn.addEventListener("click", () => {
+    const counts: Array<[string, string, number]> = [
+      ["courtsVisible", "label.courtsVisible", 1],
+      ["courtsActive", "label.courtsActive", 1],
+      ["courtsPartial", "label.courtsPartial", 0],
+    ];
+    const parsed: Record<string, number | null> = {};
+    for (const [field, labelKey, min] of counts) {
+      const r = parseCount(clipFields[field].value, min);
+      if ("invalid" in r) {
+        setStatus({ key: "clip.invalidNumber", params: { field: t(labelKey), min } });
+        return;
+      }
+      parsed[field] = r.value;
+    }
+    clip.venue_id = optText(clipFields.venue.value);
+    clip.camera_setup_id = optText(clipFields.cameraSetup.value);
+    clip.target_court_id = optText(clipFields.targetCourt.value);
+    clip.notes = optText(clipFields.notes.value);
+    clip.court_count = parsed.courtsVisible;
+    clip.active_court_count = parsed.courtsActive;
+    clip.partially_visible_court_count = parsed.courtsPartial;
+    clip.match_format = fmtSel.value === "" ? null : fmtSel.value;
+    clip.sport = a.sport;
+
+    const issue = validateClipMeta(clip);
+    if (issue) {
+      setStatus(issue);
+      return;
+    }
+    deps.persistClip?.(clip);
+    deps.downloadClipMeta?.(
+      serializeClipMeta(clip, {
+        clipName: deps.identity.title || null,
+        generator: `rally-annotator-web/${VERSION}`,
+        completeness: completeness(a.rows, video.duration()),
+      })
+    );
+    setStatus({
+      key: "clip.saved",
+      params: {
+        summary: `${clip.court_count ?? "?"}/${clip.active_court_count ?? "?"} courts`,
+      },
+    });
+  });
+
+  // ---- window track ----
+  function commitWindows() {
+    deps.persistWindows?.(windows);
+    deps.downloadWindows?.(serializeWindows(windows));
+  }
+
+  winStartIn.addEventListener("input", renderWindows);
+  winEndIn.addEventListener("input", renderWindows);
+  winMarkStart.addEventListener("click", () => {
+    const now = video.now();
+    if (now == null) return setStatus({ key: "status.noMediaStart" });
+    winStartIn.value = now.toFixed(3);
+    renderWindows();
+    setStatus({ key: "status.startSet", params: { t: now.toFixed(3) } });
+  });
+  winMarkEnd.addEventListener("click", () => {
+    const now = video.now();
+    if (now == null) return setStatus({ key: "status.noMediaEnd" });
+    winEndIn.value = now.toFixed(3);
+    renderWindows();
+    setStatus({ key: "status.endSet", params: { t: now.toFixed(3) } });
+  });
+  winSaveBtn.addEventListener("click", () => {
+    let s = Number(winStartIn.value.replace(/\s+/g, ""));
+    let e = Number(winEndIn.value.replace(/\s+/g, ""));
+    if (winStartIn.value.trim() === "" || !Number.isFinite(s)) return setStatus({ key: "status.needStart" });
+    if (winEndIn.value.trim() === "" || !Number.isFinite(e)) return setStatus({ key: "status.needEnd" });
+    if (e < s) [s, e] = [e, s]; // tolerate reversed marks, exactly like the rally track
+    if (e <= s) return setStatus({ key: "status.zeroLength" });
+    // "adjacent" is meaningless without a target court, so a window cannot be saved before
+    // the clip's target_court_id is recorded.
+    if (!clip.target_court_id) return setStatus({ key: "clip.needTarget" });
+
+    const n = nextWindowNumber(windows);
+    windows.push({
+      n, s, e,
+      label: winLabelSel.value || WINDOW_LABELS[0],
+      court: clip.target_court_id,
+      notes: winNotesIn.value,
+    });
+    commitWindows();
+    winStartIn.value = "";
+    winEndIn.value = "";
+    winNotesIn.value = "";
+    renderWindows();
+    setStatus({
+      key: "win.saved",
+      params: { n, s: s.toFixed(3), e: e.toFixed(3), label: t("wlabel." + windows[windows.length - 1].label) },
+    });
+  });
+  winDelBtn.addEventListener("click", () => {
+    if (selectedWin == null) return setStatus({ key: "status.needSelectDelete" });
+    const idx = indexOfWindow(windows, selectedWin);
+    if (idx === -1) return setStatus({ key: "status.notFound", params: { n: selectedWin } });
+    const n = selectedWin;
+    windows.splice(idx, 1);
+    selectedWin = null;
+    commitWindows();
+    renderWindows();
+    setStatus({ key: "win.deleted", params: { n, count: windows.length } });
+  });
+  winUndoBtn.addEventListener("click", () => {
+    if (winStartIn.value !== "" || winEndIn.value !== "") {
+      winStartIn.value = "";
+      winEndIn.value = "";
+      renderWindows();
+      return setStatus({ key: "status.clearedMark" });
+    }
+    if (windows.length === 0) return setStatus({ key: "win.nothing" });
+    const last = windows.pop()!;
+    commitWindows();
+    renderWindows();
+    setStatus({ key: "win.removed", params: { n: last.n, count: windows.length } });
+  });
+  winDlBtn.addEventListener("click", () => {
+    deps.downloadWindows?.(serializeWindows(windows));
+    setStatus({ key: "status.downloaded", params: { count: windows.length } });
+  });
+
+  clipToggle.addEventListener("click", () => {
+    clipBox.style.display = clipBox.style.display === "none" ? "flex" : "none";
+  });
+  winToggle.addEventListener("click", () => {
+    winBox.style.display = winBox.style.display === "none" ? "flex" : "none";
   });
 
   helpBtn.addEventListener("click", () => {
@@ -395,6 +706,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   document.body.append(host);
   applyI18n();
   render();
+  renderWindows();
 
   const api: PanelHandle = {
     toggle() {

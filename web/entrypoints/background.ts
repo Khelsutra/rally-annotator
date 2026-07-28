@@ -6,7 +6,10 @@ import type { RuntimeMessage } from "../src/messages";
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg: RuntimeMessage) => {
     if (msg && msg.type === "rally-download") {
-      const url = "data:text/csv;charset=utf-8," + encodeURIComponent(msg.csv);
+      // The same path carries all three artifacts (rallies CSV, clipmeta JSON, windows CSV);
+      // only the MIME differs, so a JSON sidecar isn't saved as text/csv.
+      const url =
+        `data:${msg.mime ?? "text/csv"};charset=utf-8,` + encodeURIComponent(msg.csv);
       void browser.downloads
         .download({ url, filename: msg.filename, saveAs: false, conflictAction: "overwrite" })
         .catch((e) => console.error("[rally] download failed:", e));
