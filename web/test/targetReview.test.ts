@@ -82,6 +82,37 @@ describe("polygon parsing fails closed", () => {
   });
 });
 
+describe("the court_picker output contract", () => {
+  // tools/court_picker.html emits exactly this shape: toFixed(3) pairs, space separated.
+  // Both front-ends must accept it verbatim, or clicking corners produces a string the
+  // annotator then refuses.
+  const PICKER_OUTPUT = "0.208,0.541 0.775,0.541 0.942,0.983 0.061,0.983";
+
+  it("is accepted by the parser", () => {
+    const r = parsePolygon(PICKER_OUTPUT);
+    expect("points" in r).toBe(true);
+    expect("points" in r && r.points).toEqual([
+      [0.208, 0.541], [0.775, 0.541], [0.942, 0.983], [0.061, 0.983],
+    ]);
+  });
+
+  it("is what formatPolygon itself produces, so the two never drift", () => {
+    const r = parsePolygon(PICKER_OUTPUT);
+    expect("points" in r && formatPolygon(r.points)).toBe(PICKER_OUTPUT);
+  });
+
+  it("survives the full profile validation", () => {
+    const r = parsePolygon(PICKER_OUTPUT);
+    expect(validateProfile(prof({ play_volume_polygon: "points" in r ? r.points : [] }), [])).toBeNull();
+  });
+
+  it("a 3-point and a 6-point pick are both accepted (bowed wide-angle edges)", () => {
+    expect("points" in parsePolygon("0.1,0.1 0.9,0.1 0.5,0.9")).toBe(true);
+    expect("points" in parsePolygon(
+      "0.10,0.50 0.45,0.47 0.80,0.50 0.94,0.98 0.50,0.99 0.06,0.98")).toBe(true);
+  });
+});
+
 describe("profile validation fails closed", () => {
   it("accepts a well-formed profile", () => {
     expect(validateProfile(prof(), [])).toBeNull();

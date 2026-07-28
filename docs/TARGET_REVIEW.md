@@ -89,8 +89,35 @@ Two things this deliberately is **not**:
 Sampling at rally START/END timestamps would be the **worst** choice, incidentally: those are
 precisely the moments when players are on the lines. The median needs no labels at all.
 
-Coordinates are read off that still as fractions of the frame — `0,0` top-left, `1,1`
-bottom-right — which is why they survive a resolution change.
+For a whole session at once:
+
+```bash
+node tools/court_still.mjs --all "<session folder>"
+```
+
+which skips any clip that already has a still, so it is free to re-run. One still per clip is the
+simplest thing that works; clips sharing a static camera section will legitimately end up with the
+same polygon, which is exactly what `camera_section_id` is for.
+
+#### Picking the polygon by clicking
+
+Coordinates are fractions of the frame — `0,0` top-left, `1,1` bottom-right — which is why they
+survive a re-encode at another resolution. Reading pixels off an image editor and dividing by hand
+is eight divisions per court and a transcription error waiting to happen, so don't:
+
+**Open `tools/court_picker.html`** (double-click it — no server, no install, works offline), drop
+the `<clip>.court.png` onto it, and click the corners. It draws the polygon as you go and gives you
+the string to paste into **Play volume** on the Target screen. `Undo point` and `Clear` are there
+for the inevitable misclick.
+
+The picker reads an image and prints a string. It never opens, writes, or knows about a label file.
+
+Its output format is pinned by tests on both sides — a string it emits is accepted verbatim by the
+VLC extension and the browser extension, so clicking corners can never produce something the
+annotator then refuses.
+
+Mark the **play volume**, not the painted lines: include the run-off you want the segmenter to
+treat as belonging to this court.
 
 > **Wide-angle caveat.** On GoPro footage the lens bows straight lines noticeably, so a four-point
 > quadrilateral is an *approximation* of a court whose edges are actually curved. That is usually

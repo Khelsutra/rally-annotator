@@ -124,6 +124,38 @@ time. Values already in use in this corpus:
 materially different and it is a new setup, because that is what makes it count toward setup
 representativeness. Two clips shot from the same spot on different days share one id.
 
+#### The orientation vocabulary (owner, 2026-07-28)
+
+`camera_setup_id` describes **where the camera sits relative to the court**, and nothing else:
+
+| Value | Placement |
+|---|---|
+| `court-left-corner` | corner, left side |
+| `court-right-corner` | corner, right side |
+| `court-center` | centred on the court |
+| `court-side-middle` | side-on, level with the net |
+
+**The venue is deliberately NOT baked into these**, and that is worth stating because prefixing them
+(`bxh-court-left-corner`) looks tempting and is wrong twice over:
+
+1. **It is already recorded.** `venue_id` is its own field. Duplicating it into a second string is
+   denormalization that buys nothing and can go out of sync — `venue_id: Boxhill` alongside
+   `camera_setup_id: xyz-court-left-corner` is unrepresentable nonsense that no validator would catch.
+2. **Consumers already compose the pair.** The indexer's representativeness unit is
+   `f"{venue_id}::{camera_setup_id}"` — see `ClipRow.setup_key` in
+   `backend/eval/qwen_tolf1_075_grouping.py`, whose docstring is literally *"Venue plus camera
+   setup — the unit §4.3 counts for representativeness."* `Boxhill::court-left-corner` and
+   `OtherVenue::court-left-corner` are already two distinct setups. There is no collision to
+   prevent.
+
+Keeping the vocabulary venue-agnostic also buys something a prefix would destroy: you can ask
+"which clips are left-corner framings?" **across** venues, which is a question about camera domain
+rather than about a building.
+
+The older `bxh-elevated-baseline` / `bxh-lowside-3court` / `bxh-lowside-singlecourt` values predate
+this vocabulary. They are valid and should not be rewritten — a stable identifier that changes is
+worse than an inconsistent one — but new setups use the table above.
+
 #### `target_court_id` — use the venue's own court numbering
 
 `target_court_id` now lives inside a **target profile**, not at the top level, because it is a

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+- **`tools/court_picker.html`** — click the target court's corners on the empty-court still and get
+  the normalized polygon string to paste. Opens by double-click (no server, no install, offline),
+  takes the PNG by drag-and-drop, draws the polygon live, and has undo/clear. Reading pixels off an
+  image editor and dividing by hand is eight divisions per court and a transcription error waiting
+  to happen. Its output format is **pinned by tests on both sides**, so a string it emits can never
+  be one the annotator refuses. Like `court_still`, it reads an image and prints a string — it never
+  opens or writes a label file.
+- **`court_still --all <dir>`** — batch a whole session folder, skipping clips that already have a
+  still (so it is free to re-run), `--force` to redo them.
+- **Documented the `camera_setup_id` orientation vocabulary** (`court-left-corner`,
+  `court-right-corner`, `court-center`, `court-side-middle`) and, more importantly, **why the venue
+  is deliberately not prefixed onto it**: `venue_id` is already its own field, and the indexer
+  already composes `venue::setup` as its representativeness unit (`ClipRow.setup_key`), so there is
+  no collision to prevent — while a prefix would duplicate data that can drift out of sync and
+  would destroy the ability to ask "which clips are left-corner framings?" across venues.
+
 ## v2.0.0 — 2026-07-28 — target-first correction
 
 **Breaking:** the neighborhood window track is removed. Nothing in this tool asks the operator to

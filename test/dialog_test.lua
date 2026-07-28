@@ -638,6 +638,25 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- tools/court_picker.html emits toFixed(3) pairs, space separated. Clicking corners must
+-- produce a string this front-end accepts VERBATIM, or the picker is useless.
+--------------------------------------------------------------------------------
+do
+  os.remove(CLIPMETA)
+  MEDIA_URI = nil; PB.state = "playing"
+  activate(); show_target()
+  wd('text_input', 2, 2):set_text("s1")
+  wd('text_input', 4, 2):set_text("3")
+  wd('text_input', 2, 4):set_text("0.208,0.541 0.775,0.541 0.942,0.983 0.061,0.983")
+  save_target_profile()
+  local j = read_file(CLIPMETA) or ""
+  ok("the court_picker output string is accepted verbatim", j:find("[0.208, 0.541]", 1, true) ~= nil)
+  ok("and every picked corner survives", j:find("[0.061, 0.983]", 1, true) ~= nil)
+  eq("one profile saved from it", #wd('list', 1, 10).values, 1)
+  os.remove(CLIPMETA)
+end
+
+--------------------------------------------------------------------------------
 -- Sparse target-state review: three answers, all about the TARGET court. No quota.
 --------------------------------------------------------------------------------
 do

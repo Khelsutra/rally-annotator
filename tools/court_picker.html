@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Court polygon picker — Rally Annotator</title>
+<!--
+  Pick a target court's play-volume polygon off an empty-court still and get the NORMALIZED
+  string to paste into the annotator's "Play volume" field.
+
+  Open this file directly (double-click; no server, no install, works offline), drop in a
+  <clip>.court.png from tools/court_still.mjs, and click the corners.
+
+  Why this exists: the polygon is stored as fractions of the frame, so reading pixels off Paint
+  and dividing by hand is eight divisions per court and a transcription error waiting to happen.
+  Clicking is the same information with none of the arithmetic.
+
+  It reads an image and prints a string. It never opens, writes or knows about a label file.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #17181c; color: #e6e6e6; }
+  header { padding: 10px 14px; background: #22242a; border-bottom: 1px solid #333;
+           display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  button { font: inherit; background: #3a3d44; color: #e6e6e6; border: 1px solid #555;
+           border-radius: 5px; padding: 5px 10px; cursor: pointer; }
+  button:hover { background: #474b54; }
+  button.primary { background: #2f6f4f; border-color: #3c8a63; }
+  .wrap { position: relative; display: inline-block; margin: 14px; line-height: 0; }
+  #shot { max-width: calc(100vw - 28px); height: auto; cursor: crosshair; }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .out { margin: 0 14px 18px; }
+  .out code { display: block; background: #101114; border: 1px solid #333; border-radius: 6px;
+              padding: 10px 12px; font: 13px/1.6 ui-monospace, Consolas, monospace;
+              word-break: break-all; min-height: 42px; color: #9ee6b4; }
+  .hint { color: #8b90a0; font-size: 12.5px; margin: 8px 14px; max-width: 900px; }
+  .drop { margin: 14px; padding: 40px; border: 2px dashed #444; border-radius: 10px;
+          text-align: center; color: #8b90a0; }
+  .warn { color: #f0b36b; }
+</style>
+
+<header>
+  <h1>Court polygon picker</h1>
+  <input type="file" id="file" accept="image/*">
+  <button id="undo">Undo point</button>
+  <button id="clear">Clear</button>
+  <button id="copy" class="primary">Copy polygon</button>
+  <span id="count" class="hint" style="margin:0"></span>
+</header>
+
+<div id="drop" class="drop">Drop a <code>&lt;clip&gt;.court.png</code> here, or use the file picker above.</div>
+
+<div class="wrap" id="wrap" hidden>
+  <img id="shot" alt="empty-court still">
+  <svg id="ov" preserveAspectRatio="none"></svg>
+</div>
+
+<div class="out">
+  <code id="poly">click the corners of the target court</code>
+  <p class="hint">
+    Paste that into <b>Play volume</b> on the annotator's Target screen. Coordinates are fractions
+    of the frame — <code style="display:inline;padding:2px 5px">0,0</code> top-left,
+    <code style="display:inline;padding:2px 5px">1,1</code> bottom-right — so they stay correct if
+    the video is re-encoded at another resolution.
+    <br><br>
+    Four corners is the usual case. <b>On wide-angle GoPro footage the lens bows straight lines</b>,
+    so if a four-point quadrilateral visibly misses the bowed edges, keep clicking along them —
+    the schema takes any number of points from three up.
+    <br><br>
+    Mark the <b>play volume</b>, not the painted lines: include the run-off you want the segmenter
+    to treat as this court.
+  </p>
+</div>
+
+<script>
+  const img = document.getElementById("shot");
+  const ov = document.getElementById("ov");
+  const out = document.getElementById("poly");
+  const countEl = document.getElementById("count");
+  const wrap = document.getElementById("wrap");
+  const drop = document.getElementById("drop");
+  let pts = []; // normalized [x, y]
+
+  function fmt(v) { return v.toFixed(3); }
+
+  function render() {
+    // The image is displayed scaled to fit, so draw in the SVG's own 0..1 viewBox and let
+    // preserveAspectRatio="none" stretch it exactly onto the image box.
+    ov.setAttribute("viewBox", "0 0 1 1");
+    const poly = pts.map(([x, y]) => `${x},${y}`).join(" ");
+    const marks = pts.map(([x, y], i) => `
+      <circle cx="${x}" cy="${y}" r="0.006" fill="#ffcc55"/>
+      <text x="${x + 0.009}" y="${y + 0.004}" fill="#ffcc55"
+            style="font:0.018px sans-serif">${i + 1}</text>`).join("");
+    ov.innerHTML = `
+      ${pts.length >= 2 ? `<polygon points="${poly}" fill="rgba(80,220,140,.18)"
+        stroke="#5cdc8c" stroke-width="0.0025" vector-effect="non-scaling-stroke"/>` : ""}
+      ${marks}`;
+
+    out.textContent = pts.length
+      ? pts.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ")
+      : "click the corners of the target court";
+    countEl.textContent = pts.length < 3
+      ? `${pts.length} point${pts.length === 1 ? "" : "s"} — a play volume needs at least 3`
+      : `${pts.length} points`;
+    countEl.className = pts.length < 3 ? "hint warn" : "hint";
+  }
+
+  function load(file) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    img.onload = () => { wrap.hidden = false; drop.hidden = true; pts = []; render(); };
+    img.src = url;
+  }
+
+  document.getElementById("file").addEventListener("change", (e) => load(e.target.files[0]));
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    load(e.dataTransfer.files[0]);
+  });
+
+  img.addEventListener("click", (e) => {
+    const r = img.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    pts.push([x, y]);
+    render();
+  });
+
+  document.getElementById("undo").addEventListener("click", () => { pts.pop(); render(); });
+  document.getElementById("clear").addEventListener("click", () => { pts = []; render(); });
+  document.getElementById("copy").addEventListener("click", async () => {
+    if (pts.length < 3) return;
+    const text = pts.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");
+    try { await navigator.clipboard.writeText(text); countEl.textContent = "copied"; }
+    catch { // file:// can block the async clipboard; fall back to selecting the text
+      const rng = document.createRange();
+      rng.selectNodeContents(out);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rng);
+      countEl.textContent = "selected — press Ctrl+C";
+    }
+  });
+
+  render();
+</script>
