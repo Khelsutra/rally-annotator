@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **Reframed `setup_validity` around serviceability, not geometric completeness.** The old wording
+  listed a "clipped" target as a trigger for `unsupported`, which invites a wrong inference the
+  polygon makes vivid: a camera aimed at one court from a corner routinely runs part of it off frame
+  while still being unambiguously *about* that court. Geometry falling outside the frame is a fact
+  about the shot; serviceability is a question about the task. The doc now asks the right question —
+  *can rally boundaries for the target match be determined from this framing?* — notes that
+  successfully labelling a clip's rallies is direct evidence that they can, and states that
+  **prominence is relative**: the target is the court that dominates the frame among those visible,
+  which is computable by ranking polygon areas rather than by asking whether any one court is wholly
+  enclosed. Also records that the polygon is not a completeness claim — it marks the play volume
+  *that is visible*, and a partly-visible court still has one worth recording.
 - **`tools/court_picker.html`** — click the target court's corners on the empty-court still and get
   the normalized polygon string to paste. Opens by double-click (no server, no install, offline),
   takes the PNG by drag-and-drop, draws the polygon live, and has undo/clear. Reading pixels off an

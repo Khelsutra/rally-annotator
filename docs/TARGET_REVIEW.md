@@ -57,13 +57,45 @@ does not move; a fixed-tripod clip is a single section.
 
 ### `setup_validity`
 
-Whether this camera section is one the target-first pipeline can actually serve:
+The question is **serviceability, not geometric completeness**: can rally boundaries for the target
+match be determined from this framing?
 
-- **`supported`** — the target court is prominent and its play volume is fully framed. Normal case.
-- **`unsupported`** — this section cannot be served as-is: no court is prominent, the target is
-  badly occluded or clipped, or the camera drifts within the section.
+- **`supported`** — they can. The target court is prominent and its rallies are callable.
+- **`unsupported`** — they cannot: no court is prominent (two or more compete for the frame with
+  none dominant), the target is occluded to the point where rallies cannot be called, or the camera
+  drifts within the section.
 - **`unclear`** — you could not tell. **Use this rather than guessing**; `unclear` is a real,
   recordable answer and is more useful than a wrong `supported`.
+
+#### A partly-visible court is NOT automatically `unsupported`
+
+This is the mistake to avoid, and it is an easy one — the polygon makes the clipping vivid, so it
+invites the conclusion.
+
+A camera aimed at one court from a corner will routinely run part of that court off the top of
+frame while still being unambiguously *about* that court. That is a framing trade, not a failure.
+**Geometry falling outside the frame is a fact about the shot; serviceability is a question about
+the task.** They are not the same question, and one does not decide the other.
+
+The strongest available evidence is direct: **if you could label that clip's rallies, its rallies
+are callable.** Human labelling of the match is a demonstration that the framing carries enough
+signal, and it outranks any inference from the polygon's shape.
+
+So: clipping is a symptom worth *considering*, never a verdict on its own. Downgrade a section for
+what it cost you while labelling, not for what the polygon could not enclose.
+
+#### Prominence is relative, not absolute
+
+The target court is the one that **dominates the frame relative to the other visible courts** —
+maximum coverage of the visible courts — not the one that happens to be wholly enclosed. A shot
+where the target fills most of the frame and the neighbours are reduced to slivers at the edge is
+the *intended* outcome of aiming at a single court, not a defect in it.
+
+Because coverage is comparable rather than absolute, this is computable: given a polygon per visible
+court, ranking by area picks the prominent one. That is the shape the indexer's §4.5 already
+anticipates for automatic court selection ("compare configured polygons with player-cluster,
+shuttle-density, and court-line proposals"), and it is the reason a single signal — "is the whole
+court in frame?" — must not be allowed to decide the answer by itself.
 
 ### Drawing the polygon against an empty court
 
@@ -118,6 +150,12 @@ annotator then refuses.
 
 Mark the **play volume**, not the painted lines: include the run-off you want the segmenter to
 treat as belonging to this court.
+
+**The polygon is not a completeness claim.** It records the play volume *that is visible*. A court
+running off the top of frame still has a well-defined visible play volume, and marking it is
+correct — that padded region is exactly what the crop / mask / marker views operate on. Never
+withhold a polygon because the court is partly out of shot, and never downgrade `setup_validity`
+for it on its own.
 
 > **Wide-angle caveat.** On GoPro footage the lens bows straight lines noticeably, so a four-point
 > quadrilateral is an *approximation* of a court whose edges are actually curved. That is usually
