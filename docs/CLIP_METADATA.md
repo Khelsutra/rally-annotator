@@ -170,8 +170,10 @@ frame-relative id silently re-points at a different slab of floor the moment the
 two clips of the same physical court disagree about which court they are. A painted number is a
 property of the building, so it stays true across every setup, session and clip.
 
-The target court is not something to look up: **it is the court whose rallies you are putting in
-`<clip>.rallies.csv`** — the one prominent match this recording indexes.
+For rally annotation, the target is implicitly the video's **largest, most visually focused court**:
+that is the match whose rallies go into `<clip>.rallies.csv`. Court localization/selection is
+derived downstream; a `target_court_id` profile is optional metadata and never a prerequisite for
+marking or saving rallies.
 
 Rules that make the id load-bearing rather than decorative:
 

@@ -564,17 +564,12 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     setStatus({ key: st === "playing" ? "status.resumed" : st === "paused" ? "status.paused" : "status.noVideoLoaded" });
   });
 
-  // Declaring the target court is a PRECONDITION of rally annotation, not a later step: a rally
-  // CSV records one court's match, and a file that never says which court is under-specified data
-  // nobody can repair afterwards.
-  const targetDeclared = () => clip.target_profiles.length > 0;
-  markStartBtn.addEventListener("click", () => {
-    if (!targetDeclared()) return setStatus({ key: "target.gateRally" });
-    setStatus(a.markStart(video.now()));
-  });
+  // Rally labels are never gated on optional court metadata. The target court is the largest,
+  // most focused court in the video and is derived downstream; an operator may still add a target
+  // profile for diagnostics/review, but missing geometry must not stop annotation.
+  markStartBtn.addEventListener("click", () => setStatus(a.markStart(video.now())));
   markEndBtn.addEventListener("click", () => setStatus(a.markEnd(video.now())));
   saveBtn.addEventListener("click", () => {
-    if (!targetDeclared()) return setStatus({ key: "target.gateRally" });
     const res = a.saveRally();
     if (res.ok) download(a.toCSV()); // download the full CSV on each save (per design)
     setStatus(res);

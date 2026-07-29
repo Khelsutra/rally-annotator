@@ -7,48 +7,31 @@
 > actually indexes. **It is withdrawn.** Nothing in this tool asks you to identify or time a
 > neighbouring rally. See [Legacy neighborhood files](#legacy-neighborhood-files).
 
-The pipeline is **target-first**. One prominent court is designated per static camera section; the
-segmenter emits rally START/END for **that match only**. Everything here supports that and nothing
-else.
+The pipeline is **target-first**. The target is the largest, most visually focused court in the
+video; the segmenter emits rally START/END for **that match only**. Court localization/selection is
+derived downstream from the video rather than imposed as a prerequisite on the rally annotator.
 
 Two artifacts:
 
 | File | What it holds |
 |---|---|
-| `<clip>.clipmeta.json` → `target_profiles[]` | one persistent **target profile per static camera section** |
+| `<clip>.clipmeta.json` → `target_profiles[]` | optional persistent **target profile per static camera section** |
 | `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` |
 
-## Declare the target court BEFORE annotating rallies
+## Rally annotation never waits for court metadata
 
-Rally annotation is **gated** on a saved target profile. Mark START and Save Rally both refuse
-until one exists, in both front-ends.
+**Mark START and Save Rally always work without a saved target profile**, in both front-ends. The
+operator labels the rallies on the video's largest, most visually focused court. A missing still,
+polygon, court number, or target profile must never block that work.
 
-This is not ceremony. A rally CSV is a record of **one court's match**, and a file that never says
-which court is under-specified data — the kind nobody can repair afterwards, because the person who
-knew is gone and the video looks the same from every angle. Asking at the start costs one minute;
-reconstructing it later costs a screening pass, and two of those have already failed.
+The court is derived downstream using the video itself: frame coverage is the primary geometric
+signal, with visual focus and sustained play evidence resolving what the camera is actually about.
+No operator-drawn polygon is required to make that choice.
 
-Reading an existing clip is never blocked: a CSV labelled before the gate existed loads and displays
-normally. Only *new* marking requires the declaration — so the information gets backfilled exactly
-when someone next touches the clip.
-
-### Which court is prominent
-
-Mark **every** court you can see in `tools/court_picker.html`, including the ones only partly in
-frame. It ranks them by coverage and names the prominent one — *the court with the maximum coverage
-of the frame* — then hands you its polygon.
-
-Coverage decides. Whether a court is wholly inside the frame does not enter into it.
-
-If the top two are within **5 percentage points** of each other, the picker says **ambiguous**
-rather than picking by a rounding error. That is a real finding about the framing: no court
-dominates, so the section is `unsupported`. A camera that cannot decide which court it is about
-cannot be served by a target-first pipeline.
-
-The same arithmetic is available as pure functions — `polygonArea`, `rankProminence`,
-`isProminentCourt` in `web/src/state/targetReview.ts` — so a downstream pipeline can ask the same
-question of detected polygons and get the same answer. A test pins the picker's margin to the
-module's constant so the two cannot drift.
+Target profiles and the picker remain optional diagnostic/review metadata. When that metadata is
+useful, `tools/court_picker.html` can rank manually marked courts by coverage; the same arithmetic is
+available as `polygonArea`, `rankProminence`, and `isProminentCourt` in
+`web/src/state/targetReview.ts`. That optional helper is not the annotation source of truth.
 
 ## Rally annotation is unchanged
 
@@ -60,7 +43,7 @@ That is `<clip>.rallies.csv`, exactly as before ([CSV_FORMAT.md](CSV_FORMAT.md))
 prominent-match timeline already makes every non-target-rally instant an implicit negative for
 ordinary training — which is precisely why exhaustively labelling the neighbours was unnecessary.
 
-## Target profiles
+## Optional target profiles
 
 One per **static camera section**. A section is a stretch of the recording over which the camera
 does not move; a fixed-tripod clip is a single section.
@@ -129,7 +112,7 @@ anticipates for automatic court selection ("compare configured polygons with pla
 shuttle-density, and court-line proposals"), and it is the reason a single signal — "is the whole
 court in frame?" — must not be allowed to decide the answer by itself.
 
-### Drawing the polygon against an empty court
+### Optional: drawing the polygon against an empty court
 
 No single frame of a live match has all four corners of the target court unobstructed — a player
 is always standing on a line. So build an **empty-court still** first:
@@ -169,10 +152,13 @@ Coordinates are fractions of the frame — `0,0` top-left, `1,1` bottom-right �
 survive a re-encode at another resolution. Reading pixels off an image editor and dividing by hand
 is eight divisions per court and a transcription error waiting to happen, so don't:
 
-**Open `tools/court_picker.html`** (double-click it — no server, no install, works offline), drop
-the `<clip>.court.png` onto it, and click the corners. It draws the polygon as you go and gives you
-the string to paste into **Play volume** on the Target screen. `Undo point` and `Clear` are there
-for the inevitable misclick.
+If you need optional diagnostic geometry, open `tools/court_picker.html` (double-click it — no
+server, no install, works offline), drop the `<clip>.court.png` onto it, and click the corners. From
+VLC, **Pick on image…** passes the matching still to the page so it appears immediately. The picker
+draws the polygon as you go and gives you the string to paste into **Play volume** on the Target
+screen. `Undo point` and `Clear` are there for the inevitable misclick.
+
+You do not need to do this before annotating rallies.
 
 The picker reads an image and prints a string. It never opens, writes, or knows about a label file.
 

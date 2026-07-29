@@ -151,7 +151,6 @@
   "review.nothing": "Ingen gennemgange at fjerne.",
   "legacy.windowsPresent": "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her.",
   "target.polygonSelfIntersecting": "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
-  "target.gateRally": "Angiv først den fremtrædende målbane — fanen Mål. En duel-CSV er en optegnelse over ÉN banes kamp, og uden en målprofil siger intet hvilken.",
   "target.volumeSummary": "Spilzone: {n} hjørner, der dækker {pct}% af billedet.",
   "target.volumeEmpty": "Ingen spilzone endnu — markér banen i tools/court_picker.html og indsæt den linje, den giver dig.",
   "target.volumeInvalid": "Spilzonen kan ikke bruges endnu — {why}",

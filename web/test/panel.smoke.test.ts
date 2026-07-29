@@ -32,23 +32,9 @@ beforeEach(() => {
   panel = null;
 });
 
-// Rally annotation is GATED on a declared target court, so a panel used for rally tests must
-// have one — exactly as an operator must now declare one before labelling.
-const DECLARED: TargetProfile[] = [{
-  camera_section_id: "s1",
-  target_court_id: "1",
-  camera_profile_id: null,
-  play_volume_polygon: [[0.2, 0.5], [0.8, 0.5], [0.95, 0.98], [0.05, 0.98]],
-  setup_validity: "supported",
-  notes: null,
-}];
-
 function mount(download: (csv: string) => void = () => {}) {
   const a = new Annotator();
-  panel = mountPanel({
-    annotator: a, video: new DirectVideoHandler(), identity: { key: "url:t", title: "T" },
-    download, clip: { ...emptyClipMeta(), target_profiles: [...DECLARED] },
-  });
+  panel = mountPanel({ annotator: a, video: new DirectVideoHandler(), identity: { key: "url:t", title: "T" }, download });
   return a;
 }
 
@@ -171,7 +157,7 @@ describe("panel (jsdom, DOM-driven)", () => {
   });
 });
 
-describe("the target-court gate on rally annotation", () => {
+describe("rally annotation without a target profile", () => {
   function mountUndeclared() {
     const a = new Annotator();
     let csv = "";
@@ -182,37 +168,25 @@ describe("the target-court gate on rally annotation", () => {
     return { a, r: shadow(), csv: () => csv };
   }
 
-  it("refuses Mark START until a target court is declared", () => {
+  it("preserves the normal no-media feedback instead of showing a court gate", () => {
     const { a, r } = mountUndeclared();
     btn(r, "Mark START").click();
-    expect(statusText(r)).toContain("prominent target court");
+    expect(statusText(r)).toContain("No media playing");
     expect(a.startField).toBe("");
     panel!.destroy();
   });
 
-  it("refuses Save Rally too, so typing the times by hand is not a way around it", () => {
+  it("saves a typed rally and downloads its CSV with no target profile", () => {
     const { a, r, csv } = mountUndeclared();
     setField(r.querySelector('input[placeholder="start s"]'), "1.0");
     setField(r.querySelector('input[placeholder="end s"]'), "2.0");
     btn(r, "Save Rally").click();
-    expect(statusText(r)).toContain("prominent target court");
-    expect(a.rows).toHaveLength(0);
-    expect(csv()).toBe("");
-    panel!.destroy();
-  });
-
-  it("lets rally annotation through once a target court exists", () => {
-    const a = mount();
-    const r = shadow();
-    setField(r.querySelector('input[placeholder="start s"]'), "1.0");
-    setField(r.querySelector('input[placeholder="end s"]'), "2.0");
-    btn(r, "Save Rally").click();
     expect(a.rows).toHaveLength(1);
+    expect(csv()).toContain("1,1.000,2.000");
     panel!.destroy();
   });
 
-  it("does not block reading a clip that was labelled before the gate existed", () => {
-    // An older CSV has rallies and no profile; it must still load and display.
+  it("loads an existing labelled clip that has no optional target profile", () => {
     const a = new Annotator({ rows: [{ n: 1, s: 1, e: 2, reason: "winner", sport: "badminton", shots: null, extra: null }] });
     panel = mountPanel({
       annotator: a, video: new DirectVideoHandler(), identity: { key: "url:t", title: "T" }, download: () => {},
@@ -328,7 +302,6 @@ describe("label-completeness readout", () => {
       video,
       identity: { key: "url:t", title: "T" },
       download: () => {},
-      clip: { ...emptyClipMeta(), target_profiles: [...DECLARED] },
     });
     return { a, r: shadow() };
   }

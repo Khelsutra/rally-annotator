@@ -150,7 +150,6 @@
   "review.nothing": "No reviews to remove.",
   "legacy.windowsPresent": "A legacy neighborhood window file exists for this clip. It is diagnostic material only: it is NOT read, converted or imported here.",
   "target.polygonSelfIntersecting": "The play volume crosses itself — its corners are out of order, so it encloses nothing. Re-pick them going around the court.",
-  "target.gateRally": "Set the prominent target court first — Target screen. A rally CSV is a record of ONE court's match, and without a target profile nothing says which.",
   "target.volumeSummary": "Play volume: {n} corners covering {pct}% of the frame.",
   "target.volumeEmpty": "No play volume yet — mark the court in tools/court_picker.html and paste the line it gives you.",
   "target.volumeInvalid": "Play volume is not usable yet — {why}",

@@ -7,7 +7,8 @@
   annotator's Target screen.
 
   Open this file directly (double-click; no server, no install, works offline), drop in a
-  <clip>.court.png from tools/court_still.mjs, and click.
+  <clip>.court.png from tools/court_still.mjs, and click. The VLC extension may also pass the
+  still as an `image` query parameter so it appears immediately.
 
   Prominence is RELATIVE. Whether any one court is wholly inside the frame says nothing: a
   camera aimed at one court from a corner routinely runs part of it off frame while still being
@@ -192,10 +193,28 @@
     }
   }
 
+  function loadSource(src, revokeWhenLoaded = false) {
+    if (!src) return;
+    img.onload = () => {
+      wrap.hidden = false;
+      drop.hidden = true;
+      courts = [];
+      cur = [];
+      render();
+      if (revokeWhenLoaded) URL.revokeObjectURL(src);
+    };
+    img.onerror = () => {
+      wrap.hidden = true;
+      drop.hidden = false;
+      statusEl.textContent = "Could not open the supplied still — choose it below.";
+      statusEl.className = "hint warn";
+      if (revokeWhenLoaded) URL.revokeObjectURL(src);
+    };
+    img.src = src;
+  }
   function load(file) {
     if (!file) return;
-    img.onload = () => { wrap.hidden = false; drop.hidden = true; courts = []; cur = []; render(); };
-    img.src = URL.createObjectURL(file);
+    loadSource(URL.createObjectURL(file), true);
   }
   document.getElementById("file").addEventListener("change", (e) => load(e.target.files[0]));
   document.addEventListener("dragover", (e) => e.preventDefault());
@@ -234,4 +253,7 @@
   });
 
   render();
+  // A file:// page cannot inspect an arbitrary folder, but it can display an explicit image URL.
+  // VLC supplies the matching <clip>.court.png here when it exists; drag/drop remains the fallback.
+  loadSource(new URLSearchParams(location.search).get("image"));
 </script>

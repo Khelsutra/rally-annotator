@@ -253,25 +253,18 @@ show_help(); eq("help shows again", dedicatedHelp(), 1)
 show_help(); eq("help hides again", dedicatedHelp(), 0)
 
 --------------------------------------------------------------------------------
--- Rally annotation is gated on a declared target court (see target.gateRally): establish one
--- before any rally test, exactly as an operator now must.
+-- Rally annotation is never gated on optional target metadata. Mark and save must work on a
+-- fresh clip with zero target profiles, because court selection is derived downstream.
 --------------------------------------------------------------------------------
-local function early_declare()
-  show_target()
-  local function tin(c, r)
-    for _, w in ipairs(DIALOG.widgets) do
-      if w.kind == 'text_input' and w.col == c and w.row == r and not w.deleted then return w end
-    end
-  end
-  tin(2, 2):set_text("s1"); tin(4, 2):set_text("1")
-  tin(2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
-  save_target_profile()
-  show_rallies()
-end
 do
-  local gated = find('text_input', 2, 4)
-  early_declare()
-  ok("Mark START is refused until a target court is declared", gated ~= nil or true)
+  PB.state = "playing"; PB.time_us = 1250000
+  mark_start()
+  eq("Mark START works without a target profile", find('text_input', 2, 4):get_text(), "1.250")
+  find('text_input', 4, 4):set_text("2.000")
+  save_rally()
+  eq("Save Rally works without a target profile", find('text_input', 2, 5):get_text(), "2")
+  os.remove(CSV)
+  activate() -- reset the clean fixture for the rest of the suite
 end
 
 --------------------------------------------------------------------------------
@@ -360,22 +353,7 @@ end
 -- first Mark START must adopt <video>.rallies.csv and load any rallies already saved for it.
 --------------------------------------------------------------------------------
 do
-  
--- Rally annotation is GATED on a declared target court, so tests that label rallies must first
--- establish one. That every rally test needs this line is the point of the gate.
-local function declare_target(section)
-  local was = nil
-  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'button' and w.text and w.text:find("Rallies", 1, true) then was = true end end
-  show_target()
-  wd('text_input', 2, 2):set_text(section or "s1")
-  wd('text_input', 4, 2):set_text("1")
-  wd('text_input', 2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
-  save_target_profile()
-  show_rallies()
-  return was
-end
-
-local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
+  local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
   local VIDEO_CSV = TMPb .. sep .. "clip.rallies.csv"
   os.remove(CSV); os.remove(VIDEO_CSV)
   local vf = io.open(VIDEO_CSV, "w")            -- a prior session already saved 2 rallies here
@@ -383,13 +361,6 @@ local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
   vf:write("1,1.000,2.000,winner,badminton,\n")
   vf:write("2,3.000,4.000,let,badminton,\n")
   vf:close()
-  -- A clip labelled in a prior session carries its target profile alongside its rallies, so
-  -- adopting it restores the declared target court too and rally annotation stays unblocked.
-  local mf = io.open(TMPb .. sep .. "clip.clipmeta.json", "w")
-  mf:write('{"clipmeta_version":2,"target_profiles":[{"camera_section_id":"s1",'
-        .. '"target_court_id":"1","play_volume_polygon":[[0.2,0.5],[0.8,0.5],[0.9,0.9],[0.1,0.9]],'
-        .. '"setup_validity":"supported"}]}')
-  mf:close()
 
   MEDIA_URI = nil; PB.state = "stopped"          -- enable with NO video loaded -> home fallback
   activate()
@@ -410,7 +381,6 @@ local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
   local hh = io.open(CSV, "r"); local home = hh and hh:read("*a") or ""; if hh then hh:close() end
   ok("home fallback CSV was never written", home == "")
   MEDIA_URI = nil; os.remove(VIDEO_CSV); os.remove(CSV)
-  os.remove(TMPb .. sep .. "clip.clipmeta.json")
 end
 
 --------------------------------------------------------------------------------
@@ -515,24 +485,43 @@ local function read_file(p)
   local f = io.open(p, "r"); local s = f and f:read("*a") or nil; if f then f:close() end; return s
 end
 
-
--- Rally annotation is GATED on a declared target court, so tests that label rallies must first
--- establish one. That every rally test needs this line is the point of the gate.
-local function declare_target(section)
-  local was = nil
-  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'button' and w.text and w.text:find("Rallies", 1, true) then was = true end end
-  show_target()
-  wd('text_input', 2, 2):set_text(section or "s1")
-  wd('text_input', 4, 2):set_text("1")
-  wd('text_input', 2, 4):set_text("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98")
-  save_target_profile()
-  show_rallies()
-  return was
-end
-
 local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
 local CLIPMETA = TMPb .. sep .. "rally_labels.clipmeta.json"
 local WINCSV   = TMPb .. sep .. "rally_labels.windows.csv"
+
+--------------------------------------------------------------------------------
+-- The optional picker must receive the matching still URL. The old implementation only opened
+-- a blank page and the folder, which is why the screenshot was invisible.
+--------------------------------------------------------------------------------
+do
+  local ext_dir = TMPb .. sep .. "vlc" .. sep .. "lua" .. sep .. "extensions"
+  local mkdir = sep == "\\" and ('mkdir "' .. ext_dir .. '" 2>NUL')
+                              or ('mkdir -p "' .. ext_dir .. '"')
+  local real_execute = os.execute
+  real_execute(mkdir)
+  local picker_file = ext_dir .. sep .. "court_picker.html"
+  local still_file = TMPb .. sep .. "clip one.court.png"
+  local pf = assert(io.open(picker_file, "w")); pf:write("<html></html>"); pf:close()
+  local sf = assert(io.open(still_file, "wb")); sf:write("png"); sf:close()
+
+  local media_path = TMPb .. sep .. "clip one.mp4"
+  local uri_path = media_path:gsub("\\", "/"):gsub(" ", "%%20")
+  MEDIA_URI = (uri_path:match("^%a:/") and "file:///" or "file://") .. uri_path
+  PB.state = "playing"
+  activate(); show_target()
+  local opened = {}
+  os.execute = function(command) opened[#opened + 1] = command; return 0 end
+  pick_on_image()
+  os.execute = real_execute
+
+  ok("picker opens with an image query parameter", opened[1] and opened[1]:find("?image=", 1, true))
+  ok("picker preserves an encoded space in the still path",
+     opened[1] and opened[1]:find("%2520", 1, true))
+
+  os.remove(picker_file); os.remove(still_file)
+  MEDIA_URI = nil
+  activate()
+end
 
 do
   os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)

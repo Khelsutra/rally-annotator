@@ -12,11 +12,10 @@
       rally_number,start_time,end_time,ending_reason,sport,shots_count
 
   WHAT'S NEW IN v2.1.0
-    - Rally annotation is GATED on a declared target court: Mark START and Save
-      Rally refuse until a target profile exists. A rally CSV records ONE court's
-      match, and a file that never says which court is under-specified data that
-      cannot be repaired later. Reading an existing clip is never blocked -- only
-      new marking -- so the declaration backfills when a clip is next touched.
+    - Rally annotation is NEVER gated on court metadata. The target is the largest,
+      most focused court in the video and is derived downstream; an optional target
+      profile can still support diagnostics/review, but missing geometry never stops
+      Mark START or Save Rally.
     - A self-intersecting play volume is refused: a bowtie passes every per-point
       check and has a MEANINGLESS area (its lobes cancel), so it would poison any
       coverage comparison built on it.
@@ -263,7 +262,7 @@ STRINGS = {
     ["target.volumeEmpty"] = "No play volume yet — mark the court in tools/court_picker.html and paste the line it gives you.",
     ["target.volumeInvalid"] = "Play volume is not usable yet — {why}",
     ["btn.pickOnImage"] = "Pick on image…",
-    ["target.pickerOpened"] = "Opened the picker and this clip's folder. Mark every court on <clip>.court.png, then paste the line it gives you into Play volume.",
+    ["target.pickerOpened"] = "Opened the optional picker and this clip's folder. The matching <clip>.court.png loads automatically when it exists; otherwise choose or drop it.",
     ["target.pickerMissing"] = "court_picker.html is not next to the extension. Copy tools/court_picker.html into {dir} to open it from here — or just open it from the repo.",
     ["target.saved"] = "Saved target profile '{section}' ({n}-point play volume, {pct}% of frame).",
     ["target.deleted"] = "Deleted target profile '{section}'.",
@@ -276,7 +275,6 @@ STRINGS = {
     ["target.polygonRange"] = "Play-volume coordinates are NORMALIZED: every x and y must be between 0 and 1, not pixels.",
     ["target.polygonSelfIntersecting"] = "The play volume crosses itself — its corners are out of order, so it encloses nothing. Re-pick them going around the court.",
     ["target.needProfile"] = "Save a target profile first - a review answers a question about one camera section.",
-    ["target.gateRally"] = "Set the prominent target court first — Target screen. A rally CSV is a record of ONE court's match, and without a target profile nothing says which.",
     ["review.saved"] = "Saved review #{n}: {s} → {e} [{state}].",
     ["review.deleted"] = "Deleted review #{n}. {count} remaining.",
     ["review.removed"] = "Removed last review #{n}. {count} remaining.",
@@ -431,7 +429,6 @@ STRINGS = {
     ["target.polygonRange"] = "ಆಟದ ಪ್ರದೇಶದ ನಿರ್ದೇಶಾಂಕಗಳು ಸಾಮಾನ್ಯೀಕೃತ: ಪ್ರತಿ x ಮತ್ತು y 0 ರಿಂದ 1 ರ ನಡುವೆ ಇರಬೇಕು, ಪಿಕ್ಸೆಲ್ ಅಲ್ಲ.",
     ["target.polygonSelfIntersecting"] = "ಆಟದ ಪ್ರದೇಶವು ತನ್ನನ್ನೇ ಛೇದಿಸುತ್ತದೆ — ಮೂಲೆಗಳ ಕ್ರಮ ತಪ್ಪಿದೆ. ಕೋರ್ಟ್ ಸುತ್ತ ಕ್ರಮವಾಗಿ ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.",
     ["target.needProfile"] = "ಮೊದಲು ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ - ಪರಿಶೀಲನೆಯು ಒಂದು ಕ್ಯಾಮೆರಾ ವಿಭಾಗದ ಬಗ್ಗೆ ಉತ್ತರಿಸುತ್ತದೆ.",
-    ["target.gateRally"] = "ಮೊದಲು ಪ್ರಮುಖ ಗುರಿ ಕೋರ್ಟ್ ಹೊಂದಿಸಿ — ಗುರಿ ಪರದೆ. ರ್ಯಾಲಿ CSV ಒಂದೇ ಕೋರ್ಟ್‌ನ ಪಂದ್ಯದ ದಾಖಲೆ; ಗುರಿ ಪ್ರೊಫೈಲ್ ಇಲ್ಲದೆ ಅದು ಯಾವ ಕೋರ್ಟ್ ಎಂದು ಏನೂ ಹೇಳುವುದಿಲ್ಲ.",
     ["review.saved"] = "ಪರಿಶೀಲನೆ #{n} ಉಳಿಸಲಾಯಿತು: {s} → {e} [{state}].",
     ["review.deleted"] = "ಪರಿಶೀಲನೆ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
     ["review.removed"] = "ಕೊನೆಯ ಪರಿಶೀಲನೆ #{n} ತೆಗೆಯಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
@@ -586,7 +583,6 @@ STRINGS = {
     ["target.polygonRange"] = "खेल क्षेत्र के निर्देशांक सामान्यीकृत हैं: हर x और y 0 और 1 के बीच होना चाहिए, पिक्सेल नहीं।",
     ["target.polygonSelfIntersecting"] = "खेल क्षेत्र स्वयं को काटता है — कोने गलत क्रम में हैं, इसलिए यह कुछ भी घेरता नहीं। कोर्ट के चारों ओर क्रम से दोबारा चुनें।",
     ["target.needProfile"] = "पहले एक लक्ष्य प्रोफ़ाइल सहेजें - समीक्षा एक कैमरा सेक्शन के बारे में उत्तर देती है।",
-    ["target.gateRally"] = "पहले प्रमुख लक्ष्य कोर्ट सेट करें — लक्ष्य स्क्रीन। रैली CSV एक ही कोर्ट के मैच का रिकॉर्ड है; लक्ष्य प्रोफ़ाइल के बिना कुछ नहीं बताता कि वह कौन सा कोर्ट है।",
     ["review.saved"] = "समीक्षा #{n} सहेजी गई: {s} → {e} [{state}]।",
     ["review.deleted"] = "समीक्षा #{n} हटाई गई। {count} शेष।",
     ["review.removed"] = "अंतिम समीक्षा #{n} हटाई गई। {count} शेष।",
@@ -741,7 +737,6 @@ STRINGS = {
     ["target.polygonRange"] = "ఆట ప్రాంత నిర్దేశాంకాలు సాధారణీకరించబడ్డాయి: ప్రతి x, y 0 నుండి 1 మధ్య ఉండాలి, పిక్సెల్‌లు కాదు.",
     ["target.polygonSelfIntersecting"] = "ఆట ప్రాంతం తనను తానే ఖండిస్తుంది — మూలలు తప్పు క్రమంలో ఉన్నాయి, కాబట్టి ఇది దేనినీ చుట్టుముట్టదు. కోర్టు చుట్టూ క్రమంగా మళ్లీ ఎంచుకోండి.",
     ["target.needProfile"] = "ముందుగా లక్ష్య ప్రొఫైల్ సేవ్ చేయండి - సమీక్ష ఒక కెమెరా విభాగం గురించి సమాధానం ఇస్తుంది.",
-    ["target.gateRally"] = "ముందుగా ప్రధాన లక్ష్య కోర్టును సెట్ చేయండి — లక్ష్య స్క్రీన్. ర్యాలీ CSV ఒకే కోర్టు మ్యాచ్ రికార్డు; లక్ష్య ప్రొఫైల్ లేకుండా అది ఏ కోర్టు అని ఏదీ చెప్పదు.",
     ["review.saved"] = "సమీక్ష #{n} సేవ్ అయింది: {s} → {e} [{state}].",
     ["review.deleted"] = "సమీక్ష #{n} తొలగించబడింది. {count} మిగిలాయి.",
     ["review.removed"] = "చివరి సమీక్ష #{n} తీసివేయబడింది. {count} మిగిలాయి.",
@@ -896,7 +891,6 @@ STRINGS = {
     ["target.polygonRange"] = "Las coordenadas de la zona de juego están NORMALIZADAS: cada x e y debe estar entre 0 y 1, no en píxeles.",
     ["target.polygonSelfIntersecting"] = "La zona de juego se cruza consigo misma: las esquinas están desordenadas, así que no encierra nada. Vuelve a marcarlas dando la vuelta a la pista.",
     ["target.needProfile"] = "Guarda primero un perfil objetivo: una revisión responde sobre una sección de cámara.",
-    ["target.gateRally"] = "Define primero la pista objetivo prominente — pantalla Objetivo. Un CSV de puntos es el registro del partido de UNA pista, y sin perfil objetivo nada indica cuál.",
     ["review.saved"] = "Revisión #{n} guardada: {s} → {e} [{state}].",
     ["review.deleted"] = "Revisión #{n} eliminada. Quedan {count}.",
     ["review.removed"] = "Se quitó la última revisión #{n}. Quedan {count}.",
@@ -1051,7 +1045,6 @@ STRINGS = {
     ["target.polygonRange"] = "Spilzonens koordinater er NORMALISEREDE: hver x og y skal ligge mellem 0 og 1, ikke pixels.",
     ["target.polygonSelfIntersecting"] = "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
     ["target.needProfile"] = "Gem først en målprofil - en gennemgang svarer på et spørgsmål om én kamerasektion.",
-    ["target.gateRally"] = "Angiv først den fremtrædende målbane — fanen Mål. En duel-CSV er en optegnelse over ÉN banes kamp, og uden en målprofil siger intet hvilken.",
     ["review.saved"] = "Gennemgang #{n} gemt: {s} → {e} [{state}].",
     ["review.deleted"] = "Gennemgang #{n} slettet. {count} tilbage.",
     ["review.removed"] = "Fjernede sidste gennemgang #{n}. {count} tilbage.",
@@ -1206,7 +1199,6 @@ STRINGS = {
     ["target.polygonRange"] = "Koordinat area main DINORMALISASI: setiap x dan y harus antara 0 dan 1, bukan piksel.",
     ["target.polygonSelfIntersecting"] = "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
     ["target.needProfile"] = "Simpan dulu profil target - tinjauan menjawab pertanyaan tentang satu bagian kamera.",
-    ["target.gateRally"] = "Tentukan dulu lapangan target yang menonjol — layar Target. CSV reli adalah catatan pertandingan SATU lapangan, dan tanpa profil target tak ada yang menyatakan lapangan mana.",
     ["review.saved"] = "Tinjauan #{n} tersimpan: {s} → {e} [{state}].",
     ["review.deleted"] = "Tinjauan #{n} dihapus. Sisa {count}.",
     ["review.removed"] = "Tinjauan terakhir #{n} dihapus. Sisa {count}.",
@@ -1676,6 +1668,29 @@ local function current_media_path()
     p = p:gsub("/", "\\")
   end
   return p
+end
+
+-- Encode a local path as a file URI the browser can open. The second encoding step is used when
+-- that URI becomes a query-parameter value on the picker URL.
+local function uri_escape(value, keep_path_chars)
+  local safe = keep_path_chars and "([^%w%-_%.~/:])" or "([^%w%-_%.~])"
+  return (tostring(value or ""):gsub(safe, function(c)
+    return string.format("%%%02X", string.byte(c))
+  end))
+end
+
+local function file_uri(path)
+  local p = tostring(path or ""):gsub("\\", "/")
+  local prefix = p:match("^%a:/") and "file:///" or "file://"
+  return prefix .. uri_escape(p, true)
+end
+
+local function court_still_path(media)
+  local dir, name = tostring(media or ""):match("^(.*[\\/])([^\\/]+)$")
+  if not dir or not name then return nil end
+  local stem = name:gsub("%.[^%.\\/]+$", "")
+  if stem == "" then return nil end
+  return dir .. stem .. ".court.png"
 end
 
 -- Resolve a sensible default output path: next to the video if we can, else
@@ -2481,12 +2496,6 @@ function mark_start()
     return
   end
   adopt_current_video_csv()   -- video is playing now: make sure we're on its CSV, not the fallback
-  -- Declaring the target court is a PRECONDITION of rally annotation, not a later step: a rally
-  -- CSV records one court's match, and a file that never says which court is under-specified data
-  -- nobody can repair afterwards. Checked AFTER the adopt, so it is asked of the video we will
-  -- actually write to -- otherwise a mark is allowed and the save then refuses it, stranding the
-  -- operator mid-rally.
-  if #profiles == 0 then set_status(t("target.gateRally")); return end
   w_start:set_text(string.format("%.3f", now))
   refresh_buttons()
   set_status(t("markStart.set", { clock = fmt_clock(now) }))
@@ -2502,7 +2511,6 @@ end
 
 function save_rally()
   adopt_current_video_csv()   -- in case times were typed by hand without Mark START
-  if #profiles == 0 then set_status(t("target.gateRally")); return end
   local s = get_field_num(w_start)
   local e = get_field_num(w_end)
   if not s then set_status(t("save.needStart")); return end
@@ -2704,10 +2712,10 @@ function save_target_profile()
                                  pct = string.format("%.1f", polygon_area(poly) * 100) }))
 end
 
--- Open the picker and the clip's folder. VLC's dialog cannot draw, so the polygon has to be
--- produced elsewhere and pasted; this at least removes the hunt for the two files. Best-effort by
--- design: os.execute may be unavailable or silent, so the status line says what was attempted
--- rather than claiming success.
+-- Open the OPTIONAL picker with this clip's still already visible. Earlier code only opened a
+-- blank HTML page plus the containing folder, so the screenshot never appeared in the picker and
+-- the operator had to discover the drag/drop step. A missing still still opens the picker and
+-- folder as a fallback; neither case can block rally annotation.
 function pick_on_image()
   local home = os.getenv("APPDATA") or os.getenv("HOME") or "."
   local sep = home:find("\\") and "\\" or "/"
@@ -2718,9 +2726,18 @@ function pick_on_image()
   probe:close()
 
   local media = current_media_path()
-  local folder = media and media:match("^(.*[\/])") or nil
+  local folder = media and media:match("^(.*[\\/])") or nil
+  local picker_url = file_uri(picker)
+  local still = court_still_path(media)
+  if still then
+    local still_probe = io.open(still, "rb")
+    if still_probe then
+      still_probe:close()
+      picker_url = picker_url .. "?image=" .. uri_escape(file_uri(still), false)
+    end
+  end
   local opener = (sep == "\\") and 'start "" ' or "xdg-open "
-  os.execute(opener .. '"' .. picker .. '"')
+  os.execute(opener .. '"' .. picker_url .. '"')
   if folder then os.execute(opener .. '"' .. folder .. '"') end
   set_status(t("target.pickerOpened"))
 end

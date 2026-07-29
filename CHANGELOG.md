@@ -1,15 +1,18 @@
 # Changelog
 
-## v2.1.0 — 2026-07-28
-- **Rally annotation is now GATED on a declared target court.** Mark START and Save Rally both
-  refuse until a target profile exists, in both front-ends. A rally CSV records one court's match,
-  and a file that never says which court is under-specified data nobody can repair later. Reading an
-  existing clip is never blocked — only new marking — so the information backfills exactly when
-  someone next touches a clip.
-- **The picker now ranks courts by coverage and names the prominent one.** Mark every visible court;
+## v2.1.0 — 2026-07-29
+- **Rally annotation is explicitly NOT gated on court metadata.** Mark START and Save Rally work
+  with no target profile in both front-ends. The annotated match is the largest, most visually
+  focused court in the video; court localization/selection is derived downstream instead of making
+  the operator complete a polygon workflow before labelling.
+- **Fix: the optional VLC picker now receives the matching `<clip>.court.png`.** The previous button
+  opened a blank static page and a folder but never passed the screenshot to the page, so the
+  advertised “Pick on image” flow showed no image. The still is now handed over as an encoded local
+  URL and appears immediately; file picker and drag/drop remain fallbacks.
+- **The picker ranks courts by coverage as optional diagnostic tooling.** Mark every visible court;
   it computes each one's coverage, highlights the winner, and hands you its polygon. If the top two
-  are within 5 points it says **ambiguous** rather than picking by a rounding error — a real finding
-  that the section is `unsupported`.
+  are within 5 points it says **ambiguous** rather than picking by a rounding error. None of this is
+  required to annotate rallies.
 - **New pure geometry in `targetReview.ts`:** `polygonArea` (normalized, so area *is* coverage),
   `isSelfIntersecting`, `rankProminence`, `isProminentCourt`. A downstream pipeline can ask the same
   question of detected polygons and get the same answer; a test pins the picker's margin to the
@@ -17,9 +20,6 @@
 - **A self-intersecting play volume is now refused** in both front-ends. A bowtie passed every
   previous check and has a *meaningless* area — its lobes cancel in the shoelace sum — so it would
   have poisoned any coverage comparison built on it.
-- **Fix: the gate is checked after the video adopt, not before.** Marking on a freshly-adopted clip
-  reloads that clip's profiles; gating first let a mark through that the save then refused, stranding
-  the operator mid-rally.
 - The three panel lists carry `data-list="rallies|profiles|reviews"`, so a selector can name the one
   it means.
 - **Reframed `setup_validity` around serviceability, not geometric completeness.** The old wording
@@ -33,13 +33,10 @@
   which is computable by ranking polygon areas rather than by asking whether any one court is wholly
   enclosed. Also records that the polygon is not a completeness claim — it marks the play volume
   *that is visible*, and a partly-visible court still has one worth recording.
-- **`tools/court_picker.html`** — click the target court's corners on the empty-court still and get
-  the normalized polygon string to paste. Opens by double-click (no server, no install, offline),
-  takes the PNG by drag-and-drop, draws the polygon live, and has undo/clear. Reading pixels off an
-  image editor and dividing by hand is eight divisions per court and a transcription error waiting
-  to happen. Its output format is **pinned by tests on both sides**, so a string it emits can never
-  be one the annotator refuses. Like `court_still`, it reads an image and prints a string — it never
-  opens or writes a label file.
+- **`tools/court_picker.html`** — optional click-to-pick tooling for target-profile diagnostics.
+  VLC preloads the matching still when available; double-click, file picker, and drag/drop also work
+  offline. Its output format is **pinned by tests on both sides**, so a string it emits can never be
+  one the annotator refuses. It never opens or writes a label file.
 - **`court_still --all <dir>`** — batch a whole session folder, skipping clips that already have a
   still (so it is free to re-run), `--force` to redo them.
 - **Documented the `camera_setup_id` orientation vocabulary** (`court-left-corner`,
