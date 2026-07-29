@@ -194,6 +194,13 @@ Concretely, the annotator will **not** write a field the operator left blank, an
 `match_format` picker's first entry is an explicit *(not set)* that writes `null` — so a forgotten
 pick can never record a guess.
 
+A forgotten pick is, however, **called out on save**: the status line says the format is still
+*(not set)* rather than just confirming the write. The save is never blocked — an operator who
+genuinely cannot tell must be able to leave it `null`, and a guessed singles/doubles is worse than a
+recorded unknown — but a null that nobody noticed is only discovered downstream, where the
+primary-split gate cannot evidence its singles+doubles minimum from nulls and the clip has to be
+annotated again.
+
 ### Capture time
 
 `capture_time_utc` is written **only** when the player hands us a container-level date tag; it is

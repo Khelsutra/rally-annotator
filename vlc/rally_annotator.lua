@@ -297,6 +297,7 @@ STRINGS = {
     ["fmt.mixed"] = "mixed",
     ["btn.saveClip"] = "Save clip info",
     ["clip.saved"] = "Saved clip info: {summary}",
+    ["clip.savedNoFormat"] = "Saved clip info: {summary} — but MATCH FORMAT is still (not set), so this clip records no singles/doubles. Pick one and save again; leave it only if you genuinely cannot tell.",
     ["clip.loaded"] = "Loaded the clip info already recorded for this video.",
     ["clip.invalidActive"] = "Courts in play ({active}) cannot exceed courts visible ({visible}) -- a court cannot be in play without being in frame.",
     ["clip.invalidPartial"] = "Only-partly-visible ({partial}) cannot exceed courts visible ({visible}).",
@@ -448,6 +449,7 @@ STRINGS = {
     ["fmt.mixed"] = "ಮಿಶ್ರ",
     ["btn.saveClip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಿ",
     ["clip.saved"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary}",
+    ["clip.savedNoFormat"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary} — ಆದರೆ ಪಂದ್ಯದ ಸ್ವರೂಪ ಇನ್ನೂ (ಹೊಂದಿಸಿಲ್ಲ), ಆದ್ದರಿಂದ ಈ ಕ್ಲಿಪ್ ಸಿಂಗಲ್ಸ್/ಡಬಲ್ಸ್ ದಾಖಲಿಸುವುದಿಲ್ಲ. ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ ಮತ್ತೆ ಉಳಿಸಿ; ನಿಜಕ್ಕೂ ತಿಳಿಯದಿದ್ದರೆ ಮಾತ್ರ ಹಾಗೇ ಬಿಡಿ.",
     ["clip.loaded"] = "ಈ ವೀಡಿಯೋಗಾಗಿ ಈಗಾಗಲೇ ದಾಖಲಾದ ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಯಿತು.",
     ["clip.invalidActive"] = "ಆಟವಿರುವ ಕೋರ್ಟ್‌ಗಳು ({active}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು -- ಚೌಕಟ್ಟಿನಲ್ಲಿ ಇಲ್ಲದೆ ಕೋರ್ಟ್ ಆಟದಲ್ಲಿರಲಾಗದು.",
     ["clip.invalidPartial"] = "ಭಾಗಶಃ ಕಾಣುವವು ({partial}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು.",
@@ -599,6 +601,7 @@ STRINGS = {
     ["fmt.mixed"] = "मिश्रित",
     ["btn.saveClip"] = "क्लिप जानकारी सहेजें",
     ["clip.saved"] = "क्लिप जानकारी सहेजी गई: {summary}",
+    ["clip.savedNoFormat"] = "क्लिप जानकारी सहेजी गई: {summary} — लेकिन मैच फ़ॉर्मैट अब भी (सेट नहीं) है, इसलिए यह क्लिप सिंगल्स/डबल्स दर्ज नहीं करती। एक चुनकर दोबारा सहेजें; केवल तभी छोड़ें जब वाकई पता न चल रहा हो।",
     ["clip.loaded"] = "इस वीडियो के लिए पहले से दर्ज क्लिप जानकारी लोड की गई।",
     ["clip.invalidActive"] = "खेल वाले कोर्ट ({active}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते -- फ्रेम में हुए बिना कोई कोर्ट खेल में नहीं हो सकता।",
     ["clip.invalidPartial"] = "आंशिक रूप से दिखने वाले ({partial}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते।",
@@ -750,6 +753,7 @@ STRINGS = {
     ["fmt.mixed"] = "మిశ్రమ",
     ["btn.saveClip"] = "క్లిప్ సమాచారం సేవ్ చేయి",
     ["clip.saved"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary}",
+    ["clip.savedNoFormat"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary} — కానీ మ్యాచ్ ఫార్మాట్ ఇంకా (సెట్ చేయలేదు), కాబట్టి ఈ క్లిప్ సింగిల్స్/డబుల్స్ నమోదు చేయదు. ఒకటి ఎంచుకుని మళ్లీ సేవ్ చేయండి; నిజంగా చెప్పలేకపోతే మాత్రమే వదిలేయండి.",
     ["clip.loaded"] = "ఈ వీడియో కోసం ఇప్పటికే నమోదైన క్లిప్ సమాచారం లోడ్ అయింది.",
     ["clip.invalidActive"] = "ఆట జరుగుతున్న కోర్టులు ({active}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు -- ఫ్రేమ్‌లో లేకుండా కోర్టు ఆటలో ఉండలేదు.",
     ["clip.invalidPartial"] = "పాక్షికంగా కనిపించేవి ({partial}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు.",
@@ -901,6 +905,7 @@ STRINGS = {
     ["fmt.mixed"] = "mixto",
     ["btn.saveClip"] = "Guardar datos del clip",
     ["clip.saved"] = "Datos del clip guardados: {summary}",
+    ["clip.savedNoFormat"] = "Datos del clip guardados: {summary} — pero la MODALIDAD sigue en (sin definir), así que este clip no registra individuales/dobles. Elige una y vuelve a guardar; déjalo solo si de verdad no puedes saberlo.",
     ["clip.loaded"] = "Se cargaron los datos del clip ya registrados para este vídeo.",
     ["clip.invalidActive"] = "Las pistas en juego ({active}) no pueden superar las pistas visibles ({visible}): una pista no puede estar en juego sin estar en cuadro.",
     ["clip.invalidPartial"] = "Las parcialmente visibles ({partial}) no pueden superar las pistas visibles ({visible}).",
@@ -1052,6 +1057,7 @@ STRINGS = {
     ["fmt.mixed"] = "mixed",
     ["btn.saveClip"] = "Gem klipinfo",
     ["clip.saved"] = "Klipinfo gemt: {summary}",
+    ["clip.savedNoFormat"] = "Klipinfo gemt: {summary} — men KAMPFORMAT er stadig (ikke angivet), så dette klip registrerer ikke single/double. Vælg ét og gem igen; lad det kun stå, hvis du virkelig ikke kan afgøre det.",
     ["clip.loaded"] = "Indlæste den klipinfo, der allerede er registreret for denne video.",
     ["clip.invalidActive"] = "Baner med spil ({active}) kan ikke overstige synlige baner ({visible}) -- en bane kan ikke være i spil uden at være i billedet.",
     ["clip.invalidPartial"] = "Delvist synlige ({partial}) kan ikke overstige synlige baner ({visible}).",
@@ -1203,6 +1209,7 @@ STRINGS = {
     ["fmt.mixed"] = "campuran",
     ["btn.saveClip"] = "Simpan info klip",
     ["clip.saved"] = "Info klip tersimpan: {summary}",
+    ["clip.savedNoFormat"] = "Info klip tersimpan: {summary} — tetapi FORMAT PERTANDINGAN masih (belum diatur), sehingga klip ini tidak mencatat tunggal/ganda. Pilih satu lalu simpan lagi; biarkan kosong hanya jika Anda benar-benar tidak bisa memastikan.",
     ["clip.loaded"] = "Memuat info klip yang sudah tercatat untuk video ini.",
     ["clip.invalidActive"] = "Lapangan yang dimainkan ({active}) tidak boleh melebihi lapangan terlihat ({visible}) -- sebuah lapangan tidak bisa dimainkan tanpa berada dalam bingkai.",
     ["clip.invalidPartial"] = "Yang terlihat sebagian ({partial}) tidak boleh melebihi lapangan terlihat ({visible}).",
@@ -1570,6 +1577,12 @@ local clip = {}                 -- venue_id, camera_setup_id, court_count, activ
                                 -- partially_visible_court_count, target_court_id, match_format,
                                 -- capture_time_utc, notes
 local clip_path                 -- <video-stem>.clipmeta.json
+-- Clip-info values the operator has entered but NOT yet saved, or nil when no edit is in
+-- progress. Same job `form` does for the rally screen. Without it every dialog rebuild
+-- (screen switch, language switch, same-video Refresh) silently reset the whole screen -- and
+-- an unset dropdown repaints as "(not set)", which looks like a deliberate answer rather than
+-- a cleared box, so a lost match_format left no trace until the sidecar came back null.
+local clip_form = nil
 
 -- TARGET PROFILES: one per static camera section, held on the clip (docs/TARGET_REVIEW.md).
 local profiles = {}             -- { section, court, profile_id, poly = {{x,y},...}, validity, notes }
@@ -1899,6 +1912,7 @@ end
 
 local function load_clipmeta()
   clip = {}
+  clip_form = nil                 -- a reload replaces the screen's state; nothing is in progress
   profiles = {}
   legacy_target_court = nil
   selected_section = nil
@@ -2627,9 +2641,14 @@ function save_clip_info()
 
   local okw, err = save_clipmeta_file()
   if not okw then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  clip_form = nil                        -- committed; `clip` is the source of truth again
   local summary = string.format("%s/%s courts", visible and tostring(visible) or "?",
                                 active and tostring(active) or "?")
-  set_status(t("clip.saved", { summary = summary }))
+  -- A null match_format is WARNED, never blocked. Blocking would force an answer out of an
+  -- operator who cannot tell, and a guessed singles/doubles is worse than a recorded "unknown".
+  -- But it is not silent either: the downstream primary-split gate cannot evidence its
+  -- singles+doubles minimum from nulls, and finding out then costs a re-annotation round trip.
+  set_status(t(clip.match_format and "clip.saved" or "clip.savedNoFormat", { summary = summary }))
 end
 
 --------------------------------------------------------------------------------
@@ -2839,6 +2858,21 @@ function capture_form()
     local sid = w_rv_state:get_value()
     rv_form.state = (sid ~= nil and TARGET_STATES[sid]) or rv_form.state
   end
+  -- Clip info, captured exactly as the operator left it -- raw strings, not validated counts --
+  -- so a rebuild hands their work back verbatim (typos included, to be corrected rather than
+  -- silently dropped). Only save_clip_info validates and commits into `clip`.
+  if w_venue then
+    local fid = w_format and w_format:get_value() or 0
+    clip_form = {
+      venue_id = w_venue:get_text() or "",
+      camera_setup_id = w_camera and w_camera:get_text() or "",
+      court_count = w_visible and w_visible:get_text() or "",
+      active_court_count = w_active and w_active:get_text() or "",
+      partially_visible_court_count = w_partial and w_partial:get_text() or "",
+      match_format = (fid ~= nil and fid ~= 0) and MATCH_FORMATS[fid] or nil,
+      notes = w_notes and w_notes:get_text() or "",
+    }
+  end
 end
 
 -- Repaint the profile list, the review list and the review Save caption.
@@ -2942,23 +2976,26 @@ end
 -- sports-data-collector treats differently from a recorded negative.
 local function build_clip_screen()
   local function txt(v) return v ~= nil and tostring(v) or "" end
+  -- Paint from the in-progress capture when there is one, so a screen switch, a language switch
+  -- or a same-video Refresh returns the operator's unsaved input instead of resetting the screen.
+  local src = clip_form or clip
   d:add_label(t("label.venue"), 1, 2, 1, 1)
-  w_venue = d:add_text_input(txt(clip.venue_id), 2, 2, 1, 1)
+  w_venue = d:add_text_input(txt(src.venue_id), 2, 2, 1, 1)
   d:add_label(t("label.cameraSetup"), 3, 2, 1, 1)
-  w_camera = d:add_text_input(txt(clip.camera_setup_id), 4, 2, 1, 1)
+  w_camera = d:add_text_input(txt(src.camera_setup_id), 4, 2, 1, 1)
 
   d:add_label(t("label.courtsVisible"), 1, 3, 1, 1)
-  w_visible = d:add_text_input(txt(clip.court_count), 2, 3, 1, 1)
+  w_visible = d:add_text_input(txt(src.court_count), 2, 3, 1, 1)
   d:add_label(t("label.courtsActive"), 3, 3, 1, 1)
-  w_active = d:add_text_input(txt(clip.active_court_count), 4, 3, 1, 1)
+  w_active = d:add_text_input(txt(src.active_court_count), 4, 3, 1, 1)
 
   d:add_label(t("label.courtsPartial"), 1, 4, 1, 1)
-  w_partial = d:add_text_input(txt(clip.partially_visible_court_count), 2, 4, 1, 1)
+  w_partial = d:add_text_input(txt(src.partially_visible_court_count), 2, 4, 1, 1)
 
   -- "(not set)" is added FIRST so it shows selected, i.e. the default writes null.
   d:add_label(t("label.matchFormat"), 1, 5, 1, 1)
   w_format = d:add_dropdown(2, 5, 1, 1)
-  local sel = clip.match_format
+  local sel = src.match_format
   if sel then
     for i, v in ipairs(MATCH_FORMATS) do if v == sel then w_format:add_value(t("fmt." .. v), i) end end
     w_format:add_value(t("fmt.unset"), 0)
@@ -2977,7 +3014,7 @@ local function build_clip_screen()
   w_capture = d:add_label(clip.capture_time_utc or t("clip.captureUnknown"), 4, 5, 1, 1)
 
   d:add_label(t("label.notes"), 1, 6, 1, 1)
-  w_notes = d:add_text_input(txt(clip.notes), 2, 6, 3, 1)
+  w_notes = d:add_text_input(txt(src.notes), 2, 6, 3, 1)
 
   d:add_button(t("btn.saveClip"), save_clip_info, 1, 7, 1, 1)
   w_help_btn = d:add_button(t("btn.help"), show_help, 2, 7, 1, 1)

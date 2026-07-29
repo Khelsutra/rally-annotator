@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+- **Fix: unsaved Clip-info input no longer vanishes when the dialog is rebuilt.** `capture_form()`
+  carried the rally screen's in-progress values across a rebuild but never the clip screen, so a nav
+  switch, a language switch, or the **Refresh** button — which sits one cell from **Save clip info**
+  — silently repainted every field from the last *saved* state. The damage was invisible for the
+  **match format** in particular: a cleared text box is visibly empty and gets retyped, but a
+  cleared dropdown repaints as `(not set)`, which reads as a deliberate answer. That asymmetry is
+  why real sidecars came back with a `camera_setup_id` but `"match_format": null` on the same clip.
+  Clip-info values are now captured as raw strings — typos included, to be corrected rather than
+  dropped — and only `Save clip info` validates and commits them. The staged values survive a
+  same-video Refresh **from any screen**, including one taken from the Rally screen where no clip
+  widget exists to re-capture from; they are dropped only on activation or an actual video switch,
+  so video A's answer can never land in video B's sidecar.
+- **A null `match_format` is now warned about on save, never blocked.** Blocking would force an
+  answer out of an operator who genuinely cannot tell, and a guessed singles/doubles is worse than a
+  recorded unknown — so the save still succeeds and still writes `null`. But it is no longer silent:
+  the downstream primary-split gate cannot evidence its singles+doubles minimum from nulls, and
+  discovering that later costs a whole re-annotation pass.
+
 ## v2.1.0 — 2026-07-29
 - **Rally annotation is explicitly NOT gated on court metadata.** Mark START and Save Rally work
   with no target profile in both front-ends. The annotated match is the largest, most visually
