@@ -1,4 +1,4 @@
-title :: Rally Annotator v2.1.0
+title :: Rally Annotator v2.2.0
  1. button     @(1,1) 2x1 :: ▸ Rallies
  2. button     @(3,1) 2x1 :: Clip info
  3. label      @(1,2) 1x1 :: Sport:

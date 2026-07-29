@@ -9,12 +9,17 @@
 import type { RallyRow } from "./csv";
 import { parseProfiles, type TargetProfile } from "./targetReview";
 
-// v2 adds `target_profiles` (one per static camera section) and drops the top-level
-// `target_court_id`, which belongs to a section rather than to the whole clip. A v1 file is read
-// and upgraded in memory; see MIGRATION below.
-export const CLIPMETA_VERSION = 2;
+// v3 restores `target_court_id` as a one-time declarative clip property while preserving the
+// legacy/downstream `target_profiles` array. v1/v2 files are read and upgraded in memory.
+export const CLIPMETA_VERSION = 3;
 export const MATCH_FORMATS = ["singles", "doubles", "mixed"] as const;
 export type MatchFormat = (typeof MATCH_FORMATS)[number];
+export const CAMERA_SETUP_IDS = [
+  "court-left-corner",
+  "court-right-corner",
+  "court-center",
+  "court-side-middle",
+] as const;
 
 // Thresholds copied from sports-data-collector's report spec (src/reporting/spec.yaml) so
 // the readout here and the gate there cannot disagree:
@@ -36,6 +41,7 @@ export interface LabelCompleteness {
 export interface ClipMeta {
   sport: string | null;
   venue_id: string | null;
+  target_court_id: string | null;
   camera_setup_id: string | null;
   capture_time_utc: string | null;
   court_count: number | null;
@@ -44,17 +50,13 @@ export interface ClipMeta {
   match_format: string | null;
   notes: string | null;
   target_profiles: TargetProfile[];
-  // MIGRATION: a v1 file's top-level `target_court_id`. Kept so the value is not lost, and
-  // offered as the default when the first profile is created — but never promoted into a
-  // profile automatically, because a profile without a validated section and polygon would
-  // fail its own validation. Never serialized.
-  legacy_target_court_id?: string | null;
 }
 
 export function emptyClipMeta(): ClipMeta {
   return {
     sport: null,
     venue_id: null,
+    target_court_id: null,
     camera_setup_id: null,
     capture_time_utc: null,
     court_count: null,
@@ -140,6 +142,7 @@ export function serializeClipMeta(
     clip_name: opts.clipName,
     sport: m.sport,
     venue_id: m.venue_id,
+    target_court_id: m.target_court_id,
     camera_setup_id: m.camera_setup_id,
     capture_time_utc: m.capture_time_utc,
     capture_time_source: m.capture_time_utc ? "container" : null,
@@ -171,16 +174,31 @@ export function parseClipMeta(text: string): ClipMeta | null {
     return null;
   }
   if (!doc || typeof doc !== "object") return null;
+  const rawVersion = doc.clipmeta_version;
+  if (rawVersion != null &&
+      (typeof rawVersion !== "number" || !Number.isInteger(rawVersion) ||
+       rawVersion < 1 || rawVersion > CLIPMETA_VERSION)) {
+    return null;
+  }
   const m = emptyClipMeta();
-  for (const k of ["sport", "venue_id", "camera_setup_id", "capture_time_utc",
+  for (const k of ["sport", "venue_id", "target_court_id", "camera_setup_id", "capture_time_utc",
                    "match_format", "notes"] as const) {
     const v = doc[k];
     if (typeof v === "string" && v !== "") m[k] = v;
   }
   m.target_profiles = parseProfiles(doc.target_profiles);
-  // v1 carried the court id at the top level; keep it for the first-profile default only.
-  if (typeof doc.target_court_id === "string" && doc.target_court_id !== "") {
-    m.legacy_target_court_id = doc.target_court_id;
+  // v2 moved the court id into camera-section profiles. Restore it only when every recorded
+  // profile agrees; conflicting identities are not safe to guess into a clip-level key. Read
+  // identity from the raw profiles independently of legacy geometry validation: a damaged polygon
+  // must not erase an otherwise unambiguous court id during migration.
+  if (m.target_court_id == null && Array.isArray(doc.target_profiles)) {
+    const courts = new Set<string>();
+    for (const raw of doc.target_profiles) {
+      if (!raw || typeof raw !== "object") continue;
+      const court = (raw as Record<string, unknown>).target_court_id;
+      if (typeof court === "string" && court !== "") courts.add(court);
+    }
+    if (courts.size === 1) m.target_court_id = [...courts][0];
   }
   for (const k of ["court_count", "active_court_count", "partially_visible_court_count"] as const) {
     const v = doc[k];

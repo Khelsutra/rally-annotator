@@ -10,8 +10,8 @@ import type { VideoIdentity } from "../persist/store";
 import { VERSION } from "../version";
 import { t, getLocale, setLocale, SUPPORTED_LOCALES, LOCALE_LABELS, type Locale } from "../i18n";
 import {
-  MATCH_FORMATS, SPAN_WARN, TAIL_WARN_S, completeness, emptyClipMeta, optText, parseCount,
-  serializeClipMeta, validateClipMeta, type ClipMeta,
+  CAMERA_SETUP_IDS, MATCH_FORMATS, SPAN_WARN, TAIL_WARN_S, completeness, emptyClipMeta, optText,
+  parseCount, serializeClipMeta, validateClipMeta, type ClipMeta,
 } from "../state/clipmeta";
 import type { ReviewRow } from "../state/targetReview";
 
@@ -223,10 +223,12 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   // Clip info. Every input starts EMPTY unless something was recorded, and an empty input
   // is written as null ("not screened") — never 0, never a plausible default.
   const clipBox = h("div", { class: "sect" });
-  clipBox.style.display = "none";
+  // First-open intake: a video without saved clip metadata opens this optional section once
+  // when the panel is mounted. It remains collapsible and never gates the rally controls above.
+  clipBox.style.display = deps.clip ? "none" : "flex";
   const clipFields: Record<string, HTMLInputElement> = {};
   const clipLabels: Record<string, HTMLLabelElement> = {};
-  for (const f of ["venue", "cameraSetup", "courtsVisible", "courtsActive",
+  for (const f of ["venue", "targetCourt", "cameraSetup", "courtsVisible", "courtsActive",
                    "courtsPartial", "notes"]) {
     const lab = h("label");
     const inp = h("input", { name: `clip-${f}` }) as HTMLInputElement;
@@ -234,6 +236,10 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     clipFields[f] = inp;
     clipBox.append(h("div", { class: "row" }, lab, inp));
   }
+  const cameraOptions = h("datalist", { id: "rally-annotator-camera-setups" });
+  for (const setup of CAMERA_SETUP_IDS) cameraOptions.append(h("option", { value: setup }));
+  clipFields.cameraSetup.setAttribute("list", cameraOptions.id);
+  clipBox.append(cameraOptions);
   const fmtLabel = h("label");
   const fmtSel = h("select", { name: "clip-matchFormat" }) as HTMLSelectElement;
   fmtSel.append(h("option", { value: "" })); // "(not set)" first => the default writes null
@@ -252,9 +258,13 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   // ---- state ----
   let selectedN: number | null = null;
   let lastMsg: Msg = { key: "status.ready" };
-  const clip: ClipMeta = deps.clip
-    ? { ...deps.clip, target_profiles: [...deps.clip.target_profiles] }
-    : emptyClipMeta();
+  const clip: ClipMeta = {
+    ...emptyClipMeta(),
+    ...deps.clip,
+    target_profiles: [...(deps.clip?.target_profiles ?? [])],
+  };
+  if (clip.sport && SPORTS.some((sport) => sport === clip.sport)) a.sport = clip.sport;
+  let clipSidecarSaved = deps.clip != null;
 
   function setStatus(m: Msg) {
     lastMsg = m;
@@ -289,6 +299,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     help.innerHTML = t("help.html");
     clipToggle.textContent = t("btn.clipInfo");
     clipLabels.venue.textContent = t("label.venue");
+    clipLabels.targetCourt.textContent = t("label.targetCourt");
     clipLabels.cameraSetup.textContent = t("label.cameraSetup");
     clipLabels.courtsVisible.textContent = t("label.courtsVisible");
     clipLabels.courtsActive.textContent = t("label.courtsActive");
@@ -422,17 +433,27 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   markEndBtn.addEventListener("click", () => setStatus(a.markEnd(video.now())));
   saveBtn.addEventListener("click", () => {
     const res = a.saveRally();
-    if (res.ok) download(a.toCSV()); // download the full CSV on each save (per design)
+    if (res.ok) {
+      download(a.toCSV()); // download the full CSV on each save (per design)
+      refreshSavedClipSidecar();
+    }
     setStatus(res);
   });
 
   editBtn.addEventListener("click", () => setStatus(a.editSelected(selectedN)));
   delBtn.addEventListener("click", () => {
     const res = a.deleteSelected(selectedN);
-    if (res.ok) selectedN = null;
+    if (res.ok) {
+      selectedN = null;
+      refreshSavedClipSidecar();
+    }
     setStatus(res);
   });
-  undoBtn.addEventListener("click", () => setStatus(a.undoLast()));
+  undoBtn.addEventListener("click", () => {
+    const res = a.undoLast();
+    if (res.ok) refreshSavedClipSidecar();
+    setStatus(res);
+  });
   refreshBtn.addEventListener("click", () => {
     video.findActive();
     setStatus({ key: video.hasVideo() ? "status.refreshedVideo" : "status.noVideoFound" });
@@ -445,6 +466,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   // ---- clip info ----
   function loadClipFields() {
     clipFields.venue.value = clip.venue_id ?? "";
+    clipFields.targetCourt.value = clip.target_court_id ?? "";
     clipFields.cameraSetup.value = clip.camera_setup_id ?? "";
     clipFields.courtsVisible.value = clip.court_count != null ? String(clip.court_count) : "";
     clipFields.courtsActive.value = clip.active_court_count != null ? String(clip.active_court_count) : "";
@@ -454,6 +476,21 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     fmtSel.value = clip.match_format ?? "";
   }
   loadClipFields();
+
+  function writeClipSidecar() {
+    deps.persistClip?.(clip);
+    deps.downloadClipMeta?.(
+      serializeClipMeta(clip, {
+        clipName: deps.identity.title || null,
+        generator: `rally-annotator-web/${VERSION}`,
+        completeness: completeness(a.rows, video.duration()),
+      })
+    );
+  }
+
+  function refreshSavedClipSidecar() {
+    if (clipSidecarSaved) writeClipSidecar();
+  }
 
   saveClipBtn.addEventListener("click", () => {
     const counts: Array<[string, string, number]> = [
@@ -471,6 +508,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
       parsed[field] = r.value;
     }
     clip.venue_id = optText(clipFields.venue.value);
+    clip.target_court_id = optText(clipFields.targetCourt.value);
     clip.camera_setup_id = optText(clipFields.cameraSetup.value);
     clip.notes = optText(clipFields.notes.value);
     clip.court_count = parsed.courtsVisible;
@@ -484,14 +522,8 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
       setStatus(issue);
       return;
     }
-    deps.persistClip?.(clip);
-    deps.downloadClipMeta?.(
-      serializeClipMeta(clip, {
-        clipName: deps.identity.title || null,
-        generator: `rally-annotator-web/${VERSION}`,
-        completeness: completeness(a.rows, video.duration()),
-      })
-    );
+    clipSidecarSaved = true;
+    writeClipSidecar();
     setStatus({
       key: "clip.saved",
       params: {

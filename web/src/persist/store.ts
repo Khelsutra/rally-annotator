@@ -5,7 +5,7 @@
 
 import { browser } from "wxt/browser";
 import type { RallyRow } from "../state/csv";
-import type { ClipMeta } from "../state/clipmeta";
+import { parseClipMeta, type ClipMeta } from "../state/clipmeta";
 import type { ReviewRow } from "../state/targetReview";
 
 const PREFIX = "rally:";
@@ -62,7 +62,9 @@ const REVIEW_PREFIX = "review:";
 export async function loadClip(key: string): Promise<ClipMeta | null> {
   const r = await browser.storage.local.get(CLIP_PREFIX + key);
   const v = (r as Record<string, unknown>)[CLIP_PREFIX + key];
-  return v && typeof v === "object" ? (v as ClipMeta) : null;
+  // Stored objects predate clipmeta v3 too. Route them through the same forgiving migration as
+  // imported JSON so v2 target-profile consensus restores the declarative target in the live UI.
+  return v && typeof v === "object" ? parseClipMeta(JSON.stringify(v)) : null;
 }
 
 export async function saveClip(key: string, clip: ClipMeta): Promise<void> {
