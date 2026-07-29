@@ -13,15 +13,12 @@
 
   WHAT'S NEW IN v2.1.0
     - Rally annotation is NEVER gated on court metadata. The target is the largest,
-      most focused court in the video and is derived downstream; an optional target
-      profile can still support diagnostics/review, but missing geometry never stops
-      Mark START or Save Rally.
+      most focused court in the video and is derived downstream. The manual TARGET,
+      REVIEW, and image-picker workflow has been removed from the annotator.
+      Existing target metadata is still preserved for backward compatibility.
     - A self-intersecting play volume is refused: a bowtie passes every per-point
       check and has a MEANINGLESS area (its lobes cancel), so it would poison any
       coverage comparison built on it.
-    - tools/court_picker.html now marks EVERY visible court, ranks them by frame
-      coverage and names the prominent one; within 5 points it reports ambiguous
-      rather than picking by a rounding error.
 
   WHAT'S NEW IN v2.0.0  (target-first correction)
     - The neighborhood WINDOW track is REMOVED. Nothing in this tool asks the
@@ -259,11 +256,8 @@ STRINGS = {
     ["state.not_rallying"] = "not rallying",
     ["state.unclear"] = "unclear",
     ["target.volumeSummary"] = "Play volume: {n} corners covering {pct}% of the frame.",
-    ["target.volumeEmpty"] = "No play volume yet — mark the court in tools/court_picker.html and paste the line it gives you.",
+    ["target.volumeEmpty"] = "No play volume recorded.",
     ["target.volumeInvalid"] = "Play volume is not usable yet — {why}",
-    ["btn.pickOnImage"] = "Pick on image…",
-    ["target.pickerOpened"] = "Opened the optional picker and this clip's folder. The matching <clip>.court.png loads automatically when it exists; otherwise choose or drop it.",
-    ["target.pickerMissing"] = "court_picker.html is not next to the extension. Copy tools/court_picker.html into {dir} to open it from here — or just open it from the repo.",
     ["target.saved"] = "Saved target profile '{section}' ({n}-point play volume, {pct}% of frame).",
     ["target.deleted"] = "Deleted target profile '{section}'.",
     ["target.needSelect"] = "Click a target profile in the list first.",
@@ -413,11 +407,8 @@ STRINGS = {
     ["state.not_rallying"] = "ರ್ಯಾಲಿ ಇಲ್ಲ",
     ["state.unclear"] = "ಅಸ್ಪಷ್ಟ",
     ["target.volumeSummary"] = "ಆಟದ ಪ್ರದೇಶ: {n} ಮೂಲೆಗಳು, ಚೌಕಟ್ಟಿನ {pct}% ಆವರಿಸಿದೆ.",
-    ["target.volumeEmpty"] = "ಇನ್ನೂ ಆಟದ ಪ್ರದೇಶ ಇಲ್ಲ — tools/court_picker.html ನಲ್ಲಿ ಕೋರ್ಟ್ ಗುರುತಿಸಿ, ಅದು ಕೊಡುವ ಸಾಲನ್ನು ಅಂಟಿಸಿ.",
+    ["target.volumeEmpty"] = "ಇನ್ನೂ ಆಟದ ಪ್ರದೇಶ ದಾಖಲಾಗಿಲ್ಲ.",
     ["target.volumeInvalid"] = "ಆಟದ ಪ್ರದೇಶ ಇನ್ನೂ ಬಳಸಲಾಗದು — {why}",
-    ["btn.pickOnImage"] = "ಚಿತ್ರದಲ್ಲಿ ಆರಿಸಿ…",
-    ["target.pickerOpened"] = "ಪಿಕರ್ ಮತ್ತು ಈ ಕ್ಲಿಪ್‌ನ ಫೋಲ್ಡರ್ ತೆರೆಯಲಾಗಿದೆ. <clip>.court.png ನಲ್ಲಿ ಎಲ್ಲಾ ಕೋರ್ಟ್‌ಗಳನ್ನು ಗುರುತಿಸಿ, ನಂತರ ಅದು ಕೊಡುವ ಸಾಲನ್ನು ಆಟದ ಪ್ರದೇಶಕ್ಕೆ ಅಂಟಿಸಿ.",
-    ["target.pickerMissing"] = "ವಿಸ್ತರಣೆಯ ಪಕ್ಕದಲ್ಲಿ court_picker.html ಇಲ್ಲ. ಇಲ್ಲಿಂದ ತೆರೆಯಲು tools/court_picker.html ಅನ್ನು {dir} ಗೆ ನಕಲಿಸಿ — ಅಥವಾ ರೆಪೋದಿಂದಲೇ ತೆರೆಯಿರಿ.",
     ["target.saved"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಉಳಿಸಲಾಯಿತು ({n}-ಬಿಂದು ಆಟದ ಪ್ರದೇಶ, ಚೌಕಟ್ಟಿನ {pct}%).",
     ["target.deleted"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಅಳಿಸಲಾಯಿತು.",
     ["target.needSelect"] = "ಮೊದಲು ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ಗುರಿ ಪ್ರೊಫೈಲ್ ಕ್ಲಿಕ್ ಮಾಡಿ.",
@@ -567,11 +558,8 @@ STRINGS = {
     ["state.not_rallying"] = "रैली नहीं",
     ["state.unclear"] = "अस्पष्ट",
     ["target.volumeSummary"] = "खेल क्षेत्र: {n} कोने, फ़्रेम का {pct}% घेरता है।",
-    ["target.volumeEmpty"] = "अभी कोई खेल क्षेत्र नहीं — tools/court_picker.html में कोर्ट चिह्नित करें और वहाँ मिली पंक्ति चिपकाएँ।",
+    ["target.volumeEmpty"] = "अभी कोई खेल क्षेत्र दर्ज नहीं है।",
     ["target.volumeInvalid"] = "खेल क्षेत्र अभी उपयोग योग्य नहीं — {why}",
-    ["btn.pickOnImage"] = "छवि पर चुनें…",
-    ["target.pickerOpened"] = "पिकर और इस क्लिप का फ़ोल्डर खुल गया। <clip>.court.png पर सभी कोर्ट चिह्नित करें, फिर मिली पंक्ति खेल क्षेत्र में चिपकाएँ।",
-    ["target.pickerMissing"] = "एक्सटेंशन के पास court_picker.html नहीं है। यहाँ से खोलने के लिए tools/court_picker.html को {dir} में कॉपी करें — या रेपो से ही खोलें।",
     ["target.saved"] = "लक्ष्य प्रोफ़ाइल '{section}' सहेजी गई ({n}-बिंदु खेल क्षेत्र, फ़्रेम का {pct}%)।",
     ["target.deleted"] = "लक्ष्य प्रोफ़ाइल '{section}' हटाई गई।",
     ["target.needSelect"] = "पहले सूची में एक लक्ष्य प्रोफ़ाइल पर क्लिक करें।",
@@ -721,11 +709,8 @@ STRINGS = {
     ["state.not_rallying"] = "ర్యాలీ లేదు",
     ["state.unclear"] = "అస్పష్టం",
     ["target.volumeSummary"] = "ఆట ప్రాంతం: {n} మూలలు, ఫ్రేమ్‌లో {pct}% ఆక్రమిస్తుంది.",
-    ["target.volumeEmpty"] = "ఇంకా ఆట ప్రాంతం లేదు — tools/court_picker.html లో కోర్టును గుర్తించి, అది ఇచ్చే లైన్‌ను అతికించండి.",
+    ["target.volumeEmpty"] = "ఇంకా ఆట ప్రాంతం నమోదు కాలేదు.",
     ["target.volumeInvalid"] = "ఆట ప్రాంతం ఇంకా ఉపయోగించలేము — {why}",
-    ["btn.pickOnImage"] = "చిత్రంలో ఎంచుకో…",
-    ["target.pickerOpened"] = "పికర్ మరియు ఈ క్లిప్ ఫోల్డర్ తెరవబడ్డాయి. <clip>.court.png లో అన్ని కోర్టులను గుర్తించి, అది ఇచ్చే లైన్‌ను ఆట ప్రాంతంలో అతికించండి.",
-    ["target.pickerMissing"] = "ఎక్స్‌టెన్షన్ పక్కన court_picker.html లేదు. ఇక్కడి నుండి తెరవడానికి tools/court_picker.html ను {dir} కు కాపీ చేయండి — లేదా రెపో నుండే తెరవండి.",
     ["target.saved"] = "లక్ష్య ప్రొఫైల్ '{section}' సేవ్ అయింది ({n}-బిందువుల ఆట ప్రాంతం, ఫ్రేమ్‌లో {pct}%).",
     ["target.deleted"] = "లక్ష్య ప్రొఫైల్ '{section}' తొలగించబడింది.",
     ["target.needSelect"] = "ముందుగా జాబితాలో ఒక లక్ష్య ప్రొఫైల్‌పై క్లిక్ చేయండి.",
@@ -875,11 +860,8 @@ STRINGS = {
     ["state.not_rallying"] = "sin punto en juego",
     ["state.unclear"] = "poco claro",
     ["target.volumeSummary"] = "Zona de juego: {n} esquinas que cubren el {pct}% del cuadro.",
-    ["target.volumeEmpty"] = "Aún no hay zona de juego: marca la pista en tools/court_picker.html y pega la línea que te da.",
+    ["target.volumeEmpty"] = "No hay ninguna zona de juego registrada.",
     ["target.volumeInvalid"] = "La zona de juego aún no es utilizable: {why}",
-    ["btn.pickOnImage"] = "Marcar en la imagen…",
-    ["target.pickerOpened"] = "Se abrieron el selector y la carpeta de este clip. Marca todas las pistas en <clip>.court.png y pega la línea resultante en Zona de juego.",
-    ["target.pickerMissing"] = "court_picker.html no está junto a la extensión. Copia tools/court_picker.html en {dir} para abrirlo desde aquí, o ábrelo desde el repositorio.",
     ["target.saved"] = "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos, {pct}% del cuadro).",
     ["target.deleted"] = "Perfil objetivo '{section}' eliminado.",
     ["target.needSelect"] = "Haz clic primero en un perfil objetivo de la lista.",
@@ -1029,11 +1011,8 @@ STRINGS = {
     ["state.not_rallying"] = "ingen duel",
     ["state.unclear"] = "uklart",
     ["target.volumeSummary"] = "Spilzone: {n} hjørner, der dækker {pct}% af billedet.",
-    ["target.volumeEmpty"] = "Ingen spilzone endnu — markér banen i tools/court_picker.html og indsæt den linje, den giver dig.",
+    ["target.volumeEmpty"] = "Ingen spilzone er registreret.",
     ["target.volumeInvalid"] = "Spilzonen kan ikke bruges endnu — {why}",
-    ["btn.pickOnImage"] = "Vælg på billedet…",
-    ["target.pickerOpened"] = "Åbnede vælgeren og dette klips mappe. Markér alle baner på <clip>.court.png, og indsæt så linjen i Spilzone.",
-    ["target.pickerMissing"] = "court_picker.html ligger ikke ved siden af udvidelsen. Kopiér tools/court_picker.html til {dir} for at åbne den herfra — eller åbn den fra repoet.",
     ["target.saved"] = "Målprofil '{section}' gemt ({n}-punkts spilzone, {pct}% af billedet).",
     ["target.deleted"] = "Målprofil '{section}' slettet.",
     ["target.needSelect"] = "Klik først på en målprofil i listen.",
@@ -1183,11 +1162,8 @@ STRINGS = {
     ["state.not_rallying"] = "tidak reli",
     ["state.unclear"] = "tidak jelas",
     ["target.volumeSummary"] = "Area main: {n} sudut, menutupi {pct}% dari bingkai.",
-    ["target.volumeEmpty"] = "Belum ada area main — tandai lapangan di tools/court_picker.html lalu tempel baris yang diberikan.",
+    ["target.volumeEmpty"] = "Belum ada area main yang direkam.",
     ["target.volumeInvalid"] = "Area main belum bisa dipakai — {why}",
-    ["btn.pickOnImage"] = "Pilih di gambar…",
-    ["target.pickerOpened"] = "Pemilih dan folder klip ini dibuka. Tandai semua lapangan di <clip>.court.png, lalu tempel barisnya ke Area main.",
-    ["target.pickerMissing"] = "court_picker.html tidak ada di samping ekstensi. Salin tools/court_picker.html ke {dir} agar bisa dibuka dari sini — atau buka saja dari repo.",
     ["target.saved"] = "Profil target '{section}' tersimpan (area main {n} titik, {pct}% dari bingkai).",
     ["target.deleted"] = "Profil target '{section}' dihapus.",
     ["target.needSelect"] = "Klik dulu satu profil target di daftar.",
@@ -1668,29 +1644,6 @@ local function current_media_path()
     p = p:gsub("/", "\\")
   end
   return p
-end
-
--- Encode a local path as a file URI the browser can open. The second encoding step is used when
--- that URI becomes a query-parameter value on the picker URL.
-local function uri_escape(value, keep_path_chars)
-  local safe = keep_path_chars and "([^%w%-_%.~/:])" or "([^%w%-_%.~])"
-  return (tostring(value or ""):gsub(safe, function(c)
-    return string.format("%%%02X", string.byte(c))
-  end))
-end
-
-local function file_uri(path)
-  local p = tostring(path or ""):gsub("\\", "/")
-  local prefix = p:match("^%a:/") and "file:///" or "file://"
-  return prefix .. uri_escape(p, true)
-end
-
-local function court_still_path(media)
-  local dir, name = tostring(media or ""):match("^(.*[\\/])([^\\/]+)$")
-  if not dir or not name then return nil end
-  local stem = name:gsub("%.[^%.\\/]+$", "")
-  if stem == "" then return nil end
-  return dir .. stem .. ".court.png"
 end
 
 -- Resolve a sensible default output path: next to the video if we can, else
@@ -2712,36 +2665,6 @@ function save_target_profile()
                                  pct = string.format("%.1f", polygon_area(poly) * 100) }))
 end
 
--- Open the OPTIONAL picker with this clip's still already visible. Earlier code only opened a
--- blank HTML page plus the containing folder, so the screenshot never appeared in the picker and
--- the operator had to discover the drag/drop step. A missing still still opens the picker and
--- folder as a fallback; neither case can block rally annotation.
-function pick_on_image()
-  local home = os.getenv("APPDATA") or os.getenv("HOME") or "."
-  local sep = home:find("\\") and "\\" or "/"
-  local ext_dir = home .. sep .. "vlc" .. sep .. "lua" .. sep .. "extensions"
-  local picker = ext_dir .. sep .. "court_picker.html"
-  local probe = io.open(picker, "r")
-  if not probe then set_status(t("target.pickerMissing", { dir = ext_dir })); return end
-  probe:close()
-
-  local media = current_media_path()
-  local folder = media and media:match("^(.*[\\/])") or nil
-  local picker_url = file_uri(picker)
-  local still = court_still_path(media)
-  if still then
-    local still_probe = io.open(still, "rb")
-    if still_probe then
-      still_probe:close()
-      picker_url = picker_url .. "?image=" .. uri_escape(file_uri(still), false)
-    end
-  end
-  local opener = (sep == "\\") and 'start "" ' or "xdg-open "
-  os.execute(opener .. '"' .. picker_url .. '"')
-  if folder then os.execute(opener .. '"' .. folder .. '"') end
-  set_status(t("target.pickerOpened"))
-end
-
 function delete_target_profile()
   local idx = selected_profile_index()
   if not idx or not profiles[idx] then set_status(t("target.needSelect")); return end
@@ -2949,14 +2872,12 @@ function target_refresh()
   if d then d:update() end
 end
 
--- Nav row, identical on every screen: the active screen is marked with a caret rather than
--- a colour (VLC gives an extension no button styling, and a caret is language-neutral).
+-- Operator navigation only exposes rally annotation and clip facts. Target profiles/reviews remain
+-- readable for sidecar compatibility, but their manual editors are deliberately not reachable.
 local function build_nav()
   local function cap(key, mine) return (screen == mine and "\226\150\184 " or "") .. t(key) end
-  d:add_button(cap("nav.rallies", "rally"),  show_rallies, 1, 1, 1, 1)
-  d:add_button(cap("nav.clip",    "clip"),   show_clip,    2, 1, 1, 1)
-  d:add_button(cap("nav.target",  "target"), show_target,  3, 1, 1, 1)
-  d:add_button(cap("nav.review",  "review"), show_review,  4, 1, 1, 1)
+  d:add_button(cap("nav.rallies", "rally"), show_rallies, 1, 1, 2, 1)
+  d:add_button(cap("nav.clip",    "clip"),  show_clip,    3, 1, 2, 1)
 end
 
 local function build_language_row(row)
@@ -3099,8 +3020,7 @@ local function build_target_screen()
   w_tnotes = d:add_text_input(txt(sel and sel.notes), 2, 5, 2, 1)
   w_help_btn = d:add_button(t("btn.help"), show_help, 4, 5, 1, 1)
 
-  d:add_button(t("btn.saveTarget"), save_target_profile, 1, 6, 1, 1)
-  d:add_button(t("btn.pickOnImage"), pick_on_image, 2, 6, 1, 1)
+  d:add_button(t("btn.saveTarget"), save_target_profile, 1, 6, 2, 1)
   d:add_button(t("btn.loadProfile"), edit_target_profile, 3, 6, 1, 1)
   d:add_button(t("btn.deleteProfile"), delete_target_profile, 4, 6, 1, 1)
 

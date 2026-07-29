@@ -1,4 +1,9 @@
-# Target profiles and sparse target-state review
+# Legacy target metadata compatibility
+
+> **Not an annotation workflow.** The current annotator has no Target screen, Review screen, or
+> court picker. Operators label rallies on the video's largest, most visually focused court.
+> This document records the old sidecar schemas only so existing data can still be read and
+> preserved safely.
 
 > **This supersedes the neighborhood window track.** An earlier design asked the operator to mark
 > and tag windows of *surrounding* play — `adjacent_court_rally`, `simultaneous_rallies`,
@@ -11,12 +16,12 @@ The pipeline is **target-first**. The target is the largest, most visually focus
 video; the segmenter emits rally START/END for **that match only**. Court localization/selection is
 derived downstream from the video rather than imposed as a prerequisite on the rally annotator.
 
-Two artifacts:
+Two legacy artifacts may still exist:
 
 | File | What it holds |
 |---|---|
-| `<clip>.clipmeta.json` → `target_profiles[]` | optional persistent **target profile per static camera section** |
-| `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` |
+| `<clip>.clipmeta.json` → `target_profiles[]` | previously recorded target profiles |
+| `<clip>.target-review.csv` | previously recorded sparse target-state answers |
 
 ## Rally annotation never waits for court metadata
 
@@ -28,10 +33,9 @@ The court is derived downstream using the video itself: frame coverage is the pr
 signal, with visual focus and sustained play evidence resolving what the camera is actually about.
 No operator-drawn polygon is required to make that choice.
 
-Target profiles and the picker remain optional diagnostic/review metadata. When that metadata is
-useful, `tools/court_picker.html` can rank manually marked courts by coverage; the same arithmetic is
-available as `polygonArea`, `rankProminence`, and `isProminentCourt` in
-`web/src/state/targetReview.ts`. That optional helper is not the annotation source of truth.
+Existing target profiles and reviews are compatibility data, not an operator task. Downstream code
+can use `polygonArea`, `rankProminence`, and `isProminentCourt` in
+`web/src/state/targetReview.ts` when processing legacy polygons.
 
 ## Rally annotation is unchanged
 
@@ -43,7 +47,7 @@ That is `<clip>.rallies.csv`, exactly as before ([CSV_FORMAT.md](CSV_FORMAT.md))
 prominent-match timeline already makes every non-target-rally instant an implicit negative for
 ordinary training — which is precisely why exhaustively labelling the neighbours was unnecessary.
 
-## Optional target profiles
+## Legacy target-profile schema
 
 One per **static camera section**. A section is a stretch of the recording over which the camera
 does not move; a fixed-tripod clip is a single section.
@@ -112,7 +116,7 @@ anticipates for automatic court selection ("compare configured polygons with pla
 shuttle-density, and court-line proposals"), and it is the reason a single signal — "is the whole
 court in frame?" — must not be allowed to decide the answer by itself.
 
-### Optional: drawing the polygon against an empty court
+### Downstream utility: generating an empty-court still
 
 No single frame of a live match has all four corners of the target court unobstructed — a player
 is always standing on a line. So build an **empty-court still** first:
@@ -128,9 +132,7 @@ does not, which is exactly the court lines. The result lands next to the video a
 
 Two things this deliberately is **not**:
 
-- It does not detect the court, propose a polygon, or infer anything. It produces an **image**; a
-  human reads it and draws the polygon. That boundary is what keeps the resulting label
-  human-from-scratch, with no model anywhere in its provenance.
+- It does not detect or select the court. It only produces an image for downstream inspection.
 - It never touches `<clip>.rallies.csv`, `<clip>.clipmeta.json` or `<clip>.target-review.csv`.
 
 Sampling at rally START/END timestamps would be the **worst** choice, incidentally: those are
@@ -142,32 +144,8 @@ For a whole session at once:
 node tools/court_still.mjs --all "<session folder>"
 ```
 
-which skips any clip that already has a still, so it is free to re-run. One still per clip is the
-simplest thing that works; clips sharing a static camera section will legitimately end up with the
-same polygon, which is exactly what `camera_section_id` is for.
-
-#### Picking the polygon by clicking
-
-Coordinates are fractions of the frame — `0,0` top-left, `1,1` bottom-right — which is why they
-survive a re-encode at another resolution. Reading pixels off an image editor and dividing by hand
-is eight divisions per court and a transcription error waiting to happen, so don't:
-
-If you need optional diagnostic geometry, open `tools/court_picker.html` (double-click it — no
-server, no install, works offline), drop the `<clip>.court.png` onto it, and click the corners. From
-VLC, **Pick on image…** passes the matching still to the page so it appears immediately. The picker
-draws the polygon as you go and gives you the string to paste into **Play volume** on the Target
-screen. `Undo point` and `Clear` are there for the inevitable misclick.
-
-You do not need to do this before annotating rallies.
-
-The picker reads an image and prints a string. It never opens, writes, or knows about a label file.
-
-Its output format is pinned by tests on both sides — a string it emits is accepted verbatim by the
-VLC extension and the browser extension, so clicking corners can never produce something the
-annotator then refuses.
-
-Mark the **play volume**, not the painted lines: include the run-off you want the segmenter to
-treat as belonging to this court.
+which skips any clip that already has a still, so it is free to re-run. This tool is not invoked by
+the annotator and does not create a manual court-selection step.
 
 **The polygon is not a completeness claim.** It records the play volume *that is visible*. A court
 running off the top of frame still has a well-defined visible play volume, and marking it is
@@ -194,7 +172,7 @@ A profile is **refused** — not silently coerced — when any of these hold:
 A profile that fails is not written. A clip with no valid profile is a clip with no profile — never
 a clip with a guessed one.
 
-## Sparse target-state review
+## Legacy sparse target-state review schema
 
 `<clip>.target-review.csv` records answers to one question about one interval: **was the target
 court rallying?**

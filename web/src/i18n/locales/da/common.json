@@ -115,8 +115,6 @@
   "btn.review": "Gennemgang",
   "btn.saveTarget": "Gem målprofil",
   "btn.deleteProfile": "Slet profil",
-  "btn.pickPolygon": "Vælg på videoen",
-  "btn.pickCancel": "Annullér valg",
   "btn.saveReview": "Gem gennemgang",
   "btn.saveReviewN": "Gem gennemgang (#{n})",
   "btn.downloadReviews": "Hent gennemgangs-CSV",
@@ -143,8 +141,6 @@
   "target.polygonTooFewPoints": "En spilzone kræver mindst 3 punkter (4 til den sædvanlige firkant).",
   "target.polygonRange": "Spilzonens koordinater er NORMALISEREDE: hver x og y skal ligge mellem 0 og 1, ikke pixels.",
   "target.needProfile": "Gem først en målprofil - en gennemgang svarer på et spørgsmål om én kamerasektion.",
-  "target.pickStart": "Klik på målbanens hjørner på videoen (4 punkter).",
-  "target.picking": "{n} af 4 hjørner valgt.",
   "review.saved": "Gennemgang #{n} gemt: {s} → {e} [{state}].",
   "review.deleted": "Gennemgang #{n} slettet. {count} tilbage.",
   "review.removed": "Fjernede sidste gennemgang #{n}. {count} tilbage.",
@@ -152,9 +148,6 @@
   "legacy.windowsPresent": "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her.",
   "target.polygonSelfIntersecting": "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
   "target.volumeSummary": "Spilzone: {n} hjørner, der dækker {pct}% af billedet.",
-  "target.volumeEmpty": "Ingen spilzone endnu — markér banen i tools/court_picker.html og indsæt den linje, den giver dig.",
-  "target.volumeInvalid": "Spilzonen kan ikke bruges endnu — {why}",
-  "btn.pickOnImage": "Vælg på billedet…",
-  "target.pickerOpened": "Åbnede vælgeren og dette klips mappe. Markér alle baner på <clip>.court.png, og indsæt så linjen i Spilzone.",
-  "target.pickerMissing": "court_picker.html ligger ikke ved siden af udvidelsen. Kopiér tools/court_picker.html til {dir} for at åbne den herfra — eller åbn den fra repoet."
+  "target.volumeEmpty": "Ingen spilzone er registreret.",
+  "target.volumeInvalid": "Spilzonen kan ikke bruges endnu — {why}"
 }

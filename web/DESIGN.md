@@ -133,19 +133,17 @@ OFL Noto fonts, AI-draft → native-review). The reason/sport **values** and CSV
 English (LD-3 byte-compatibility is preserved across all languages). Full design + locked decisions:
 [../docs/LOCALIZATION.md](../docs/LOCALIZATION.md).
 
-### LD-13 — Per-clip metadata and target-state review are SEPARATE artifacts, not more CSV columns
-**Decision.** Capture metadata and per-section target profiles go to `<clip>.clipmeta.json`, sparse
-target-state answers to `<clip>.target-review.csv`; the rally CSV is unchanged and still ingests
-exactly as before. All three share one per-video identity (`rally:` / `clip:` / `review:` prefixes
-in `chrome.storage.local`) so they resume together. Pure logic lives in `src/state/clipmeta.ts` and
-`src/state/targetReview.ts`, mirroring the VLC extension's output.
+### LD-13 — Per-clip metadata is separate; target/review data is compatibility-only
+**Decision.** Capture metadata goes to `<clip>.clipmeta.json`; the rally CSV is unchanged and still
+ingests exactly as before. The panel does not expose Target or Review controls. Existing
+`target_profiles` and `<clip>.target-review.csv` data remain readable/preserved for compatibility,
+with pure parsing logic in `src/state/targetReview.ts`.
 **Why.** Clip metadata is per-**clip**, not per-rally — putting it on every rally row would repeat
 it N times and make it editable in N places. A review answer is not a rally: it is an answer about
 an interval someone else chose, it may overlap a rally or sit between two, and it carries its own
 vocabulary and numbering.
-**Consequence.** Three downloads instead of one (the sandbox still cannot write next to a web
-video, LD-3). The background worker's download message now carries a `mime` so the JSON sidecar is
-not saved as `text/csv`.
+**Consequence.** Rally annotation has no court-metadata gate or manual picker. The background
+worker's download message still carries a `mime` so the JSON sidecar is not saved as `text/csv`.
 
 ### LD-15 — Target-first: the tool never asks about a neighbouring court
 **Decision.** Only the prominent target match is annotated. The withdrawn neighborhood window track

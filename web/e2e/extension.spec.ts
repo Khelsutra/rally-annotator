@@ -46,10 +46,9 @@ async function seekTo(page: Page, target: number) {
   );
 }
 
-// Clip metadata + window track, driven through the REAL extension in Chromium. Run once (in
-// en) rather than per-locale: the per-locale proof above already covers rendering, and this
-// case is about the two new artifacts reaching chrome.storage.local intact.
-test("records clip metadata, a target profile and a sparse target-state review", async () => {
+// Clip metadata, driven through the REAL extension in Chromium. Run once (in en) rather than
+// per-locale: the per-locale proof below already covers rendering.
+test("records clip metadata without exposing manual target controls", async () => {
   const context = await chromium.launchPersistentContext("", {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, "--no-first-run"],
@@ -85,48 +84,11 @@ test("records clip metadata, a target profile and a sparse target-state review",
     expect((clip as Record<string, unknown>).match_format).toBeNull();
     expect((clip as Record<string, unknown>).partially_visible_court_count).toBeNull();
 
-    // A target profile for this camera section. Pixel coordinates must be refused, not coerced.
-    await page.getByRole("button", { name: tt("en", "btn.target") }).click();
-    await page.locator("input[name=target-section]").fill("s1");
-    await page.locator("input[name=target-court]").fill("3");
-    await page.locator("input[name=target-polygon]").fill("120,540 880,540 1010,980 70,980");
-    await page.getByRole("button", { name: tt("en", "btn.saveTarget") }).click();
-    await expect(page.locator(".status")).toContainText("NORMALIZED");
-
-    await page.locator("input[name=target-polygon]").fill("0.2,0.5 0.8,0.5 0.95,0.98 0.05,0.98");
-    await page.getByRole("button", { name: tt("en", "btn.saveTarget") }).click();
-
-    const withProfile = await sw.evaluate(async () => {
-      const all = await chrome.storage.local.get(null);
-      const key = Object.keys(all).find((k) => k.startsWith("clip:"));
-      return key ? (all as Record<string, unknown>)[key] : null;
-    });
-    const profiles = (withProfile as Record<string, unknown>).target_profiles as Array<Record<string, unknown>>;
-    expect(profiles).toHaveLength(1);
-    expect(profiles[0]).toMatchObject({
-      camera_section_id: "s1", target_court_id: "3", setup_validity: "supported",
-    });
-    expect(profiles[0].play_volume_polygon as number[][]).toHaveLength(4);
-
-    // Then one sparse target-state answer, marked off the real <video>.
-    await page.getByRole("button", { name: tt("en", "btn.review") }).click();
-    await seekTo(page, 2.0);
-    await page.locator("input[name=review-start]").fill("412.500");
-    await page.locator("input[name=review-end]").fill("418.250");
-    await page.locator("select[name=review-state]").selectOption("not_rallying");
-    await page.getByRole("button", { name: tt("en", "btn.saveReviewN", { n: 1 }) }).click();
-
-    const revs = await sw.evaluate(async () => {
-      const all = await chrome.storage.local.get(null);
-      const key = Object.keys(all).find((k) => k.startsWith("review:"));
-      return key ? (all as Record<string, unknown>)[key] : null;
-    });
-    expect(Array.isArray(revs)).toBe(true);
-    expect(revs as unknown[]).toHaveLength(1);
-    // The state is DATA: canonical english regardless of the interface language.
-    expect((revs as Array<Record<string, unknown>>)[0]).toMatchObject({
-      n: 1, state: "not_rallying", section: "s1",
-    });
+    await expect(page.getByRole("button", { name: tt("en", "btn.target"), exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: tt("en", "btn.review"), exact: true })).toHaveCount(0);
+    await expect(page.locator("[name^=target-]")).toHaveCount(0);
+    await expect(page.locator("[name^=review-]")).toHaveCount(0);
+    expect((clip as Record<string, unknown>).target_profiles).toEqual([]);
 
     // The rally track is untouched by any of this.
     const rallies = await sw.evaluate(async () => {

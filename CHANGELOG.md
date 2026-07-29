@@ -5,23 +5,17 @@
   with no target profile in both front-ends. The annotated match is the largest, most visually
   focused court in the video; court localization/selection is derived downstream instead of making
   the operator complete a polygon workflow before labelling.
-- **Fix: the optional VLC picker now receives the matching `<clip>.court.png`.** The previous button
-  opened a blank static page and a folder but never passed the screenshot to the page, so the
-  advertised “Pick on image” flow showed no image. The still is now handed over as an encoded local
-  URL and appears immediately; file picker and drag/drop remain fallbacks.
-- **The picker ranks courts by coverage as optional diagnostic tooling.** Mark every visible court;
-  it computes each one's coverage, highlights the winner, and hands you its polygon. If the top two
-  are within 5 points it says **ambiguous** rather than picking by a rounding error. None of this is
-  required to annotate rallies.
+- **Removed the manual Target and Review screens from both front-ends.** The annotator now exposes
+  only the rally workflow and optional Clip info. Existing `target_profiles` and review data remain
+  readable/preserved for backward compatibility, but are no longer an operator workflow.
+- **Removed `tools/court_picker.html` and every Pick on image/video control.** The broken screenshot
+  handoff no longer sits in the way of the job the annotator exists to do.
 - **New pure geometry in `targetReview.ts`:** `polygonArea` (normalized, so area *is* coverage),
   `isSelfIntersecting`, `rankProminence`, `isProminentCourt`. A downstream pipeline can ask the same
-  question of detected polygons and get the same answer; a test pins the picker's margin to the
-  module constant so the two cannot drift.
+  question of detected polygons and get the same answer.
 - **A self-intersecting play volume is now refused** in both front-ends. A bowtie passed every
   previous check and has a *meaningless* area — its lobes cancel in the shoelace sum — so it would
   have poisoned any coverage comparison built on it.
-- The three panel lists carry `data-list="rallies|profiles|reviews"`, so a selector can name the one
-  it means.
 - **Reframed `setup_validity` around serviceability, not geometric completeness.** The old wording
   listed a "clipped" target as a trigger for `unsupported`, which invites a wrong inference the
   polygon makes vivid: a camera aimed at one court from a corner routinely runs part of it off frame
@@ -33,10 +27,6 @@
   which is computable by ranking polygon areas rather than by asking whether any one court is wholly
   enclosed. Also records that the polygon is not a completeness claim — it marks the play volume
   *that is visible*, and a partly-visible court still has one worth recording.
-- **`tools/court_picker.html`** — optional click-to-pick tooling for target-profile diagnostics.
-  VLC preloads the matching still when available; double-click, file picker, and drag/drop also work
-  offline. Its output format is **pinned by tests on both sides**, so a string it emits can never be
-  one the annotator refuses. It never opens or writes a label file.
 - **`court_still --all <dir>`** — batch a whole session folder, skipping clips that already have a
   still (so it is free to re-run), `--force` to redo them.
 - **Documented the `camera_setup_id` orientation vocabulary** (`court-left-corner`,

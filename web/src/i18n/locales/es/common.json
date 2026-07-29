@@ -115,8 +115,6 @@
   "btn.review": "Revisión",
   "btn.saveTarget": "Guardar perfil objetivo",
   "btn.deleteProfile": "Eliminar perfil",
-  "btn.pickPolygon": "Marcar en el vídeo",
-  "btn.pickCancel": "Cancelar marcado",
   "btn.saveReview": "Guardar revisión",
   "btn.saveReviewN": "Guardar revisión (#{n})",
   "btn.downloadReviews": "Descargar CSV de revisiones",
@@ -143,8 +141,6 @@
   "target.polygonTooFewPoints": "Una zona de juego necesita al menos 3 puntos (4 para el cuadrilátero habitual).",
   "target.polygonRange": "Las coordenadas de la zona de juego están NORMALIZADAS: cada x e y debe estar entre 0 y 1, no en píxeles.",
   "target.needProfile": "Guarda primero un perfil objetivo: una revisión responde sobre una sección de cámara.",
-  "target.pickStart": "Haz clic en las esquinas de la pista objetivo en el vídeo (4 puntos).",
-  "target.picking": "{n} de 4 esquinas marcadas.",
   "review.saved": "Revisión #{n} guardada: {s} → {e} [{state}].",
   "review.deleted": "Revisión #{n} eliminada. Quedan {count}.",
   "review.removed": "Se quitó la última revisión #{n}. Quedan {count}.",
@@ -152,9 +148,6 @@
   "legacy.windowsPresent": "Existe un archivo antiguo de ventanas de pistas vecinas para este clip. Es solo material de diagnóstico: no se lee, ni se convierte, ni se importa aquí.",
   "target.polygonSelfIntersecting": "La zona de juego se cruza consigo misma: las esquinas están desordenadas, así que no encierra nada. Vuelve a marcarlas dando la vuelta a la pista.",
   "target.volumeSummary": "Zona de juego: {n} esquinas que cubren el {pct}% del cuadro.",
-  "target.volumeEmpty": "Aún no hay zona de juego: marca la pista en tools/court_picker.html y pega la línea que te da.",
-  "target.volumeInvalid": "La zona de juego aún no es utilizable: {why}",
-  "btn.pickOnImage": "Marcar en la imagen…",
-  "target.pickerOpened": "Se abrieron el selector y la carpeta de este clip. Marca todas las pistas en <clip>.court.png y pega la línea resultante en Zona de juego.",
-  "target.pickerMissing": "court_picker.html no está junto a la extensión. Copia tools/court_picker.html en {dir} para abrirlo desde aquí, o ábrelo desde el repositorio."
+  "target.volumeEmpty": "No hay ninguna zona de juego registrada.",
+  "target.volumeInvalid": "La zona de juego aún no es utilizable: {why}"
 }

@@ -64,7 +64,7 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 | `partially_visible_court_count` | int ≥ 0 | `null` | How many of the `court_count` courts are only partly in frame. Never greater than `court_count`. |
 | `match_format` | enum | `null` | `singles` / `doubles` / `mixed`, for the **target** court. |
 | `notes` | string | `null` | Free text — occlusions, partial courts, mid-clip changes. |
-| `target_profiles` | array | `[]` | One **target profile per static camera section** — the court this recording actually indexes, and its geometry. Schema, validation and the `setup_validity` vocabulary live in [TARGET_REVIEW.md](TARGET_REVIEW.md). |
+| `target_profiles` | array | `[]` | Legacy/downstream-produced target geometry. The annotator preserves existing values but does not ask the operator to create them; see [TARGET_REVIEW.md](TARGET_REVIEW.md). |
 | `label_completeness` | object | `null` | Derived snapshot; see [Label completeness](#label-completeness). |
 
 ### `court_count` and `active_court_count` are two fields on purpose
@@ -158,9 +158,9 @@ worse than an inconsistent one — but new setups use the table above.
 
 #### `target_court_id` — use the venue's own court numbering
 
-`target_court_id` now lives inside a **target profile**, not at the top level, because it is a
-property of a camera section rather than of the whole file (see
-[TARGET_REVIEW.md](TARGET_REVIEW.md)). The naming rule is unchanged:
+In legacy target profiles, `target_court_id` lives inside the profile rather than at the top level
+because it is a property of a camera section (see [TARGET_REVIEW.md](TARGET_REVIEW.md)). The
+annotator no longer asks the operator to create or name a target profile.
 
 **Name the target court by the number the venue itself paints on it.** At Boxhill that is Boxhill's
 court numbering; at any other venue, that venue's own numbering.
@@ -313,8 +313,8 @@ A v1 file has no `target_profiles` and carries a top-level `target_court_id`. Re
 - every other field is read unchanged;
 - `target_profiles` starts **empty** — no profile is invented, because a profile without a validated
   camera section and polygon would fail its own validation;
-- the v1 `target_court_id` is kept aside and offered as the **default** when you create the first
-  profile, so the value is not lost but is never promoted without a human;
+- the v1 `target_court_id` remains compatibility input and is never promoted into a profile
+  automatically;
 - saving writes `clipmeta_version: 2`.
 
 A v1 file is therefore upgraded on the next save, and a v1 file you never touch stays valid on disk.

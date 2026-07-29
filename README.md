@@ -62,8 +62,7 @@ make you transcribe timestamps by hand. This lets a rater do it **inside the pla
 pausing to the exact frame before each mark — turning "watch a match" into "produce golden labels."
 
 ## Install
-1. Copy `vlc/rally_annotator.lua` into your VLC Lua **extensions** folder. To use the optional
-   **Pick on image…** helper, also copy `tools/court_picker.html` into that same folder:
+1. Copy `vlc/rally_annotator.lua` into your VLC Lua **extensions** folder:
    - **Windows:** `%APPDATA%\vlc\lua\extensions\`
    - **macOS:** `~/Library/Application Support/org.videolan.vlc/lua/extensions/`
    - **Linux:** `~/.local/share/vlc/lua/extensions/`
@@ -72,7 +71,8 @@ pausing to the exact frame before each mark — turning "watch a match" into "pr
 3. Enable it from the **View** menu → **Rally Annotator**. A small dialog opens and stays open while you watch.
 
 Requires **VLC 3.0.x**. (VLC 4.0 changed the Lua input/listener API; targeting 3.x for now.)
-Court metadata and the picker are optional: **Mark START** and **Save Rally** never wait for them.
+The annotator exposes only **Rallies** and optional **Clip info**. There is no Target, Review, or
+court-picker step: **Mark START** and **Save Rally** are available immediately.
 
 ## Use
 **Playback is built in** — the **Back 5s · Play / Pause · Fwd 5s** row drives the VLC player from the

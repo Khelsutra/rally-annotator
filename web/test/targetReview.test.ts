@@ -83,10 +83,9 @@ describe("polygon parsing fails closed", () => {
   });
 });
 
-describe("the court_picker output contract", () => {
-  // tools/court_picker.html emits exactly this shape: toFixed(3) pairs, space separated.
-  // Both front-ends must accept it verbatim, or clicking corners produces a string the
-  // annotator then refuses.
+describe("the normalized polygon string contract", () => {
+  // Legacy sidecars may contain this compact, space-separated representation. Keep accepting
+  // it even though the annotator no longer exposes a manual target editor.
   const PICKER_OUTPUT = "0.208,0.541 0.775,0.541 0.942,0.983 0.061,0.983";
 
   it("is accepted by the parser", () => {
@@ -340,15 +339,5 @@ describe("prominence is decided by coverage, not by being wholly in frame", () =
   it("answers 'none' for nothing rankable", () => {
     expect(rankProminence([]).verdict).toBe("none");
     expect(isProminentCourt({ id: "x", polygon: [] }).prominent).toBe(false);
-  });
-});
-
-describe("the picker mirrors the same margin", () => {
-  it("court_picker.html uses the canonical constant, so the two cannot drift", async () => {
-    const { readFileSync } = await import("node:fs");
-    const html = readFileSync(new URL("../../tools/court_picker.html", import.meta.url), "utf8");
-    const m = html.match(/PROMINENCE_MARGIN\s*=\s*([0-9.]+)/);
-    expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(DEFAULT_PROMINENCE_MARGIN);
   });
 });

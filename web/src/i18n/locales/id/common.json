@@ -115,8 +115,6 @@
   "btn.review": "Tinjau",
   "btn.saveTarget": "Simpan profil target",
   "btn.deleteProfile": "Hapus profil",
-  "btn.pickPolygon": "Pilih di video",
-  "btn.pickCancel": "Batalkan pemilihan",
   "btn.saveReview": "Simpan tinjauan",
   "btn.saveReviewN": "Simpan tinjauan (#{n})",
   "btn.downloadReviews": "Unduh CSV tinjauan",
@@ -143,8 +141,6 @@
   "target.polygonTooFewPoints": "Area main perlu minimal 3 titik (4 untuk segi empat biasa).",
   "target.polygonRange": "Koordinat area main DINORMALISASI: setiap x dan y harus antara 0 dan 1, bukan piksel.",
   "target.needProfile": "Simpan dulu profil target - tinjauan menjawab pertanyaan tentang satu bagian kamera.",
-  "target.pickStart": "Klik sudut-sudut lapangan target di video (4 titik).",
-  "target.picking": "{n} dari 4 sudut dipilih.",
   "review.saved": "Tinjauan #{n} tersimpan: {s} → {e} [{state}].",
   "review.deleted": "Tinjauan #{n} dihapus. Sisa {count}.",
   "review.removed": "Tinjauan terakhir #{n} dihapus. Sisa {count}.",
@@ -152,9 +148,6 @@
   "legacy.windowsPresent": "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini.",
   "target.polygonSelfIntersecting": "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
   "target.volumeSummary": "Area main: {n} sudut, menutupi {pct}% dari bingkai.",
-  "target.volumeEmpty": "Belum ada area main — tandai lapangan di tools/court_picker.html lalu tempel baris yang diberikan.",
-  "target.volumeInvalid": "Area main belum bisa dipakai — {why}",
-  "btn.pickOnImage": "Pilih di gambar…",
-  "target.pickerOpened": "Pemilih dan folder klip ini dibuka. Tandai semua lapangan di <clip>.court.png, lalu tempel barisnya ke Area main.",
-  "target.pickerMissing": "court_picker.html tidak ada di samping ekstensi. Salin tools/court_picker.html ke {dir} agar bisa dibuka dari sini — atau buka saja dari repo."
+  "target.volumeEmpty": "Belum ada area main yang direkam.",
+  "target.volumeInvalid": "Area main belum bisa dipakai — {why}"
 }

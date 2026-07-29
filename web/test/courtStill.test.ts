@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
 import {
   DEFAULT_FRAMES, DEFAULT_INSET, VIDEO_EXTS, isVideoFile, medianRadius, oddify, parseArgs,
   parseDuration, planTimestamps, stillPathFor,
@@ -115,14 +114,5 @@ describe("argument parsing", () => {
     expect(parseArgs(["a.mp4", "--nope"]).error).toMatch(/unknown option/);
     expect(parseArgs(["a.mp4", "b.mp4"]).error).toMatch(/unexpected argument/);
     expect(parseArgs(["a.mp4", "--frames", "x"]).error).toMatch(/--frames/);
-  });
-});
-
-describe("picker image handoff", () => {
-  it("accepts the still URL supplied by VLC instead of always opening blank", () => {
-    const picker = readFileSync(new URL("../../tools/court_picker.html", import.meta.url), "utf8");
-    const vlc = readFileSync(new URL("../../vlc/rally_annotator.lua", import.meta.url), "utf8");
-    expect(picker).toContain('new URLSearchParams(location.search).get("image")');
-    expect(vlc).toContain('picker_url = picker_url .. "?image="');
   });
 });

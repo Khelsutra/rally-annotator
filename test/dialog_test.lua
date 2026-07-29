@@ -489,52 +489,19 @@ local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
 local CLIPMETA = TMPb .. sep .. "rally_labels.clipmeta.json"
 local WINCSV   = TMPb .. sep .. "rally_labels.windows.csv"
 
---------------------------------------------------------------------------------
--- The optional picker must receive the matching still URL. The old implementation only opened
--- a blank page and the folder, which is why the screenshot was invisible.
---------------------------------------------------------------------------------
-do
-  local ext_dir = TMPb .. sep .. "vlc" .. sep .. "lua" .. sep .. "extensions"
-  local mkdir = sep == "\\" and ('mkdir "' .. ext_dir .. '" 2>NUL')
-                              or ('mkdir -p "' .. ext_dir .. '"')
-  local real_execute = os.execute
-  real_execute(mkdir)
-  local picker_file = ext_dir .. sep .. "court_picker.html"
-  local still_file = TMPb .. sep .. "clip one.court.png"
-  local pf = assert(io.open(picker_file, "w")); pf:write("<html></html>"); pf:close()
-  local sf = assert(io.open(still_file, "wb")); sf:write("png"); sf:close()
-
-  local media_path = TMPb .. sep .. "clip one.mp4"
-  local uri_path = media_path:gsub("\\", "/"):gsub(" ", "%%20")
-  MEDIA_URI = (uri_path:match("^%a:/") and "file:///" or "file://") .. uri_path
-  PB.state = "playing"
-  activate(); show_target()
-  local opened = {}
-  os.execute = function(command) opened[#opened + 1] = command; return 0 end
-  pick_on_image()
-  os.execute = real_execute
-
-  ok("picker opens with an image query parameter", opened[1] and opened[1]:find("?image=", 1, true))
-  ok("picker preserves an encoded space in the still path",
-     opened[1] and opened[1]:find("%2520", 1, true))
-
-  os.remove(picker_file); os.remove(still_file)
-  MEDIA_URI = nil
-  activate()
-end
-
 do
   os.remove(CSV); os.remove(CLIPMETA); os.remove(WINCSV)
   MEDIA_URI = nil; PB.state = "playing"; PB.time_us = 0
   activate()
   ok("nav: Rallies button present",  wbtn("Rallies") ~= nil)
   ok("nav: Clip info button present", wbtn("Clip info") ~= nil)
-  ok("nav: Target button present",   wbtn("Target") ~= nil)
-  ok("nav: Review button present",   wbtn("Review") ~= nil)
+  ok("nav: Target button removed",   wbtn("Target") == nil)
+  ok("nav: Review button removed",   wbtn("Review") == nil)
   ok("nav offers NO neighborhood-window screen", wbtn("Windows") == nil)
   eq("nav marks the active screen", wbtn("Rallies").text:sub(1, 3), "\226\150\184")
 
-  -- arm a rally, then bounce through the other two screens and back
+  -- Arm a rally and visit Clip info. Legacy target/review builders remain testable for old
+  -- sidecars, but there is deliberately no operator-facing navigation to them.
   wd('text_input', 2, 4):set_text("12.500")
   wd('text_input', 4, 4):set_text("18.250")
   show_clip()
@@ -689,8 +656,8 @@ do
 end
 
 --------------------------------------------------------------------------------
--- tools/court_picker.html emits toFixed(3) pairs, space separated. Clicking corners must
--- produce a string this front-end accepts VERBATIM, or the picker is useless.
+-- Legacy sidecars may contain compact normalized polygon strings. Keep accepting them even
+-- though the annotator no longer exposes a manual target editor.
 --------------------------------------------------------------------------------
 do
   os.remove(CLIPMETA)
@@ -701,8 +668,8 @@ do
   wd('text_input', 2, 4):set_text("0.208,0.541 0.775,0.541 0.942,0.983 0.061,0.983")
   save_target_profile()
   local j = read_file(CLIPMETA) or ""
-  ok("the court_picker output string is accepted verbatim", j:find("[0.208, 0.541]", 1, true) ~= nil)
-  ok("and every picked corner survives", j:find("[0.061, 0.983]", 1, true) ~= nil)
+  ok("the normalized polygon string is accepted verbatim", j:find("[0.208, 0.541]", 1, true) ~= nil)
+  ok("and every legacy corner survives", j:find("[0.061, 0.983]", 1, true) ~= nil)
   eq("one profile saved from it", #wd('list', 1, 10).values, 1)
   os.remove(CLIPMETA)
 end
