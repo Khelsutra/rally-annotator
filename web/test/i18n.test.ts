@@ -86,27 +86,15 @@ describe("catalog integrity", () => {
     for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);
   });
 
-  it("every clip-info / target / review key the panel can emit exists in en", () => {
+  it("every clip-info key the panel can emit exists in en", () => {
     const en = new Set(EN_KEYS);
     const used = [
-      "btn.clipInfo", "btn.target", "btn.review", "btn.saveClip", "btn.saveTarget",
-      "btn.deleteProfile", "btn.pickPolygon", "btn.pickCancel", "btn.saveReview",
-      "btn.saveReviewN", "btn.downloadReviews",
+      "btn.clipInfo", "btn.saveClip",
       "label.venue", "label.cameraSetup", "label.courtsVisible", "label.courtsActive",
-      "label.courtsPartial", "label.targetCourt", "label.matchFormat", "label.captureTime",
-      "label.notes", "label.cameraSection", "label.cameraProfile", "label.polygon",
-      "label.setupValidity", "label.profiles", "label.targetState", "label.recentReviews",
+      "label.courtsPartial", "label.matchFormat", "label.captureTime", "label.notes",
       "fmt.unset", ...MATCH_FORMATS.map((f) => "fmt." + f),
-      ...SETUP_VALIDITY.map((v) => "validity." + v),
-      ...TARGET_STATES.map((st) => "state." + st),
       "clip.saved", "clip.invalidActive", "clip.invalidPartial", "clip.invalidNumber",
       "clip.captureUnknown",
-      "target.saved", "target.deleted", "target.needSelect", "target.needSection",
-      "target.needCourt", "target.duplicateSection", "target.polygonSyntax",
-      "target.polygonTooFewPoints", "target.polygonRange", "target.needProfile",
-      "target.pickStart", "target.picking",
-      "review.saved", "review.deleted", "review.removed", "review.nothing",
-      "legacy.windowsPresent",
       "cov.line", "cov.tail", "cov.span",
     ];
     for (const k of used) expect(en.has(k), `missing en key: ${k}`).toBe(true);

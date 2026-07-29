@@ -71,6 +71,8 @@ pausing to the exact frame before each mark — turning "watch a match" into "pr
 3. Enable it from the **View** menu → **Rally Annotator**. A small dialog opens and stays open while you watch.
 
 Requires **VLC 3.0.x**. (VLC 4.0 changed the Lua input/listener API; targeting 3.x for now.)
+The annotator exposes only **Rallies** and optional **Clip info**. There is no Target, Review, or
+court-picker step: **Mark START** and **Save Rally** are available immediately.
 
 ## Use
 **Playback is built in** — the **Back 5s · Play / Pause · Fwd 5s** row drives the VLC player from the

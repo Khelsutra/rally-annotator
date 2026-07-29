@@ -1,4 +1,9 @@
-# Target profiles and sparse target-state review
+# Legacy target metadata compatibility
+
+> **Not an annotation workflow.** The current annotator has no Target screen, Review screen, or
+> court picker. Operators label rallies on the video's largest, most visually focused court.
+> This document records the old sidecar schemas only so existing data can still be read and
+> preserved safely.
 
 > **This supersedes the neighborhood window track.** An earlier design asked the operator to mark
 > and tag windows of *surrounding* play — `adjacent_court_rally`, `simultaneous_rallies`,
@@ -7,16 +12,30 @@
 > actually indexes. **It is withdrawn.** Nothing in this tool asks you to identify or time a
 > neighbouring rally. See [Legacy neighborhood files](#legacy-neighborhood-files).
 
-The pipeline is **target-first**. One prominent court is designated per static camera section; the
-segmenter emits rally START/END for **that match only**. Everything here supports that and nothing
-else.
+The pipeline is **target-first**. The target is the largest, most visually focused court in the
+video; the segmenter emits rally START/END for **that match only**. Court localization/selection is
+derived downstream from the video rather than imposed as a prerequisite on the rally annotator.
 
-Two artifacts:
+Two legacy artifacts may still exist:
 
 | File | What it holds |
 |---|---|
-| `<clip>.clipmeta.json` → `target_profiles[]` | one persistent **target profile per static camera section** |
-| `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` |
+| `<clip>.clipmeta.json` → `target_profiles[]` | previously recorded target profiles |
+| `<clip>.target-review.csv` | previously recorded sparse target-state answers |
+
+## Rally annotation never waits for court metadata
+
+**Mark START and Save Rally always work without a saved target profile**, in both front-ends. The
+operator labels the rallies on the video's largest, most visually focused court. A missing still,
+polygon, court number, or target profile must never block that work.
+
+The court is derived downstream using the video itself: frame coverage is the primary geometric
+signal, with visual focus and sustained play evidence resolving what the camera is actually about.
+No operator-drawn polygon is required to make that choice.
+
+Existing target profiles and reviews are compatibility data, not an operator task. Downstream code
+can use `polygonArea`, `rankProminence`, and `isProminentCourt` in
+`web/src/state/targetReview.ts` when processing legacy polygons.
 
 ## Rally annotation is unchanged
 
@@ -28,7 +47,7 @@ That is `<clip>.rallies.csv`, exactly as before ([CSV_FORMAT.md](CSV_FORMAT.md))
 prominent-match timeline already makes every non-target-rally instant an implicit negative for
 ordinary training — which is precisely why exhaustively labelling the neighbours was unnecessary.
 
-## Target profiles
+## Legacy target-profile schema
 
 One per **static camera section**. A section is a stretch of the recording over which the camera
 does not move; a fixed-tripod clip is a single section.
@@ -57,15 +76,47 @@ does not move; a fixed-tripod clip is a single section.
 
 ### `setup_validity`
 
-Whether this camera section is one the target-first pipeline can actually serve:
+The question is **serviceability, not geometric completeness**: can rally boundaries for the target
+match be determined from this framing?
 
-- **`supported`** — the target court is prominent and its play volume is fully framed. Normal case.
-- **`unsupported`** — this section cannot be served as-is: no court is prominent, the target is
-  badly occluded or clipped, or the camera drifts within the section.
+- **`supported`** — they can. The target court is prominent and its rallies are callable.
+- **`unsupported`** — they cannot: no court is prominent (two or more compete for the frame with
+  none dominant), the target is occluded to the point where rallies cannot be called, or the camera
+  drifts within the section.
 - **`unclear`** — you could not tell. **Use this rather than guessing**; `unclear` is a real,
   recordable answer and is more useful than a wrong `supported`.
 
-### Drawing the polygon against an empty court
+#### A partly-visible court is NOT automatically `unsupported`
+
+This is the mistake to avoid, and it is an easy one — the polygon makes the clipping vivid, so it
+invites the conclusion.
+
+A camera aimed at one court from a corner will routinely run part of that court off the top of
+frame while still being unambiguously *about* that court. That is a framing trade, not a failure.
+**Geometry falling outside the frame is a fact about the shot; serviceability is a question about
+the task.** They are not the same question, and one does not decide the other.
+
+The strongest available evidence is direct: **if you could label that clip's rallies, its rallies
+are callable.** Human labelling of the match is a demonstration that the framing carries enough
+signal, and it outranks any inference from the polygon's shape.
+
+So: clipping is a symptom worth *considering*, never a verdict on its own. Downgrade a section for
+what it cost you while labelling, not for what the polygon could not enclose.
+
+#### Prominence is relative, not absolute
+
+The target court is the one that **dominates the frame relative to the other visible courts** —
+maximum coverage of the visible courts — not the one that happens to be wholly enclosed. A shot
+where the target fills most of the frame and the neighbours are reduced to slivers at the edge is
+the *intended* outcome of aiming at a single court, not a defect in it.
+
+Because coverage is comparable rather than absolute, this is computable: given a polygon per visible
+court, ranking by area picks the prominent one. That is the shape the indexer's §4.5 already
+anticipates for automatic court selection ("compare configured polygons with player-cluster,
+shuttle-density, and court-line proposals"), and it is the reason a single signal — "is the whole
+court in frame?" — must not be allowed to decide the answer by itself.
+
+### Downstream utility: generating an empty-court still
 
 No single frame of a live match has all four corners of the target court unobstructed — a player
 is always standing on a line. So build an **empty-court still** first:
@@ -81,16 +132,26 @@ does not, which is exactly the court lines. The result lands next to the video a
 
 Two things this deliberately is **not**:
 
-- It does not detect the court, propose a polygon, or infer anything. It produces an **image**; a
-  human reads it and draws the polygon. That boundary is what keeps the resulting label
-  human-from-scratch, with no model anywhere in its provenance.
+- It does not detect or select the court. It only produces an image for downstream inspection.
 - It never touches `<clip>.rallies.csv`, `<clip>.clipmeta.json` or `<clip>.target-review.csv`.
 
 Sampling at rally START/END timestamps would be the **worst** choice, incidentally: those are
 precisely the moments when players are on the lines. The median needs no labels at all.
 
-Coordinates are read off that still as fractions of the frame — `0,0` top-left, `1,1`
-bottom-right — which is why they survive a resolution change.
+For a whole session at once:
+
+```bash
+node tools/court_still.mjs --all "<session folder>"
+```
+
+which skips any clip that already has a still, so it is free to re-run. This tool is not invoked by
+the annotator and does not create a manual court-selection step.
+
+**The polygon is not a completeness claim.** It records the play volume *that is visible*. A court
+running off the top of frame still has a well-defined visible play volume, and marking it is
+correct — that padded region is exactly what the crop / mask / marker views operate on. Never
+withhold a polygon because the court is partly out of shot, and never downgrade `setup_validity`
+for it on its own.
 
 > **Wide-angle caveat.** On GoPro footage the lens bows straight lines noticeably, so a four-point
 > quadrilateral is an *approximation* of a court whose edges are actually curved. That is usually
@@ -111,7 +172,7 @@ A profile is **refused** — not silently coerced — when any of these hold:
 A profile that fails is not written. A clip with no valid profile is a clip with no profile — never
 a clip with a guessed one.
 
-## Sparse target-state review
+## Legacy sparse target-state review schema
 
 `<clip>.target-review.csv` records answers to one question about one interval: **was the target
 court rallying?**

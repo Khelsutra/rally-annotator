@@ -2,7 +2,9 @@
 // court_still — build an EMPTY-COURT still from a match video, for drawing the target
 // court's play-volume polygon against.
 //
-//     node tools/court_still.mjs <video> [--out FILE] [--frames N] [--width PX]
+//     node tools/court_still.mjs <video>  [--out FILE] [--frames N] [--width PX]
+//     node tools/court_still.mjs --all <dir>            every video in a folder, skipping
+//                                                      any that already has a still
 //
 // It samples N frames spread across the clip and takes their TEMPORAL MEDIAN. On a fixed
 // camera that erases everything that moves — players, shuttles, a passing coach — and keeps
@@ -76,18 +78,31 @@ export function parseDuration(ffprobeStdout) {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** Video containers worth scanning in --all mode. */
+export const VIDEO_EXTS = [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"];
+
+export function isVideoFile(name) {
+  return VIDEO_EXTS.includes(path.extname(name).toLowerCase());
+}
+
 export function parseArgs(argv) {
-  const opts = { video: null, out: null, frames: DEFAULT_FRAMES, width: DEFAULT_WIDTH, error: null };
+  const opts = {
+    video: null, out: null, frames: DEFAULT_FRAMES, width: DEFAULT_WIDTH,
+    all: null, force: false, error: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--out") opts.out = argv[++i] ?? null;
+    if (a === "--all") opts.all = argv[++i] ?? null;
+    else if (a === "--force") opts.force = true;
+    else if (a === "--out") opts.out = argv[++i] ?? null;
     else if (a === "--frames") opts.frames = Number(argv[++i]);
     else if (a === "--width") opts.width = Number(argv[++i]);
     else if (a.startsWith("--")) opts.error = `unknown option ${a}`;
     else if (opts.video == null) opts.video = a;
     else opts.error = `unexpected argument ${a}`;
   }
-  if (!opts.error && !opts.video) opts.error = "no video given";
+  if (!opts.error && opts.all && opts.video) opts.error = "--all takes a folder, not a video too";
+  if (!opts.error && !opts.video && !opts.all) opts.error = "no video given";
   if (!opts.error && !Number.isFinite(opts.frames)) opts.error = "--frames must be a number";
   if (!opts.error && !Number.isFinite(opts.width)) opts.error = "--width must be a number";
   return opts;
@@ -174,9 +189,49 @@ if (isMain || process.argv[1]?.endsWith("court_still.mjs")) {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.error) {
     console.error(`court_still: ${opts.error}
-usage: node tools/court_still.mjs <video> [--out FILE] [--frames ${DEFAULT_FRAMES}] [--width ${DEFAULT_WIDTH}]`);
+usage: node tools/court_still.mjs <video>     [--out FILE] [--frames ${DEFAULT_FRAMES}] [--width ${DEFAULT_WIDTH}]
+       node tools/court_still.mjs --all <dir> [--frames ${DEFAULT_FRAMES}] [--width ${DEFAULT_WIDTH}] [--force]`);
     process.exit(2);
   }
+
+  if (opts.all) {
+    // Batch a folder. Existing stills are SKIPPED unless --force: re-running over a session
+    // should be free, so it can be re-run without thinking about what it will redo.
+    let names;
+    try {
+      names = readdirSync(opts.all).filter(isVideoFile).sort();
+    } catch (e) {
+      console.error(`court_still: cannot read ${opts.all}: ${e.message}`);
+      process.exit(1);
+    }
+    if (names.length === 0) {
+      console.error(`court_still: no video files in ${opts.all}`);
+      process.exit(1);
+    }
+    let made = 0, skipped = 0, failed = 0;
+    for (const name of names) {
+      const video = path.join(opts.all, name);
+      const dest = stillPathFor(video);
+      if (!opts.force && existsSync(dest)) {
+        console.log(`skip  ${name} (still exists)`);
+        skipped++;
+        continue;
+      }
+      process.stdout.write(`still ${name} ... `);
+      try {
+        buildStill(video, { frames: opts.frames, width: opts.width });
+        console.log("ok");
+        made++;
+      } catch (e) {
+        console.log(`FAILED: ${e.message}`);
+        failed++;
+      }
+    }
+    console.log(`
+${made} made, ${skipped} skipped, ${failed} failed`);
+    process.exit(failed ? 1 : 0);
+  }
+
   try {
     const dest = buildStill(opts.video, { ...opts, log: (m) => console.log(`  ${m}`) });
     console.log(`wrote ${dest}`);

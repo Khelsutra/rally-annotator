@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_FRAMES, DEFAULT_INSET, medianRadius, oddify, parseArgs, parseDuration,
-  planTimestamps, stillPathFor,
+  DEFAULT_FRAMES, DEFAULT_INSET, VIDEO_EXTS, isVideoFile, medianRadius, oddify, parseArgs,
+  parseDuration, planTimestamps, stillPathFor,
   // @ts-expect-error - plain .mjs tool, no types; the pure helpers are what we test
 } from "../../tools/court_still.mjs";
 
@@ -68,6 +68,34 @@ describe("ffprobe parsing", () => {
     expect(parseDuration("")).toBeNull();
     expect(parseDuration("duration=0")).toBeNull();
     expect(parseDuration("duration=N/A")).toBeNull();
+  });
+});
+
+describe("batch mode", () => {
+  it("recognises the containers a GoPro session actually contains", () => {
+    expect(isVideoFile("GX020096.MP4")).toBe(true);
+    expect(isVideoFile("clip.mov")).toBe(true);
+    expect(isVideoFile("clip.mkv")).toBe(true);
+    expect(VIDEO_EXTS).toContain(".mp4");
+  });
+
+  it("ignores the sidecars sitting in the same folder", () => {
+    // A session folder holds the labels next to the videos; batching must not try to
+    // ffprobe a CSV.
+    expect(isVideoFile("GX020096.rallies.csv")).toBe(false);
+    expect(isVideoFile("GX020096.clipmeta.json")).toBe(false);
+    expect(isVideoFile("GX020096.court.png")).toBe(false);
+    expect(isVideoFile("notes")).toBe(false);
+  });
+
+  it("takes a folder and refuses a folder plus a video", () => {
+    expect(parseArgs(["--all", "F:/clips"])).toMatchObject({ all: "F:/clips", video: null, error: null });
+    expect(parseArgs(["--all", "F:/clips", "x.mp4"]).error).toMatch(/--all takes a folder/);
+  });
+
+  it("carries --force, so a re-run can be made to redo existing stills", () => {
+    expect(parseArgs(["--all", "d", "--force"]).force).toBe(true);
+    expect(parseArgs(["--all", "d"]).force).toBe(false);
   });
 });
 

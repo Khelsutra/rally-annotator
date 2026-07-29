@@ -11,6 +11,15 @@
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
 
+  WHAT'S NEW IN v2.1.0
+    - Rally annotation is NEVER gated on court metadata. The target is the largest,
+      most focused court in the video and is derived downstream. The manual TARGET,
+      REVIEW, and image-picker workflow has been removed from the annotator.
+      Existing target metadata is still preserved for backward compatibility.
+    - A self-intersecting play volume is refused: a bowtie passes every per-point
+      check and has a MEANINGLESS area (its lobes cancel), so it would poison any
+      coverage comparison built on it.
+
   WHAT'S NEW IN v2.0.0  (target-first correction)
     - The neighborhood WINDOW track is REMOVED. Nothing in this tool asks the
       operator to identify or time a rally on a surrounding court: that turned the
@@ -131,7 +140,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.0.0"
+local VERSION = "2.1.0"
 
 function descriptor()
   return {
@@ -246,7 +255,10 @@ STRINGS = {
     ["state.rallying"] = "rallying",
     ["state.not_rallying"] = "not rallying",
     ["state.unclear"] = "unclear",
-    ["target.saved"] = "Saved target profile '{section}' ({n}-point play volume).",
+    ["target.volumeSummary"] = "Play volume: {n} corners covering {pct}% of the frame.",
+    ["target.volumeEmpty"] = "No play volume recorded.",
+    ["target.volumeInvalid"] = "Play volume is not usable yet — {why}",
+    ["target.saved"] = "Saved target profile '{section}' ({n}-point play volume, {pct}% of frame).",
     ["target.deleted"] = "Deleted target profile '{section}'.",
     ["target.needSelect"] = "Click a target profile in the list first.",
     ["target.needSection"] = "Camera section ID is required - it identifies the static section this profile describes.",
@@ -255,6 +267,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "Play volume must be points like '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
     ["target.polygonTooFewPoints"] = "A play volume needs at least 3 points (4 for the usual quadrilateral).",
     ["target.polygonRange"] = "Play-volume coordinates are NORMALIZED: every x and y must be between 0 and 1, not pixels.",
+    ["target.polygonSelfIntersecting"] = "The play volume crosses itself — its corners are out of order, so it encloses nothing. Re-pick them going around the court.",
     ["target.needProfile"] = "Save a target profile first - a review answers a question about one camera section.",
     ["review.saved"] = "Saved review #{n}: {s} → {e} [{state}].",
     ["review.deleted"] = "Deleted review #{n}. {count} remaining.",
@@ -393,7 +406,10 @@ STRINGS = {
     ["state.rallying"] = "ರ್ಯಾಲಿ ನಡೆಯುತ್ತಿದೆ",
     ["state.not_rallying"] = "ರ್ಯಾಲಿ ಇಲ್ಲ",
     ["state.unclear"] = "ಅಸ್ಪಷ್ಟ",
-    ["target.saved"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಉಳಿಸಲಾಯಿತು ({n}-ಬಿಂದು ಆಟದ ಪ್ರದೇಶ).",
+    ["target.volumeSummary"] = "ಆಟದ ಪ್ರದೇಶ: {n} ಮೂಲೆಗಳು, ಚೌಕಟ್ಟಿನ {pct}% ಆವರಿಸಿದೆ.",
+    ["target.volumeEmpty"] = "ಇನ್ನೂ ಆಟದ ಪ್ರದೇಶ ದಾಖಲಾಗಿಲ್ಲ.",
+    ["target.volumeInvalid"] = "ಆಟದ ಪ್ರದೇಶ ಇನ್ನೂ ಬಳಸಲಾಗದು — {why}",
+    ["target.saved"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಉಳಿಸಲಾಯಿತು ({n}-ಬಿಂದು ಆಟದ ಪ್ರದೇಶ, ಚೌಕಟ್ಟಿನ {pct}%).",
     ["target.deleted"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಅಳಿಸಲಾಯಿತು.",
     ["target.needSelect"] = "ಮೊದಲು ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ಗುರಿ ಪ್ರೊಫೈಲ್ ಕ್ಲಿಕ್ ಮಾಡಿ.",
     ["target.needSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ ID ಅಗತ್ಯ - ಈ ಪ್ರೊಫೈಲ್ ವಿವರಿಸುವ ಸ್ಥಿರ ವಿಭಾಗವನ್ನು ಇದು ಗುರುತಿಸುತ್ತದೆ.",
@@ -402,6 +418,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "ಆಟದ ಪ್ರದೇಶವು '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' ರೀತಿಯ ಬಿಂದುಗಳಾಗಿರಬೇಕು.",
     ["target.polygonTooFewPoints"] = "ಆಟದ ಪ್ರದೇಶಕ್ಕೆ ಕನಿಷ್ಠ 3 ಬಿಂದುಗಳು ಬೇಕು (ಸಾಮಾನ್ಯ ಚತುರ್ಭುಜಕ್ಕೆ 4).",
     ["target.polygonRange"] = "ಆಟದ ಪ್ರದೇಶದ ನಿರ್ದೇಶಾಂಕಗಳು ಸಾಮಾನ್ಯೀಕೃತ: ಪ್ರತಿ x ಮತ್ತು y 0 ರಿಂದ 1 ರ ನಡುವೆ ಇರಬೇಕು, ಪಿಕ್ಸೆಲ್ ಅಲ್ಲ.",
+    ["target.polygonSelfIntersecting"] = "ಆಟದ ಪ್ರದೇಶವು ತನ್ನನ್ನೇ ಛೇದಿಸುತ್ತದೆ — ಮೂಲೆಗಳ ಕ್ರಮ ತಪ್ಪಿದೆ. ಕೋರ್ಟ್ ಸುತ್ತ ಕ್ರಮವಾಗಿ ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.",
     ["target.needProfile"] = "ಮೊದಲು ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ - ಪರಿಶೀಲನೆಯು ಒಂದು ಕ್ಯಾಮೆರಾ ವಿಭಾಗದ ಬಗ್ಗೆ ಉತ್ತರಿಸುತ್ತದೆ.",
     ["review.saved"] = "ಪರಿಶೀಲನೆ #{n} ಉಳಿಸಲಾಯಿತು: {s} → {e} [{state}].",
     ["review.deleted"] = "ಪರಿಶೀಲನೆ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
@@ -540,7 +557,10 @@ STRINGS = {
     ["state.rallying"] = "रैली चल रही है",
     ["state.not_rallying"] = "रैली नहीं",
     ["state.unclear"] = "अस्पष्ट",
-    ["target.saved"] = "लक्ष्य प्रोफ़ाइल '{section}' सहेजी गई ({n}-बिंदु खेल क्षेत्र)।",
+    ["target.volumeSummary"] = "खेल क्षेत्र: {n} कोने, फ़्रेम का {pct}% घेरता है।",
+    ["target.volumeEmpty"] = "अभी कोई खेल क्षेत्र दर्ज नहीं है।",
+    ["target.volumeInvalid"] = "खेल क्षेत्र अभी उपयोग योग्य नहीं — {why}",
+    ["target.saved"] = "लक्ष्य प्रोफ़ाइल '{section}' सहेजी गई ({n}-बिंदु खेल क्षेत्र, फ़्रेम का {pct}%)।",
     ["target.deleted"] = "लक्ष्य प्रोफ़ाइल '{section}' हटाई गई।",
     ["target.needSelect"] = "पहले सूची में एक लक्ष्य प्रोफ़ाइल पर क्लिक करें।",
     ["target.needSection"] = "कैमरा सेक्शन ID आवश्यक है - यह उस स्थिर सेक्शन की पहचान करता है जिसका यह प्रोफ़ाइल वर्णन करता है।",
@@ -549,6 +569,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "खेल क्षेत्र '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' जैसे बिंदुओं में होना चाहिए।",
     ["target.polygonTooFewPoints"] = "खेल क्षेत्र के लिए कम से कम 3 बिंदु चाहिए (सामान्य चतुर्भुज के लिए 4)।",
     ["target.polygonRange"] = "खेल क्षेत्र के निर्देशांक सामान्यीकृत हैं: हर x और y 0 और 1 के बीच होना चाहिए, पिक्सेल नहीं।",
+    ["target.polygonSelfIntersecting"] = "खेल क्षेत्र स्वयं को काटता है — कोने गलत क्रम में हैं, इसलिए यह कुछ भी घेरता नहीं। कोर्ट के चारों ओर क्रम से दोबारा चुनें।",
     ["target.needProfile"] = "पहले एक लक्ष्य प्रोफ़ाइल सहेजें - समीक्षा एक कैमरा सेक्शन के बारे में उत्तर देती है।",
     ["review.saved"] = "समीक्षा #{n} सहेजी गई: {s} → {e} [{state}]।",
     ["review.deleted"] = "समीक्षा #{n} हटाई गई। {count} शेष।",
@@ -687,7 +708,10 @@ STRINGS = {
     ["state.rallying"] = "ర్యాలీ జరుగుతోంది",
     ["state.not_rallying"] = "ర్యాలీ లేదు",
     ["state.unclear"] = "అస్పష్టం",
-    ["target.saved"] = "లక్ష్య ప్రొఫైల్ '{section}' సేవ్ అయింది ({n}-బిందువుల ఆట ప్రాంతం).",
+    ["target.volumeSummary"] = "ఆట ప్రాంతం: {n} మూలలు, ఫ్రేమ్‌లో {pct}% ఆక్రమిస్తుంది.",
+    ["target.volumeEmpty"] = "ఇంకా ఆట ప్రాంతం నమోదు కాలేదు.",
+    ["target.volumeInvalid"] = "ఆట ప్రాంతం ఇంకా ఉపయోగించలేము — {why}",
+    ["target.saved"] = "లక్ష్య ప్రొఫైల్ '{section}' సేవ్ అయింది ({n}-బిందువుల ఆట ప్రాంతం, ఫ్రేమ్‌లో {pct}%).",
     ["target.deleted"] = "లక్ష్య ప్రొఫైల్ '{section}' తొలగించబడింది.",
     ["target.needSelect"] = "ముందుగా జాబితాలో ఒక లక్ష్య ప్రొఫైల్‌పై క్లిక్ చేయండి.",
     ["target.needSection"] = "కెమెరా విభాగం ID అవసరం - ఈ ప్రొఫైల్ వివరించే స్థిర విభాగాన్ని ఇది గుర్తిస్తుంది.",
@@ -696,6 +720,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "ఆట ప్రాంతం '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' వంటి బిందువులుగా ఉండాలి.",
     ["target.polygonTooFewPoints"] = "ఆట ప్రాంతానికి కనీసం 3 బిందువులు కావాలి (సాధారణ చతుర్భుజానికి 4).",
     ["target.polygonRange"] = "ఆట ప్రాంత నిర్దేశాంకాలు సాధారణీకరించబడ్డాయి: ప్రతి x, y 0 నుండి 1 మధ్య ఉండాలి, పిక్సెల్‌లు కాదు.",
+    ["target.polygonSelfIntersecting"] = "ఆట ప్రాంతం తనను తానే ఖండిస్తుంది — మూలలు తప్పు క్రమంలో ఉన్నాయి, కాబట్టి ఇది దేనినీ చుట్టుముట్టదు. కోర్టు చుట్టూ క్రమంగా మళ్లీ ఎంచుకోండి.",
     ["target.needProfile"] = "ముందుగా లక్ష్య ప్రొఫైల్ సేవ్ చేయండి - సమీక్ష ఒక కెమెరా విభాగం గురించి సమాధానం ఇస్తుంది.",
     ["review.saved"] = "సమీక్ష #{n} సేవ్ అయింది: {s} → {e} [{state}].",
     ["review.deleted"] = "సమీక్ష #{n} తొలగించబడింది. {count} మిగిలాయి.",
@@ -834,7 +859,10 @@ STRINGS = {
     ["state.rallying"] = "con punto en juego",
     ["state.not_rallying"] = "sin punto en juego",
     ["state.unclear"] = "poco claro",
-    ["target.saved"] = "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos).",
+    ["target.volumeSummary"] = "Zona de juego: {n} esquinas que cubren el {pct}% del cuadro.",
+    ["target.volumeEmpty"] = "No hay ninguna zona de juego registrada.",
+    ["target.volumeInvalid"] = "La zona de juego aún no es utilizable: {why}",
+    ["target.saved"] = "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos, {pct}% del cuadro).",
     ["target.deleted"] = "Perfil objetivo '{section}' eliminado.",
     ["target.needSelect"] = "Haz clic primero en un perfil objetivo de la lista.",
     ["target.needSection"] = "El ID de sección de cámara es obligatorio: identifica la sección estática que describe este perfil.",
@@ -843,6 +871,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "La zona de juego debe ser puntos como '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
     ["target.polygonTooFewPoints"] = "Una zona de juego necesita al menos 3 puntos (4 para el cuadrilátero habitual).",
     ["target.polygonRange"] = "Las coordenadas de la zona de juego están NORMALIZADAS: cada x e y debe estar entre 0 y 1, no en píxeles.",
+    ["target.polygonSelfIntersecting"] = "La zona de juego se cruza consigo misma: las esquinas están desordenadas, así que no encierra nada. Vuelve a marcarlas dando la vuelta a la pista.",
     ["target.needProfile"] = "Guarda primero un perfil objetivo: una revisión responde sobre una sección de cámara.",
     ["review.saved"] = "Revisión #{n} guardada: {s} → {e} [{state}].",
     ["review.deleted"] = "Revisión #{n} eliminada. Quedan {count}.",
@@ -981,7 +1010,10 @@ STRINGS = {
     ["state.rallying"] = "duel i gang",
     ["state.not_rallying"] = "ingen duel",
     ["state.unclear"] = "uklart",
-    ["target.saved"] = "Målprofil '{section}' gemt ({n}-punkts spilzone).",
+    ["target.volumeSummary"] = "Spilzone: {n} hjørner, der dækker {pct}% af billedet.",
+    ["target.volumeEmpty"] = "Ingen spilzone er registreret.",
+    ["target.volumeInvalid"] = "Spilzonen kan ikke bruges endnu — {why}",
+    ["target.saved"] = "Målprofil '{section}' gemt ({n}-punkts spilzone, {pct}% af billedet).",
     ["target.deleted"] = "Målprofil '{section}' slettet.",
     ["target.needSelect"] = "Klik først på en målprofil i listen.",
     ["target.needSection"] = "Kamerasektions-ID er påkrævet - det identificerer den statiske sektion, profilen beskriver.",
@@ -990,6 +1022,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "Spilzonen skal være punkter som '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
     ["target.polygonTooFewPoints"] = "En spilzone kræver mindst 3 punkter (4 til den sædvanlige firkant).",
     ["target.polygonRange"] = "Spilzonens koordinater er NORMALISEREDE: hver x og y skal ligge mellem 0 og 1, ikke pixels.",
+    ["target.polygonSelfIntersecting"] = "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
     ["target.needProfile"] = "Gem først en målprofil - en gennemgang svarer på et spørgsmål om én kamerasektion.",
     ["review.saved"] = "Gennemgang #{n} gemt: {s} → {e} [{state}].",
     ["review.deleted"] = "Gennemgang #{n} slettet. {count} tilbage.",
@@ -1128,7 +1161,10 @@ STRINGS = {
     ["state.rallying"] = "sedang reli",
     ["state.not_rallying"] = "tidak reli",
     ["state.unclear"] = "tidak jelas",
-    ["target.saved"] = "Profil target '{section}' tersimpan (area main {n} titik).",
+    ["target.volumeSummary"] = "Area main: {n} sudut, menutupi {pct}% dari bingkai.",
+    ["target.volumeEmpty"] = "Belum ada area main yang direkam.",
+    ["target.volumeInvalid"] = "Area main belum bisa dipakai — {why}",
+    ["target.saved"] = "Profil target '{section}' tersimpan (area main {n} titik, {pct}% dari bingkai).",
     ["target.deleted"] = "Profil target '{section}' dihapus.",
     ["target.needSelect"] = "Klik dulu satu profil target di daftar.",
     ["target.needSection"] = "ID bagian kamera wajib diisi - ini menandai bagian statis yang dijelaskan profil ini.",
@@ -1137,6 +1173,7 @@ STRINGS = {
     ["target.polygonSyntax"] = "Area main harus berupa titik seperti '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
     ["target.polygonTooFewPoints"] = "Area main perlu minimal 3 titik (4 untuk segi empat biasa).",
     ["target.polygonRange"] = "Koordinat area main DINORMALISASI: setiap x dan y harus antara 0 dan 1, bukan piksel.",
+    ["target.polygonSelfIntersecting"] = "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
     ["target.needProfile"] = "Simpan dulu profil target - tinjauan menjawab pertanyaan tentang satu bagian kamera.",
     ["review.saved"] = "Tinjauan #{n} tersimpan: {s} → {e} [{state}].",
     ["review.deleted"] = "Tinjauan #{n} dihapus. Sisa {count}.",
@@ -1775,6 +1812,45 @@ end
 
 -- Read the sidecar back so re-opening a clip resumes its screening rather than re-asking.
 -- A corrupt file leaves `clip` empty and says so, instead of masquerading as "not screened".
+-- Shoelace area of a NORMALIZED polygon, i.e. the fraction of frame it covers. This is the
+-- coverage that decides which court is prominent (docs/TARGET_REVIEW.md).
+local function polygon_area(poly)
+  if not poly or #poly < 3 then return 0 end
+  local a = 0
+  for i = 1, #poly do
+    local p1, p2 = poly[i], poly[(i % #poly) + 1]
+    a = a + (p1[1] * p2[2] - p2[1] * p1[2])
+  end
+  return math.abs(a) / 2
+end
+
+-- A bowtie passes every per-point check and still has a MEANINGLESS area -- its two lobes
+-- cancel in the shoelace sum -- so it must be refused before any coverage comparison is built
+-- on it. Proper crossings only; edges sharing a vertex are not a crossing.
+local function sign(v) if v > 0 then return 1 elseif v < 0 then return -1 else return 0 end end
+local function segments_cross(p, p2, q, q2)
+  local function o(a, b, c)
+    return sign((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]))
+  end
+  local d1, d2 = o(p, p2, q), o(p, p2, q2)
+  local d3, d4 = o(q, q2, p), o(q, q2, p2)
+  return d1 ~= d2 and d3 ~= d4
+end
+
+local function self_intersecting(poly)
+  local n = #poly
+  if n < 4 then return false end
+  for i = 1, n do
+    for j = i + 1, n do
+      local adj = (j == i) or ((j % n) + 1 == i) or ((i % n) + 1 == j)
+      if not adj then
+        if segments_cross(poly[i], poly[(i % n) + 1], poly[j], poly[(j % n) + 1]) then return true end
+      end
+    end
+  end
+  return false
+end
+
 -- Validate a target profile. FAILS CLOSED: returns a message key + vars on any violation, and
 -- the caller refuses the save. Nothing is coerced, clamped or half-accepted.
 local function validate_profile(p, others)
@@ -1792,6 +1868,7 @@ local function validate_profile(p, others)
     -- the same shape, and accepting it would produce geometry that is wrong but well-formed.
     if pt[1] < 0 or pt[1] > 1 or pt[2] < 0 or pt[2] > 1 then return "target.polygonRange" end
   end
+  if self_intersecting(p.poly) then return "target.polygonSelfIntersecting" end
   return nil
 end
 
@@ -2230,14 +2307,26 @@ local function legacy_line()
   return "<b>" .. esc(t("legacy.windowsPresent")) .. "</b><br>"
 end
 
+local last_status_msg = ""
 local function set_status(msg)
   if not w_status then return end
+  last_status_msg = msg
   local mode_line, body
   if screen == "review" then
     body = legacy_line() .. esc(t("review.mode")) .. "<br>"
       .. esc(t("status.csvPath", { path = review_path or "-" }))
   elseif screen == "target" then
-    body = esc(t("target.mode", { count = #profiles })) .. "<br>"
+    local vol
+    local poly, perr = parse_polygon(w_poly and w_poly:get_text() or "")
+    if poly then
+      vol = t("target.volumeSummary", { n = #poly,
+        pct = string.format("%.1f", polygon_area(poly) * 100) })
+    elseif perr == "target.polygonTooFewPoints" and (not w_poly or (w_poly:get_text() or "") == "") then
+      vol = t("target.volumeEmpty")
+    else
+      vol = t("target.volumeInvalid", { why = t(perr) })
+    end
+    body = esc(vol) .. "<br>" .. esc(t("target.mode", { count = #profiles })) .. "<br>"
       .. esc(t("status.csvPath", { path = clip_path or "-" }))
   elseif screen == "clip" then
     body = coverage_lines() .. esc(t("status.csvPath", { path = clip_path or "-" }))
@@ -2572,7 +2661,8 @@ function save_target_profile()
   local ok, err = save_clipmeta_file()
   if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
   target_refresh()
-  set_status(t("target.saved", { section = p.section, n = #poly }))
+  set_status(t("target.saved", { section = p.section, n = #poly,
+                                 pct = string.format("%.1f", polygon_area(poly) * 100) }))
 end
 
 function delete_target_profile()
@@ -2753,6 +2843,9 @@ end
 
 -- Repaint the profile list, the review list and the review Save caption.
 function target_refresh()
+  -- Repainting the status here is what makes the coordinate box self-checking: paste a line and
+  -- the panel immediately says how many corners it parsed and how much of the frame they cover.
+  if w_status and screen == "target" then set_status(last_status_msg or "") end
   if w_profile_list then
     w_profile_list:clear()
     for i, p in ipairs(profiles) do
@@ -2779,14 +2872,12 @@ function target_refresh()
   if d then d:update() end
 end
 
--- Nav row, identical on every screen: the active screen is marked with a caret rather than
--- a colour (VLC gives an extension no button styling, and a caret is language-neutral).
+-- Operator navigation only exposes rally annotation and clip facts. Target profiles/reviews remain
+-- readable for sidecar compatibility, but their manual editors are deliberately not reachable.
 local function build_nav()
   local function cap(key, mine) return (screen == mine and "\226\150\184 " or "") .. t(key) end
-  d:add_button(cap("nav.rallies", "rally"),  show_rallies, 1, 1, 1, 1)
-  d:add_button(cap("nav.clip",    "clip"),   show_clip,    2, 1, 1, 1)
-  d:add_button(cap("nav.target",  "target"), show_target,  3, 1, 1, 1)
-  d:add_button(cap("nav.review",  "review"), show_review,  4, 1, 1, 1)
+  d:add_button(cap("nav.rallies", "rally"), show_rallies, 1, 1, 2, 1)
+  d:add_button(cap("nav.clip",    "clip"),  show_clip,    3, 1, 2, 1)
 end
 
 local function build_language_row(row)
@@ -2926,10 +3017,10 @@ local function build_target_screen()
   d:add_label(t("label.polygon"), 1, 4, 1, 1)
   w_poly = d:add_text_input(sel and format_polygon(sel.poly) or "", 2, 4, 3, 1)
   d:add_label(t("label.notes"), 1, 5, 1, 1)
-  w_tnotes = d:add_text_input(txt(sel and sel.notes), 2, 5, 3, 1)
+  w_tnotes = d:add_text_input(txt(sel and sel.notes), 2, 5, 2, 1)
+  w_help_btn = d:add_button(t("btn.help"), show_help, 4, 5, 1, 1)
 
-  d:add_button(t("btn.saveTarget"), save_target_profile, 1, 6, 1, 1)
-  w_help_btn = d:add_button(t("btn.help"), show_help, 2, 6, 1, 1)
+  d:add_button(t("btn.saveTarget"), save_target_profile, 1, 6, 2, 1)
   d:add_button(t("btn.loadProfile"), edit_target_profile, 3, 6, 1, 1)
   d:add_button(t("btn.deleteProfile"), delete_target_profile, 4, 6, 1, 1)
 

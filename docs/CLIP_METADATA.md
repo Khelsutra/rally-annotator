@@ -64,7 +64,7 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 | `partially_visible_court_count` | int ≥ 0 | `null` | How many of the `court_count` courts are only partly in frame. Never greater than `court_count`. |
 | `match_format` | enum | `null` | `singles` / `doubles` / `mixed`, for the **target** court. |
 | `notes` | string | `null` | Free text — occlusions, partial courts, mid-clip changes. |
-| `target_profiles` | array | `[]` | One **target profile per static camera section** — the court this recording actually indexes, and its geometry. Schema, validation and the `setup_validity` vocabulary live in [TARGET_REVIEW.md](TARGET_REVIEW.md). |
+| `target_profiles` | array | `[]` | Legacy/downstream-produced target geometry. The annotator preserves existing values but does not ask the operator to create them; see [TARGET_REVIEW.md](TARGET_REVIEW.md). |
 | `label_completeness` | object | `null` | Derived snapshot; see [Label completeness](#label-completeness). |
 
 ### `court_count` and `active_court_count` are two fields on purpose
@@ -124,11 +124,43 @@ time. Values already in use in this corpus:
 materially different and it is a new setup, because that is what makes it count toward setup
 representativeness. Two clips shot from the same spot on different days share one id.
 
+#### The orientation vocabulary (owner, 2026-07-28)
+
+`camera_setup_id` describes **where the camera sits relative to the court**, and nothing else:
+
+| Value | Placement |
+|---|---|
+| `court-left-corner` | corner, left side |
+| `court-right-corner` | corner, right side |
+| `court-center` | centred on the court |
+| `court-side-middle` | side-on, level with the net |
+
+**The venue is deliberately NOT baked into these**, and that is worth stating because prefixing them
+(`bxh-court-left-corner`) looks tempting and is wrong twice over:
+
+1. **It is already recorded.** `venue_id` is its own field. Duplicating it into a second string is
+   denormalization that buys nothing and can go out of sync — `venue_id: Boxhill` alongside
+   `camera_setup_id: xyz-court-left-corner` is unrepresentable nonsense that no validator would catch.
+2. **Consumers already compose the pair.** The indexer's representativeness unit is
+   `f"{venue_id}::{camera_setup_id}"` — see `ClipRow.setup_key` in
+   `backend/eval/qwen_tolf1_075_grouping.py`, whose docstring is literally *"Venue plus camera
+   setup — the unit §4.3 counts for representativeness."* `Boxhill::court-left-corner` and
+   `OtherVenue::court-left-corner` are already two distinct setups. There is no collision to
+   prevent.
+
+Keeping the vocabulary venue-agnostic also buys something a prefix would destroy: you can ask
+"which clips are left-corner framings?" **across** venues, which is a question about camera domain
+rather than about a building.
+
+The older `bxh-elevated-baseline` / `bxh-lowside-3court` / `bxh-lowside-singlecourt` values predate
+this vocabulary. They are valid and should not be rewritten — a stable identifier that changes is
+worse than an inconsistent one — but new setups use the table above.
+
 #### `target_court_id` — use the venue's own court numbering
 
-`target_court_id` now lives inside a **target profile**, not at the top level, because it is a
-property of a camera section rather than of the whole file (see
-[TARGET_REVIEW.md](TARGET_REVIEW.md)). The naming rule is unchanged:
+In legacy target profiles, `target_court_id` lives inside the profile rather than at the top level
+because it is a property of a camera section (see [TARGET_REVIEW.md](TARGET_REVIEW.md)). The
+annotator no longer asks the operator to create or name a target profile.
 
 **Name the target court by the number the venue itself paints on it.** At Boxhill that is Boxhill's
 court numbering; at any other venue, that venue's own numbering.
@@ -138,8 +170,10 @@ frame-relative id silently re-points at a different slab of floor the moment the
 two clips of the same physical court disagree about which court they are. A painted number is a
 property of the building, so it stays true across every setup, session and clip.
 
-The target court is not something to look up: **it is the court whose rallies you are putting in
-`<clip>.rallies.csv`** — the one prominent match this recording indexes.
+For rally annotation, the target is implicitly the video's **largest, most visually focused court**:
+that is the match whose rallies go into `<clip>.rallies.csv`. Court localization/selection is
+derived downstream; a `target_court_id` profile is optional metadata and never a prerequisite for
+marking or saving rallies.
 
 Rules that make the id load-bearing rather than decorative:
 
@@ -279,8 +313,8 @@ A v1 file has no `target_profiles` and carries a top-level `target_court_id`. Re
 - every other field is read unchanged;
 - `target_profiles` starts **empty** — no profile is invented, because a profile without a validated
   camera section and polygon would fail its own validation;
-- the v1 `target_court_id` is kept aside and offered as the **default** when you create the first
-  profile, so the value is not lost but is never promoted without a human;
+- the v1 `target_court_id` remains compatibility input and is never promoted into a profile
+  automatically;
 - saving writes `clipmeta_version: 2`.
 
 A v1 file is therefore upgraded on the next save, and a v1 file you never touch stays valid on disk.

@@ -110,7 +110,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "2.0.0")
+eq("descriptor version", descriptor().version, "2.1.0")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -185,12 +185,14 @@ else
 end
 
 -- live (non-deleted) widget by grid position; reason dropdown is recreated on reset
+-- NB: these read the LIVE dialog (DIALOG), not the one captured at startup. Switching screen
+-- rebuilds the whole grid, so a captured handle goes stale the moment a test declares a target.
 local function find(kind, col, row)
   local f
-  for _, w in ipairs(d.widgets) do if w.kind==kind and w.col==col and w.row==row and not w.deleted then f=w end end
+  for _, w in ipairs(DIALOG.widgets) do if w.kind==kind and w.col==col and w.row==row and not w.deleted then f=w end end
   return f
 end
-local function buttonWithCb(cb) for _,w in ipairs(d.widgets) do if w.kind=='button' and w.cb==cb then return w end end end
+local function buttonWithCb(cb) for _,w in ipairs(DIALOG.widgets) do if w.kind=='button' and w.cb==cb and not w.deleted then return w end end end
 local function pickReason(name)
   local w = find('dropdown', 3, 7)
   for _, v in ipairs(w.values) do if v.text==name then w.sel_id=v.id; w.sel_text=v.text; return end end
@@ -249,6 +251,21 @@ show_help(); eq("help shows on 1st click", dedicatedHelp(), 1); eq("button says 
 show_help(); eq("help hides on 2nd click", dedicatedHelp(), 0); eq("button says Help", helpBtn.text, "Help")
 show_help(); eq("help shows again", dedicatedHelp(), 1)
 show_help(); eq("help hides again", dedicatedHelp(), 0)
+
+--------------------------------------------------------------------------------
+-- Rally annotation is never gated on optional target metadata. Mark and save must work on a
+-- fresh clip with zero target profiles, because court selection is derived downstream.
+--------------------------------------------------------------------------------
+do
+  PB.state = "playing"; PB.time_us = 1250000
+  mark_start()
+  eq("Mark START works without a target profile", find('text_input', 2, 4):get_text(), "1.250")
+  find('text_input', 4, 4):set_text("2.000")
+  save_rally()
+  eq("Save Rally works without a target profile", find('text_input', 2, 5):get_text(), "2")
+  os.remove(CSV)
+  activate() -- reset the clean fixture for the rest of the suite
+end
 
 --------------------------------------------------------------------------------
 -- Reason: default unknown, resets each save, consecutive identical reasons work
@@ -478,12 +495,13 @@ do
   activate()
   ok("nav: Rallies button present",  wbtn("Rallies") ~= nil)
   ok("nav: Clip info button present", wbtn("Clip info") ~= nil)
-  ok("nav: Target button present",   wbtn("Target") ~= nil)
-  ok("nav: Review button present",   wbtn("Review") ~= nil)
+  ok("nav: Target button removed",   wbtn("Target") == nil)
+  ok("nav: Review button removed",   wbtn("Review") == nil)
   ok("nav offers NO neighborhood-window screen", wbtn("Windows") == nil)
   eq("nav marks the active screen", wbtn("Rallies").text:sub(1, 3), "\226\150\184")
 
-  -- arm a rally, then bounce through the other two screens and back
+  -- Arm a rally and visit Clip info. Legacy target/review builders remain testable for old
+  -- sidecars, but there is deliberately no operator-facing navigation to them.
   wd('text_input', 2, 4):set_text("12.500")
   wd('text_input', 4, 4):set_text("18.250")
   show_clip()
@@ -634,6 +652,25 @@ do
   wd('list', 1, 10).selection = { [1] = "row" }
   delete_target_profile()
   eq("delete removes the selected profile", #wd('list', 1, 10).values, 1)
+  os.remove(CLIPMETA)
+end
+
+--------------------------------------------------------------------------------
+-- Legacy sidecars may contain compact normalized polygon strings. Keep accepting them even
+-- though the annotator no longer exposes a manual target editor.
+--------------------------------------------------------------------------------
+do
+  os.remove(CLIPMETA)
+  MEDIA_URI = nil; PB.state = "playing"
+  activate(); show_target()
+  wd('text_input', 2, 2):set_text("s1")
+  wd('text_input', 4, 2):set_text("3")
+  wd('text_input', 2, 4):set_text("0.208,0.541 0.775,0.541 0.942,0.983 0.061,0.983")
+  save_target_profile()
+  local j = read_file(CLIPMETA) or ""
+  ok("the normalized polygon string is accepted verbatim", j:find("[0.208, 0.541]", 1, true) ~= nil)
+  ok("and every legacy corner survives", j:find("[0.061, 0.983]", 1, true) ~= nil)
+  eq("one profile saved from it", #wd('list', 1, 10).values, 1)
   os.remove(CLIPMETA)
 end
 
