@@ -1910,9 +1910,13 @@ local function format_polygon(poly)
   return table.concat(out, " ")
 end
 
+-- NB: this deliberately does NOT clear `clip_form`. A same-video Refresh re-reads the sidecar
+-- from disk without changing which clip is being described, and it can be pressed from the RALLY
+-- screen, where no clip widget exists to re-stage the operator's edits from. Clearing here would
+-- silently discard them -- the exact failure this whole change exists to fix. The three real
+-- context changes clear it themselves: activate(), adopt_current_video_csv(), rebuild_after_sync(true).
 local function load_clipmeta()
   clip = {}
-  clip_form = nil                 -- a reload replaces the screen's state; nothing is in progress
   profiles = {}
   legacy_target_court = nil
   selected_section = nil
@@ -2436,6 +2440,8 @@ local function adopt_current_video_csv()
   out_path = p
   load_rows()                            -- pick up rallies already saved for this video
   load_clipmeta(); load_reviews(); detect_legacy_windows()   -- and its clip info / reviews too
+  clip_form = nil                        -- a real clip now, possibly with recorded metadata of its
+                                         -- own: staged fallback edits must not shadow what it says
   refresh_next_field()
   refresh_list()
 end
@@ -3155,6 +3161,7 @@ function rebuild_after_sync(switched_video)
   if switched_video then
     form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = form.sport }
     rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
+    clip_form = nil        -- A's staged clip info belongs to A, and must never reach B's sidecar
     selected_section = nil
   else
     capture_form()
@@ -3207,6 +3214,7 @@ function activate()
   screen = "rally"
   form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = SPORTS[1] }
   rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
+  clip_form = nil
   selected_section = nil
   w_help = nil
   w_reason = nil          -- niled so the first rebuild on a re-enable doesn't del a stale handle

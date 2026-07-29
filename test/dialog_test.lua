@@ -900,6 +900,31 @@ do
   local jr = read_file(STEM .. ".clipmeta.json") or ""
   ok("format picked BEFORE Refresh is still saved", jr:find('"match_format": "mixed"', 1, true) ~= nil)
 
+  -- 3b. ...and Refresh pressed from the RALLY screen is the harder case, because no clip widget
+  --     exists there to re-stage from. The same-video path skips rebuild_after_sync() entirely
+  --     when screen == "rally", so anything that clears the staged form on reload loses the edit
+  --     with nothing to restore it. This is the sequence the review reproduced.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2")
+  pick_format("doubles")
+  show_rallies()                                     -- clip widgets are gone from here on
+  refresh_now()                                      -- same video, screen == "rally" => no rebuild
+  show_clip()
+  eq("Refresh from the RALLY screen keeps the staged format", fmt_shown(), "doubles")
+  eq("Refresh from the RALLY screen keeps the staged court count", wd('text_input', 2, 3):get_text(), "2")
+  save_clip_info()
+  local jr2 = read_file(STEM .. ".clipmeta.json") or ""
+  ok("a format staged off-screen across Refresh is still saved",
+     jr2:find('"match_format": "doubles"', 1, true) ~= nil)
+
+  -- 3c. Re-activating the extension is a fresh start: staged-but-unsaved values do NOT come back.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  pick_format("singles")
+  show_rallies(); activate(); show_clip()
+  eq("activate() drops staged clip edits", fmt_shown(), "(not set)")
+
   -- 4. ...but switching to a DIFFERENT video must still drop it. Carrying an unsaved format
   --    across videos would write A's answer into B's sidecar -- the failure rebuild_after_sync
   --    (true) already guards for venue/counts, now also for the format.
