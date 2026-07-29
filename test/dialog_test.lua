@@ -832,5 +832,171 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- Clip-info input survives a dialog REBUILD.
+--
+-- Regression for three 2.1.0 sidecars that came back "match_format": null after the operator
+-- had picked a format. The dropdown itself was never broken (a 2.1.0 clip does carry
+-- "doubles"): capture_form() covered the rally and review screens but not the clip screen, so
+-- any rebuild -- nav switch, language switch, or the Refresh button sitting one cell from Save
+-- -- silently repainted the whole screen from `clip`. A cleared TEXT box is visibly empty and
+-- gets retyped; a cleared DROPDOWN repaints as "(not set)", which reads as a deliberate answer.
+-- That asymmetry is why camera_setup_id survived on the same clip whose match_format did not.
+--------------------------------------------------------------------------------
+do
+  local function pick_format(name)
+    local fmt = wd('dropdown', 2, 5)
+    for _, v in ipairs(fmt.values) do if v.text == name then fmt.sel_id = v.id end end
+    return fmt
+  end
+  local function fmt_shown()
+    local fmt = wd('dropdown', 2, 5)
+    return fmt and fmt.values[1] and fmt.values[1].text        -- selected value is added FIRST
+  end
+
+  -- 1. A NAV round-trip must not eat the pick.
+  os.remove(CLIPMETA); MEDIA_URI = nil
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("2")
+  wd('text_input', 2, 2):set_text("bxh_indiranagar")
+  pick_format("doubles")
+  show_rallies(); show_clip()
+  eq("nav round-trip repaints the format as picked", fmt_shown(), "doubles")
+  eq("nav round-trip preserves an unsaved venue", wd('text_input', 2, 2):get_text(), "bxh_indiranagar")
+  eq("nav round-trip preserves an unsaved court count", wd('text_input', 2, 3):get_text(), "2")
+  save_clip_info()
+  local j = read_file(CLIPMETA) or ""
+  ok("format picked BEFORE a nav switch is still saved", j:find('"match_format": "doubles"', 1, true) ~= nil)
+  ok("a rebuilt-then-saved clip is not null", j:find('"match_format": null', 1, true) == nil)
+
+  -- 2. A LANGUAGE switch must not eat it either (it rebuilds through the same path).
+  local LANGCFG = (TMP:sub(-1) == sep and TMP or TMP .. sep) .. ".rally_annotator_lang"
+  os.remove(CLIPMETA); os.remove(LANGCFG)
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2")
+  pick_format("singles")
+  local langDrop = wd('dropdown', 2, 10)                       -- clip screen's language row
+  ok("clip screen carries the language row", langDrop ~= nil)
+  langDrop.sel_id = 2; change_language()                       -- -> kn, whole grid rebuilt
+  save_clip_info()
+  local jl = read_file(CLIPMETA) or ""
+  ok("format survives a language switch", jl:find('"match_format": "singles"', 1, true) ~= nil)
+  ok("the sidecar stays canonical English regardless of UI language",
+     jl:find('"match_format": "singles"', 1, true) ~= nil)
+  langDrop = wd('dropdown', 2, 10); langDrop.sel_id = 1; change_language()   -- back to en
+  os.remove(LANGCFG)
+
+  -- 3. The REFRESH button is the likeliest trigger -- it sits on the clip screen itself, one
+  --    cell from Save. Same video => re-read the sidecar, but keep the in-progress edit.
+  local STEM = TMPb .. sep .. "clipfmt_refresh"
+  os.remove(STEM .. ".clipmeta.json"); os.remove(STEM .. ".rallies.csv")
+  MEDIA_URI = "file://" .. STEM .. ".mp4"; PB.state = "playing"
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("3"); wd('text_input', 4, 3):set_text("2")
+  pick_format("mixed")
+  refresh_now()                                                -- same video -> rebuild_after_sync(false)
+  eq("same-video Refresh repaints the format as picked", fmt_shown(), "mixed")
+  eq("same-video Refresh preserves an unsaved court count", wd('text_input', 2, 3):get_text(), "3")
+  save_clip_info()
+  local jr = read_file(STEM .. ".clipmeta.json") or ""
+  ok("format picked BEFORE Refresh is still saved", jr:find('"match_format": "mixed"', 1, true) ~= nil)
+
+  -- 3b. ...and Refresh pressed from the RALLY screen is the harder case, because no clip widget
+  --     exists there to re-stage from. The same-video path skips rebuild_after_sync() entirely
+  --     when screen == "rally", so anything that clears the staged form on reload loses the edit
+  --     with nothing to restore it. This is the sequence the review reproduced.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2")
+  pick_format("doubles")
+  show_rallies()                                     -- clip widgets are gone from here on
+  refresh_now()                                      -- same video, screen == "rally" => no rebuild
+  show_clip()
+  eq("Refresh from the RALLY screen keeps the staged format", fmt_shown(), "doubles")
+  eq("Refresh from the RALLY screen keeps the staged court count", wd('text_input', 2, 3):get_text(), "2")
+  save_clip_info()
+  local jr2 = read_file(STEM .. ".clipmeta.json") or ""
+  ok("a format staged off-screen across Refresh is still saved",
+     jr2:find('"match_format": "doubles"', 1, true) ~= nil)
+
+  -- 3b-ii. The mirror image: with NOTHING unsaved, Refresh must show what the sidecar now says.
+  --        Staging a CLEAN form would pin the screen to the old values, hide a sidecar edited on
+  --        disk between saves, and let the next Save write the stale value back over it. Only a
+  --        genuinely dirty form is worth protecting from the rebuild.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2")
+  pick_format("doubles")
+  save_clip_info()                                   -- committed: form is now CLEAN
+  local disk = read_file(STEM .. ".clipmeta.json") or ""
+  ok("precondition: doubles is on disk", disk:find('"match_format": "doubles"', 1, true) ~= nil)
+  local fh = io.open(STEM .. ".clipmeta.json", "w")  -- someone else edits the sidecar
+  fh:write((disk:gsub('"match_format": "doubles"', '"match_format": "singles"'))); fh:close()
+  refresh_now()                                      -- no unsaved edits -> disk must win
+  eq("Refresh shows a sidecar changed externally", fmt_shown(), "singles")
+  save_clip_info()
+  local jx = read_file(STEM .. ".clipmeta.json") or ""
+  ok("a later Save does not write the stale value back",
+     jx:find('"match_format": "singles"', 1, true) ~= nil)
+
+  -- ...but an edit in progress still wins over the reload: the operator's unsaved work is not
+  -- something a background file change may silently discard.
+  pick_format("mixed")                               -- dirty again
+  refresh_now()
+  eq("Refresh keeps a DIRTY form over the disk value", fmt_shown(), "mixed")
+
+  -- 3c. Re-activating the extension is a fresh start: staged-but-unsaved values do NOT come back.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  pick_format("singles")
+  show_rallies(); activate(); show_clip()
+  eq("activate() drops staged clip edits", fmt_shown(), "(not set)")
+
+  -- 4. ...but switching to a DIFFERENT video must still drop it. Carrying an unsaved format
+  --    across videos would write A's answer into B's sidecar -- the failure rebuild_after_sync
+  --    (true) already guards for venue/counts, now also for the format.
+  local OTHER = TMPb .. sep .. "clipfmt_other"
+  os.remove(OTHER .. ".clipmeta.json")
+  show_clip(); pick_format("doubles")
+  MEDIA_URI = "file://" .. OTHER .. ".mp4"
+  refresh_now()
+  eq("a video switch drops the previous clip's unsaved format", fmt_shown(), "(not set)")
+  wd('text_input', 2, 3):set_text("1")
+  save_clip_info()
+  local jo = read_file(OTHER .. ".clipmeta.json") or ""
+  ok("video B did not inherit A's unsaved format", jo:find('"match_format": null', 1, true) ~= nil)
+
+  for _, s in ipairs({ STEM, OTHER }) do
+    os.remove(s .. ".clipmeta.json"); os.remove(s .. ".rallies.csv"); os.remove(s .. ".target-review.csv")
+  end
+  MEDIA_URI = nil; PB.state = "stopped"
+end
+
+--------------------------------------------------------------------------------
+-- A null match_format is WARNED, not blocked. Blocking would force an answer out of an
+-- operator who cannot tell, and a guessed singles/doubles is worse than a recorded unknown.
+-- But it must not be silent: the downstream primary-split gate cannot evidence its
+-- singles+doubles minimum from nulls, and finding that out later costs a re-annotation pass.
+--------------------------------------------------------------------------------
+do
+  os.remove(CLIPMETA); MEDIA_URI = nil
+  activate(); show_clip()
+  local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
+  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("2")
+  save_clip_info()
+  local j = read_file(CLIPMETA) or ""
+  ok("a null match_format still SAVES (warn, never block)", j:find('"court_count": 2', 1, true) ~= nil)
+  ok("...and is still written as null, never guessed", j:find('"match_format": null', 1, true) ~= nil)
+  ok("...but the save says the format is missing", statusw.text:find("not set", 1, true) ~= nil)
+  ok("...and says which answer is missing", statusw.text:find("singles/doubles", 1, true) ~= nil)
+
+  local fmt = wd('dropdown', 2, 5)
+  for _, v in ipairs(fmt.values) do if v.text == "doubles" then fmt.sel_id = v.id end end
+  save_clip_info()
+  ok("a set format saves without the warning", statusw.text:find("not set", 1, true) == nil)
+  ok("...and confirms the save", statusw.text:find("Saved clip info", 1, true) ~= nil)
+  os.remove(CLIPMETA)
+end
+
+--------------------------------------------------------------------------------
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
