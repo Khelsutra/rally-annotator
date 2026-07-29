@@ -1602,7 +1602,7 @@ local rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
 
 -- Forward declarations: the button callbacks below are defined BEFORE the dialog builders
 -- they call. Without these the callbacks would resolve these names as (nil) globals.
-local capture_form, target_refresh, create_dialog, rebuild_after_sync
+local capture_form, capture_clip_form, target_refresh, create_dialog, rebuild_after_sync
 
 --------------------------------------------------------------------------------
 -- Helpers (declared before the global callbacks that capture them)
@@ -2400,6 +2400,10 @@ local function sync_to_current_video()
   out_path_is_fallback = false   -- a video is playing now -> we have a real path
   local new_path = resolve_out_path()
   if new_path == out_path then
+    -- BEFORE the reload: decide whether the clip screen holds unsaved work, while `clip` still
+    -- holds what was last committed. Asking afterwards would read a sidecar changed on disk as
+    -- operator input and re-stage the stale widgets over it.
+    capture_clip_form()
     load_rows()                  -- re-read in case the file changed on disk
     load_clipmeta(); load_reviews(); detect_legacy_windows()
     refresh_next_field()
@@ -2864,21 +2868,40 @@ function capture_form()
     local sid = w_rv_state:get_value()
     rv_form.state = (sid ~= nil and TARGET_STATES[sid]) or rv_form.state
   end
-  -- Clip info, captured exactly as the operator left it -- raw strings, not validated counts --
-  -- so a rebuild hands their work back verbatim (typos included, to be corrected rather than
-  -- silently dropped). Only save_clip_info validates and commits into `clip`.
-  if w_venue then
-    local fid = w_format and w_format:get_value() or 0
-    clip_form = {
-      venue_id = w_venue:get_text() or "",
-      camera_setup_id = w_camera and w_camera:get_text() or "",
-      court_count = w_visible and w_visible:get_text() or "",
-      active_court_count = w_active and w_active:get_text() or "",
-      partially_visible_court_count = w_partial and w_partial:get_text() or "",
-      match_format = (fid ~= nil and fid ~= 0) and MATCH_FORMATS[fid] or nil,
-      notes = w_notes and w_notes:get_text() or "",
-    }
+end
+
+-- Clip info, captured exactly as the operator left it -- raw strings, not validated counts -- so a
+-- rebuild hands their work back verbatim (typos included, to be corrected rather than silently
+-- dropped). Only save_clip_info validates and commits into `clip`.
+--
+-- A CLEAN form is deliberately not staged. build_clip_screen prefers clip_form over clip, so
+-- staging a form that merely agrees with `clip` would pin the screen to those values and mask a
+-- sidecar edited on disk between saves -- and the next Save would write the stale value back over
+-- it. Only a genuinely dirty form is worth protecting from a rebuild; when nothing is in progress
+-- the freshly loaded `clip` must win.
+--
+-- This is SEPARATE from capture_form() because it must run BEFORE a reload, not after: the
+-- dirtiness question is "does the screen differ from what was last committed", and comparing
+-- against an already-reloaded `clip` would read every externally-changed field as operator input.
+function capture_clip_form()
+  if not w_venue then return end            -- clip screen not built; leave any staged form alone
+  local fid = w_format and w_format:get_value() or 0
+  local staged = {
+    venue_id = w_venue:get_text() or "",
+    camera_setup_id = w_camera and w_camera:get_text() or "",
+    court_count = w_visible and w_visible:get_text() or "",
+    active_court_count = w_active and w_active:get_text() or "",
+    partially_visible_court_count = w_partial and w_partial:get_text() or "",
+    match_format = (fid ~= nil and fid ~= 0) and MATCH_FORMATS[fid] or nil,
+    notes = w_notes and w_notes:get_text() or "",
+  }
+  local function shown(v) return v == nil and "" or tostring(v) end
+  local dirty = false
+  for _, k in ipairs({ "venue_id", "camera_setup_id", "court_count", "active_court_count",
+                       "partially_visible_court_count", "match_format", "notes" }) do
+    if shown(staged[k]) ~= shown(clip[k]) then dirty = true; break end
   end
+  clip_form = dirty and staged or nil
 end
 
 -- Repaint the profile list, the review list and the review Save caption.
@@ -3173,7 +3196,7 @@ end
 -- Screen switches go through one place so the in-progress form is always captured first.
 local function switch_screen(name)
   if screen == name then return end
-  capture_form()
+  capture_form(); capture_clip_form()
   screen = name
   if d then d:delete(); d = nil end
   create_dialog()
@@ -3191,7 +3214,7 @@ function change_language()
   local id = w_lang:get_value()
   local code = LOCALES[id]
   if not code or not STRINGS[code] or code == LANG then return end
-  capture_form()          -- a language switch must not cost the operator an unsaved mark
+  capture_form(); capture_clip_form()   -- a language switch must not cost an unsaved mark or clip edit
   LANG = code
   save_lang()
   if d then d:delete(); d = nil end

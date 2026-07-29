@@ -918,6 +918,32 @@ do
   ok("a format staged off-screen across Refresh is still saved",
      jr2:find('"match_format": "doubles"', 1, true) ~= nil)
 
+  -- 3b-ii. The mirror image: with NOTHING unsaved, Refresh must show what the sidecar now says.
+  --        Staging a CLEAN form would pin the screen to the old values, hide a sidecar edited on
+  --        disk between saves, and let the next Save write the stale value back over it. Only a
+  --        genuinely dirty form is worth protecting from the rebuild.
+  os.remove(STEM .. ".clipmeta.json")
+  activate(); show_clip()
+  wd('text_input', 2, 3):set_text("2")
+  pick_format("doubles")
+  save_clip_info()                                   -- committed: form is now CLEAN
+  local disk = read_file(STEM .. ".clipmeta.json") or ""
+  ok("precondition: doubles is on disk", disk:find('"match_format": "doubles"', 1, true) ~= nil)
+  local fh = io.open(STEM .. ".clipmeta.json", "w")  -- someone else edits the sidecar
+  fh:write((disk:gsub('"match_format": "doubles"', '"match_format": "singles"'))); fh:close()
+  refresh_now()                                      -- no unsaved edits -> disk must win
+  eq("Refresh shows a sidecar changed externally", fmt_shown(), "singles")
+  save_clip_info()
+  local jx = read_file(STEM .. ".clipmeta.json") or ""
+  ok("a later Save does not write the stale value back",
+     jx:find('"match_format": "singles"', 1, true) ~= nil)
+
+  -- ...but an edit in progress still wins over the reload: the operator's unsaved work is not
+  -- something a background file change may silently discard.
+  pick_format("mixed")                               -- dirty again
+  refresh_now()
+  eq("Refresh keeps a DIRTY form over the disk value", fmt_shown(), "mixed")
+
   -- 3c. Re-activating the extension is a fresh start: staged-but-unsaved values do NOT come back.
   os.remove(STEM .. ".clipmeta.json")
   activate(); show_clip()
