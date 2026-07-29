@@ -13,6 +13,13 @@
   same-video Refresh **from any screen**, including one taken from the Rally screen where no clip
   widget exists to re-capture from; they are dropped only on activation or an actual video switch,
   so video A's answer can never land in video B's sidecar.
+- **…and only an edit actually in progress is staged.** Protecting a *clean* form would be the same
+  bug pointing the other way: the screen would be pinned to the last-saved values, hiding a sidecar
+  changed on disk between saves and letting the next Save write the stale value back over it. The
+  form is compared against what was last committed — **before** the reload, since afterwards every
+  externally-changed field would read as operator input — and the freshly loaded values win whenever
+  nothing is in progress. An edit in progress still wins over the reload: unsaved work is not
+  something a background file change may silently discard.
 - **A null `match_format` is now warned about on save, never blocked.** Blocking would force an
   answer out of an operator who genuinely cannot tell, and a guessed singles/doubles is worse than a
   recorded unknown — so the save still succeeds and still writes `null`. But it is no longer silent:
