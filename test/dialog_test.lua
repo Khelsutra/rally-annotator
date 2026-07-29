@@ -66,6 +66,7 @@ MEDIA_URI = nil
 -- completeness readout stays UNKNOWN unless a test opts in (it must never be guessed).
 MEDIA_DURATION = nil
 MEDIA_METAS = nil
+VLC_DIR_ENTRIES = nil
 vlc = {
   dialog   = function(t) DIALOG = new_dialog(t); return DIALOG end,
   object   = { input = function() return (PB.state ~= "stopped") and { kind = "input" } or nil end },
@@ -91,6 +92,9 @@ vlc = {
     pause  = function() if PB.state == "playing" then PB.state = "paused" elseif PB.state == "paused" then PB.state = "playing" end end,
     stop   = function() PB.state = "stopped" end,
   },
+  io = {
+    readdir = function() return VLC_DIR_ENTRIES end,
+  },
   deactivate = function() end,
   msg = { dbg=function() end, warn=function() end, err=function() end, info=function() end },
 }
@@ -110,7 +114,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "2.1.0")
+eq("descriptor version", descriptor().version, "2.2.0")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -484,6 +488,9 @@ end
 local function read_file(p)
   local f = io.open(p, "r"); local s = f and f:read("*a") or nil; if f then f:close() end; return s
 end
+local function write_file(p, body)
+  local f = assert(io.open(p, "w")); f:write(body); f:close()
+end
 
 local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
 local CLIPMETA = TMPb .. sep .. "rally_labels.clipmeta.json"
@@ -527,14 +534,17 @@ end
 do
   os.remove(CLIPMETA)
   show_clip()
-  local venue, camera = wd('text_input', 2, 2), wd('text_input', 4, 2)
-  local visible, active = wd('text_input', 2, 3), wd('text_input', 4, 3)
-  local partial = wd('text_input', 2, 4)
-  local notes = wd('text_input', 2, 6)
+  local venue, target = wd('text_input', 2, 2), wd('text_input', 4, 2)
+  local camera = wd('text_input', 3, 3)
+  local camera_picker = wd('dropdown', 2, 3)
+  local visible, active = wd('text_input', 2, 4), wd('text_input', 4, 4)
+  local partial = wd('text_input', 2, 5)
+  local notes = wd('text_input', 2, 7)
   local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
 
   -- GX010150: 2 courts visible, 1 active -- a divider excludes the neighbour.
-  venue:set_text("bxh_indiranagar"); camera:set_text("bxh_low_side_a")
+  venue:set_text("bxh_indiranagar"); target:set_text("court-3")
+  camera:set_text("bxh_low_side_a")
   visible:set_text("2"); active:set_text("1"); partial:set_text("0")
   notes:set_text("divider excludes the neighbour")
   save_clip_info()
@@ -544,9 +554,10 @@ do
   ok("clipmeta records courts IN PLAY separately", j:find('"active_court_count": 1', 1, true) ~= nil)
   ok("clipmeta records the partial-court count", j:find('"partially_visible_court_count": 0', 1, true) ~= nil)
   ok("clipmeta records venue", j:find('"venue_id": "bxh_indiranagar"', 1, true) ~= nil)
-  ok("clipmeta is version 2", j:find('"clipmeta_version": 2', 1, true) ~= nil)
+  ok("clipmeta restores the top-level target court", j:find('"target_court_id": "court-3"', 1, true) ~= nil)
+  ok("camera picker keeps a free-text fallback", j:find('"camera_setup_id": "bxh_low_side_a"', 1, true) ~= nil)
+  ok("clipmeta is version 3", j:find('"clipmeta_version": 3', 1, true) ~= nil)
   ok("clipmeta has a target_profiles array", j:find('"target_profiles"', 1, true) ~= nil)
-  ok("clip screen no longer asks for a target court", wd('text_input', 4, 4) == nil)
   ok("unset match_format writes null, never a guess", j:find('"match_format": null', 1, true) ~= nil)
   ok("no container date -> capture_time_utc null", j:find('"capture_time_utc": null', 1, true) ~= nil)
   ok("clipmeta names its generator", j:find('"generator": "rally%-annotator%-vlc/') ~= nil)
@@ -577,18 +588,175 @@ do
 
   -- Badminton_BXH_2: 4 visible / 3 active, singles -- and the format picker round-trips.
   visible:set_text("4"); active:set_text("3")
-  local fmt = wd('dropdown', 2, 5)
+  camera:set_text("")
+  for _, v in ipairs(camera_picker.values) do
+    if v.text == "court-left-corner" then camera_picker.sel_id = v.id end
+  end
+  camera:set_text("typed-at-the-same-time")
+  local fmt = wd('dropdown', 2, 6)
   for _, v in ipairs(fmt.values) do if v.text == "singles" then fmt.sel_id = v.id end end
   save_clip_info()
   local j3 = read_file(CLIPMETA) or ""
   ok("4 visible / 3 active recorded", j3:find('"court_count": 4', 1, true) and j3:find('"active_court_count": 3', 1, true))
   ok("match_format singles recorded", j3:find('"match_format": "singles"', 1, true) ~= nil)
+  ok("camera picker writes the canonical vocabulary", j3:find('"camera_setup_id": "court-left-corner"', 1, true) ~= nil)
+  ok("camera picker conflict is surfaced instead of silently dropping typed text",
+     statusw.text:find("simultaneous free%-text camera value was not") ~= nil)
 
   -- re-enabling the extension reloads what was screened rather than re-asking
   activate(); show_clip()
-  eq("clip info reloads on re-open (visible)", wd('text_input', 2, 3):get_text(), "4")
-  eq("clip info reloads on re-open (active)",  wd('text_input', 4, 3):get_text(), "3")
+  eq("clip info reloads on re-open (visible)", wd('text_input', 2, 4):get_text(), "4")
+  eq("clip info reloads on re-open (active)",  wd('text_input', 4, 4):get_text(), "3")
   eq("clip info reloads on re-open (venue)",   wd('text_input', 2, 2):get_text(), "bxh_indiranagar")
+  eq("clip info reloads top-level target",      wd('text_input', 4, 2):get_text(), "court-3")
+  eq("known camera setup reloads into the picker", wd('dropdown', 2, 3).sel_text, "court-left-corner")
+end
+
+--------------------------------------------------------------------------------
+-- A real clip with no sidecar opens the optional intake once. Skipping it and saving rallies
+-- remains valid, and does not create a sidecar as a side effect.
+--------------------------------------------------------------------------------
+do
+  local stem = TMPb .. sep .. "fresh-intake"
+  local csv_path, meta_path = stem .. ".rallies.csv", stem .. ".clipmeta.json"
+  os.remove(csv_path); os.remove(meta_path)
+  VLC_DIR_ENTRIES = nil
+  MEDIA_URI = "file://" .. stem .. ".mp4"; MEDIA_DURATION = 100; PB.state = "playing"
+  activate()
+  eq("fresh real clip first-opens Clip info", wbtn("Clip info").text:sub(1, 3), "\226\150\184")
+  ok("fresh prompt has target court intake", wd('text_input', 4, 2) ~= nil)
+  show_rallies()
+  wd('text_input', 2, 4):set_text("1"); wd('text_input', 4, 4):set_text("2")
+  save_rally()
+  ok("rally save works after skipping clip intake", (read_file(csv_path) or ""):find("\n1,", 1, true) ~= nil)
+  ok("skipping intake does not create a clipmeta sidecar", read_file(meta_path) == nil)
+  os.remove(csv_path); os.remove(meta_path)
+  MEDIA_URI = nil; MEDIA_DURATION = nil; activate()
+end
+
+--------------------------------------------------------------------------------
+-- Same-folder sibling metadata is an UNSAVED declarative starting point. It must not copy
+-- clip identity, timestamps, geometry/profiles, completeness, or create the current sidecar.
+--------------------------------------------------------------------------------
+do
+  local source_stem = TMPb .. sep .. "chapter-01"
+  local current_stem = TMPb .. sep .. "chapter-02"
+  local source_meta = source_stem .. ".clipmeta.json"
+  local current_meta = current_stem .. ".clipmeta.json"
+  os.remove(source_meta); os.remove(current_meta)
+  write_file(source_meta, [=[
+{
+  "clipmeta_version": 3,
+  "clip_name": "chapter-01",
+  "sport": "tennis",
+  "venue_id": "bxh",
+  "target_court_id": "court-4",
+  "camera_setup_id": "court-side-middle",
+  "capture_time_utc": "2026-07-01T10:00:00Z",
+  "court_count": 4,
+  "active_court_count": 3,
+  "partially_visible_court_count": 1,
+  "match_format": "doubles",
+  "notes": "same capture",
+  "target_profiles": [{
+    "camera_section_id": "s1",
+    "target_court_id": "court-4",
+    "play_volume_polygon": [[0.1, 0.5], [0.9, 0.5], [0.9, 0.9]],
+    "setup_validity": "supported"
+  }],
+  "label_completeness": {"rally_count": 99}
+}
+]=])
+  VLC_DIR_ENTRIES = { "chapter-02.clipmeta.json", "chapter-01.clipmeta.json" }
+  MEDIA_URI = "file://" .. current_stem .. ".mp4"; PB.state = "playing"
+  activate()
+  eq("sibling prefill venue", wd('text_input', 2, 2):get_text(), "bxh")
+  eq("sibling prefill target", wd('text_input', 4, 2):get_text(), "court-4")
+  eq("sibling prefill camera vocabulary", wd('dropdown', 2, 3).sel_text, "court-side-middle")
+  eq("sibling prefill visible count", wd('text_input', 2, 4):get_text(), "4")
+  eq("sibling prefill active count", wd('text_input', 4, 4):get_text(), "3")
+  eq("sibling prefill partial count", wd('text_input', 2, 5):get_text(), "1")
+  eq("sibling prefill match format", wd('dropdown', 2, 6).sel_text, "doubles")
+  eq("sibling prefill notes", wd('text_input', 2, 7):get_text(), "same capture")
+  eq("sibling capture time is not copied", wd('label', 4, 6).text,
+     "(not readable here -- probed from the container at import)")
+  ok("prefill is identified as unsaved", wd('html', 1, 9).text:find("nothing was written automatically", 1, true) ~= nil)
+  ok("sibling prefill did not create a sidecar", read_file(current_meta) == nil)
+  show_target()
+  eq("sibling geometry/profile is not copied", #wd('list', 1, 10).values, 0)
+  show_clip(); save_clip_info()
+  local saved = read_file(current_meta) or ""
+  ok("saving prefill creates current v3 sidecar", saved:find('"clipmeta_version": 3', 1, true) ~= nil)
+  ok("saved prefill uses current clip identity", saved:find('"clip_name": "chapter%-02"') ~= nil)
+  ok("saved prefill keeps sibling sport", saved:find('"sport": "tennis"', 1, true) ~= nil)
+  ok("saved prefill excludes sibling timestamp", saved:find('"capture_time_utc": null', 1, true) ~= nil)
+  ok("saved prefill excludes sibling profiles", saved:find('"target_profiles": %[%]') ~= nil)
+  ok("saved prefill excludes sibling completeness", saved:find('"rally_count": 99', 1, true) == nil)
+  os.remove(source_meta); os.remove(current_meta)
+  VLC_DIR_ENTRIES = nil; MEDIA_URI = nil; activate()
+end
+
+--------------------------------------------------------------------------------
+-- v1/v2 remain readable and the next save upgrades them to v3. A v2 profile consensus may
+-- restore the declarative target; conflicting profiles must not be guessed through.
+--------------------------------------------------------------------------------
+do
+  local stem = TMPb .. sep .. "migration"
+  local meta_path = stem .. ".clipmeta.json"
+  MEDIA_URI = "file://" .. stem .. ".mp4"; PB.state = "playing"; VLC_DIR_ENTRIES = nil
+
+  write_file(meta_path, '{"clipmeta_version":1,"target_court_id":"court-v1"}\n')
+  activate(); show_clip()
+  eq("v1 top-level target loads", wd('text_input', 4, 2):get_text(), "court-v1")
+  save_clip_info()
+  ok("v1 save upgrades to v3", (read_file(meta_path) or ""):find('"clipmeta_version": 3', 1, true) ~= nil)
+
+  write_file(meta_path, '{"clipmeta_version":2,"target_profiles":[{"target_court_id":"court-v2"},{"target_court_id":"court-v2"}]}\n')
+  activate(); show_clip()
+  eq("v2 agreeing profiles restore target", wd('text_input', 4, 2):get_text(), "court-v2")
+  save_clip_info()
+  ok("v2 consensus persists top-level in v3", (read_file(meta_path) or ""):find('"target_court_id": "court%-v2"') ~= nil)
+
+  write_file(meta_path, '{"clipmeta_version":2,"target_profiles":[{"target_court_id":"court-a"},{"target_court_id":"court-b"}]}\n')
+  activate(); show_clip()
+  eq("v2 conflicting profiles do not guess target", wd('text_input', 4, 2):get_text(), "")
+  save_clip_info()
+  ok("v2 conflict upgrades with null target", (read_file(meta_path) or ""):find('"target_court_id": null', 1, true) ~= nil)
+  os.remove(meta_path); MEDIA_URI = nil; activate()
+end
+
+--------------------------------------------------------------------------------
+-- Once a sidecar exists, every successful rally CSV mutation rewrites its advisory
+-- completeness block. The first write must not become stale during a labeling pass.
+--------------------------------------------------------------------------------
+do
+  local stem = TMPb .. sep .. "completeness-refresh"
+  local csv_path, meta_path = stem .. ".rallies.csv", stem .. ".clipmeta.json"
+  os.remove(csv_path); os.remove(meta_path)
+  MEDIA_URI = "file://" .. stem .. ".mp4"; MEDIA_DURATION = 100; PB.state = "playing"
+  activate()
+  save_clip_info()
+  ok("empty clip sidecar starts without guessed completeness",
+     (read_file(meta_path) or ""):find('"label_completeness": null', 1, true) ~= nil)
+  show_rallies()
+  wd('text_input', 2, 4):set_text("10"); wd('text_input', 4, 4):set_text("20"); save_rally()
+  ok("first rally refreshes sidecar count",
+     (read_file(meta_path) or ""):find('"rally_count": 1', 1, true) ~= nil)
+  wd('text_input', 2, 4):set_text("30"); wd('text_input', 4, 4):set_text("40"); save_rally()
+  local fresh = read_file(meta_path) or ""
+  ok("second rally refreshes sidecar count", fresh:find('"rally_count": 2', 1, true) ~= nil)
+  ok("second rally refreshes labelled-to extent", fresh:find('"labelled_to_s": 40', 1, true) ~= nil)
+
+  -- A newer producer may add top-level fields this version cannot serialize. Automatic
+  -- completeness maintenance must never erase them merely because a rally was saved.
+  local newer = fresh:gsub("\n}\n$", ',\n  "future_contract": {"keep": true}\n}\n')
+  write_file(meta_path, newer)
+  activate(); show_rallies()
+  wd('text_input', 2, 4):set_text("50"); wd('text_input', 4, 4):set_text("60"); save_rally()
+  eq("automatic completeness refresh preserves a newer sidecar verbatim",
+     read_file(meta_path), newer)
+  os.remove(csv_path); os.remove(meta_path)
+  MEDIA_DURATION = nil; MEDIA_URI = nil; activate()
 end
 
 --------------------------------------------------------------------------------
@@ -798,7 +966,7 @@ do
   MEDIA_URI = "file://" .. A .. ".mp4"; PB.state = "playing"; PB.time_us = 0
   activate(); show_clip()
   wd('text_input', 2, 2):set_text("Boxhill")
-  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("1")
+  wd('text_input', 2, 4):set_text("2"); wd('text_input', 4, 4):set_text("1")
   save_clip_info()
   ok("video A clipmeta written", read_file(A .. ".clipmeta.json") ~= nil)
 
@@ -806,11 +974,11 @@ do
   MEDIA_URI = "file://" .. B .. ".mp4"
   refresh_now()
   eq("Refresh clears the previous clip's venue", wd('text_input', 2, 2):get_text(), "")
-  eq("Refresh clears the previous clip's court count", wd('text_input', 2, 3):get_text(), "")
-  eq("Refresh clears the previous clip's partial count", wd('text_input', 2, 4):get_text(), "")
+  eq("Refresh clears the previous clip's court count", wd('text_input', 2, 4):get_text(), "")
+  eq("Refresh clears the previous clip's partial count", wd('text_input', 2, 5):get_text(), "")
 
   -- and a Save now must not carry A's values into B's sidecar
-  wd('text_input', 2, 3):set_text("4"); wd('text_input', 4, 3):set_text("3")
+  wd('text_input', 2, 4):set_text("4"); wd('text_input', 4, 4):set_text("3")
   save_clip_info()
   local jb = read_file(B .. ".clipmeta.json") or ""
   ok("video B sidecar written", #jb > 0)
@@ -844,25 +1012,29 @@ end
 --------------------------------------------------------------------------------
 do
   local function pick_format(name)
-    local fmt = wd('dropdown', 2, 5)
+    local fmt = wd('dropdown', 2, 6)
     for _, v in ipairs(fmt.values) do if v.text == name then fmt.sel_id = v.id end end
     return fmt
   end
   local function fmt_shown()
-    local fmt = wd('dropdown', 2, 5)
+    local fmt = wd('dropdown', 2, 6)
     return fmt and fmt.values[1] and fmt.values[1].text        -- selected value is added FIRST
   end
 
   -- 1. A NAV round-trip must not eat the pick.
   os.remove(CLIPMETA); MEDIA_URI = nil
   activate(); show_clip()
-  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("2"); wd('text_input', 4, 4):set_text("2")
   wd('text_input', 2, 2):set_text("bxh_indiranagar")
+  wd('text_input', 4, 2):set_text("court-3")
+  wd('text_input', 3, 3):set_text("custom-camera")
   pick_format("doubles")
   show_rallies(); show_clip()
   eq("nav round-trip repaints the format as picked", fmt_shown(), "doubles")
   eq("nav round-trip preserves an unsaved venue", wd('text_input', 2, 2):get_text(), "bxh_indiranagar")
-  eq("nav round-trip preserves an unsaved court count", wd('text_input', 2, 3):get_text(), "2")
+  eq("nav round-trip preserves an unsaved target court", wd('text_input', 4, 2):get_text(), "court-3")
+  eq("nav round-trip preserves an unsaved custom camera", wd('text_input', 3, 3):get_text(), "custom-camera")
+  eq("nav round-trip preserves an unsaved court count", wd('text_input', 2, 4):get_text(), "2")
   save_clip_info()
   local j = read_file(CLIPMETA) or ""
   ok("format picked BEFORE a nav switch is still saved", j:find('"match_format": "doubles"', 1, true) ~= nil)
@@ -872,9 +1044,9 @@ do
   local LANGCFG = (TMP:sub(-1) == sep and TMP or TMP .. sep) .. ".rally_annotator_lang"
   os.remove(CLIPMETA); os.remove(LANGCFG)
   activate(); show_clip()
-  wd('text_input', 2, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("2")
   pick_format("singles")
-  local langDrop = wd('dropdown', 2, 10)                       -- clip screen's language row
+  local langDrop = wd('dropdown', 2, 11)                       -- clip screen's language row
   ok("clip screen carries the language row", langDrop ~= nil)
   langDrop.sel_id = 2; change_language()                       -- -> kn, whole grid rebuilt
   save_clip_info()
@@ -882,7 +1054,7 @@ do
   ok("format survives a language switch", jl:find('"match_format": "singles"', 1, true) ~= nil)
   ok("the sidecar stays canonical English regardless of UI language",
      jl:find('"match_format": "singles"', 1, true) ~= nil)
-  langDrop = wd('dropdown', 2, 10); langDrop.sel_id = 1; change_language()   -- back to en
+  langDrop = wd('dropdown', 2, 11); langDrop.sel_id = 1; change_language()   -- back to en
   os.remove(LANGCFG)
 
   -- 3. The REFRESH button is the likeliest trigger -- it sits on the clip screen itself, one
@@ -891,11 +1063,14 @@ do
   os.remove(STEM .. ".clipmeta.json"); os.remove(STEM .. ".rallies.csv")
   MEDIA_URI = "file://" .. STEM .. ".mp4"; PB.state = "playing"
   activate(); show_clip()
-  wd('text_input', 2, 3):set_text("3"); wd('text_input', 4, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("3"); wd('text_input', 4, 4):set_text("2")
+  wd('text_input', 4, 2):set_text("court-refresh")
   pick_format("mixed")
   refresh_now()                                                -- same video -> rebuild_after_sync(false)
   eq("same-video Refresh repaints the format as picked", fmt_shown(), "mixed")
-  eq("same-video Refresh preserves an unsaved court count", wd('text_input', 2, 3):get_text(), "3")
+  eq("same-video Refresh preserves an unsaved target court",
+     wd('text_input', 4, 2):get_text(), "court-refresh")
+  eq("same-video Refresh preserves an unsaved court count", wd('text_input', 2, 4):get_text(), "3")
   save_clip_info()
   local jr = read_file(STEM .. ".clipmeta.json") or ""
   ok("format picked BEFORE Refresh is still saved", jr:find('"match_format": "mixed"', 1, true) ~= nil)
@@ -906,13 +1081,13 @@ do
   --     with nothing to restore it. This is the sequence the review reproduced.
   os.remove(STEM .. ".clipmeta.json")
   activate(); show_clip()
-  wd('text_input', 2, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("2")
   pick_format("doubles")
   show_rallies()                                     -- clip widgets are gone from here on
   refresh_now()                                      -- same video, screen == "rally" => no rebuild
   show_clip()
   eq("Refresh from the RALLY screen keeps the staged format", fmt_shown(), "doubles")
-  eq("Refresh from the RALLY screen keeps the staged court count", wd('text_input', 2, 3):get_text(), "2")
+  eq("Refresh from the RALLY screen keeps the staged court count", wd('text_input', 2, 4):get_text(), "2")
   save_clip_info()
   local jr2 = read_file(STEM .. ".clipmeta.json") or ""
   ok("a format staged off-screen across Refresh is still saved",
@@ -924,7 +1099,7 @@ do
   --        genuinely dirty form is worth protecting from the rebuild.
   os.remove(STEM .. ".clipmeta.json")
   activate(); show_clip()
-  wd('text_input', 2, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("2")
   pick_format("doubles")
   save_clip_info()                                   -- committed: form is now CLEAN
   local disk = read_file(STEM .. ".clipmeta.json") or ""
@@ -960,7 +1135,7 @@ do
   MEDIA_URI = "file://" .. OTHER .. ".mp4"
   refresh_now()
   eq("a video switch drops the previous clip's unsaved format", fmt_shown(), "(not set)")
-  wd('text_input', 2, 3):set_text("1")
+  wd('text_input', 2, 4):set_text("1")
   save_clip_info()
   local jo = read_file(OTHER .. ".clipmeta.json") or ""
   ok("video B did not inherit A's unsaved format", jo:find('"match_format": null', 1, true) ~= nil)
@@ -981,7 +1156,7 @@ do
   os.remove(CLIPMETA); MEDIA_URI = nil
   activate(); show_clip()
   local statusw; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then statusw = w end end
-  wd('text_input', 2, 3):set_text("2"); wd('text_input', 4, 3):set_text("2")
+  wd('text_input', 2, 4):set_text("2"); wd('text_input', 4, 4):set_text("2")
   save_clip_info()
   local j = read_file(CLIPMETA) or ""
   ok("a null match_format still SAVES (warn, never block)", j:find('"court_count": 2', 1, true) ~= nil)
@@ -989,7 +1164,7 @@ do
   ok("...but the save says the format is missing", statusw.text:find("not set", 1, true) ~= nil)
   ok("...and says which answer is missing", statusw.text:find("singles/doubles", 1, true) ~= nil)
 
-  local fmt = wd('dropdown', 2, 5)
+  local fmt = wd('dropdown', 2, 6)
   for _, v in ipairs(fmt.values) do if v.text == "doubles" then fmt.sel_id = v.id end end
   save_clip_info()
   ok("a set format saves without the warning", statusw.text:find("not set", 1, true) == nil)

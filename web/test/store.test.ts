@@ -90,6 +90,24 @@ describe("clip + window stores", () => {
     expect(await loadClip("vidkey")).toEqual(clip);
   });
 
+  it("migrates a persisted v2 profile consensus into the live v3 target field", async () => {
+    h.store["clip:vidkey"] = {
+      venue_id: "Boxhill",
+      target_profiles: [{
+        camera_section_id: "s1",
+        target_court_id: "4",
+        camera_profile_id: null,
+        play_volume_polygon: [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]],
+        setup_validity: "supported",
+        notes: null,
+      }],
+    };
+    expect(await loadClip("vidkey")).toMatchObject({
+      venue_id: "Boxhill",
+      target_court_id: "4",
+    });
+  });
+
   it("round-trips target-state reviews under a third prefix", async () => {
     const rows: ReviewRow[] = [{ n: 1, s: 1, e: 2, state: "unclear", section: "s1", source: "operator", notes: "" }];
     await saveReviews("vidkey", rows);

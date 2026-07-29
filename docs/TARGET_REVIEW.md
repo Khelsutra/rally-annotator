@@ -23,6 +23,10 @@ Two legacy artifacts may still exist:
 | `<clip>.clipmeta.json` → `target_profiles[]` | previously recorded target profiles |
 | `<clip>.target-review.csv` | previously recorded sparse target-state answers |
 
+Clipmeta v3 also has a top-level `target_court_id`. That value is ordinary optional declarative
+metadata entered in Clip info; it does not revive the legacy polygon/profile workflow and never
+gates rally annotation.
+
 ## Rally annotation never waits for court metadata
 
 **Mark START and Save Rally always work without a saved target profile**, in both front-ends. The
@@ -220,7 +224,7 @@ deciding what each row means under the current contract.
 
 ## Per-clip capture metadata
 
-`venue_id`, `camera_setup_id`, `court_count`, `active_court_count`,
+`venue_id`, top-level `target_court_id`, `camera_setup_id`, `court_count`, `active_court_count`,
 `partially_visible_court_count` and `match_format` remain in
 [CLIP_METADATA.md](CLIP_METADATA.md) as **optional capture metadata**. They describe the recording.
 

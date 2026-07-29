@@ -222,22 +222,43 @@ describe("clip info section", () => {
     return { a, saved, r: shadow() };
   }
 
-  it("is collapsed by default — the rally flow stays the front door", () => {
+  it("opens once for a video with no sidecar, and remains skippable", () => {
     const { r } = mountClip();
-    expect((r.querySelector(".sect") as HTMLElement).style.display).toBe("none");
-    btn(r, "Clip info").click();
     expect((r.querySelector(".sect") as HTMLElement).style.display).toBe("flex");
+    btn(r, "Clip info").click();
+    expect((r.querySelector(".sect") as HTMLElement).style.display).toBe("none");
     panel!.destroy();
   });
 
-  it("records courts VISIBLE and courts IN PLAY as two separate fields", () => {
+  it("records target identity plus courts VISIBLE and IN PLAY as separate fields", () => {
     const { saved, r } = mountClip();
     setField(r.querySelector("input[name=clip-courtsVisible]"), "2");
     setField(r.querySelector("input[name=clip-courtsActive]"), "1");
     setField(r.querySelector("input[name=clip-venue]"), "bxh_indiranagar");
+    setField(r.querySelector("input[name=clip-targetCourt]"), "3");
     btn(r, "Save clip info").click();
-    expect(saved.clip).toMatchObject({ court_count: 2, active_court_count: 1, venue_id: "bxh_indiranagar" });
+    expect(saved.clip).toMatchObject({
+      court_count: 2,
+      active_court_count: 1,
+      venue_id: "bxh_indiranagar",
+      target_court_id: "3",
+    });
+    expect(saved.json).toContain('"target_court_id": "3"');
     expect(saved.json).toContain('"active_court_count": 1');
+    panel!.destroy();
+  });
+
+  it("seeds camera setup suggestions but preserves free-text legacy ids", () => {
+    const { saved, r } = mountClip();
+    const camera = r.querySelector("input[name=clip-cameraSetup]") as HTMLInputElement;
+    expect(camera.getAttribute("list")).toBe("rally-annotator-camera-setups");
+    const values = [...r.querySelectorAll("datalist option")].map((o) => o.getAttribute("value"));
+    expect(values).toEqual([
+      "court-left-corner", "court-right-corner", "court-center", "court-side-middle",
+    ]);
+    setField(camera, "bxh-lowside-3court");
+    btn(r, "Save clip info").click();
+    expect(saved.clip?.camera_setup_id).toBe("bxh-lowside-3court");
     panel!.destroy();
   });
 
@@ -293,10 +314,40 @@ describe("clip info section", () => {
       video: new DirectVideoHandler(),
       identity: { key: "url:t", title: "T" },
       download: () => {},
-      clip: { ...emptyClipMeta(), court_count: 4, active_court_count: 3 },
+      clip: { ...emptyClipMeta(), sport: "tennis", court_count: 4, active_court_count: 3 },
     });
     const r = shadow();
+    expect((r.querySelector(".sect") as HTMLElement).style.display).toBe("none");
     expect((r.querySelector("input[name=clip-courtsVisible]") as HTMLInputElement).value).toBe("4");
+    expect((r.querySelector("select[name=sport]") as HTMLSelectElement).value).toBe("tennis");
+    panel!.destroy();
+  });
+
+  it("refreshes a saved sidecar's completeness after every rally mutation", () => {
+    const a = new Annotator();
+    const video = new DirectVideoHandler();
+    video.duration = () => 100;
+    const json: string[] = [];
+    panel = mountPanel({
+      annotator: a,
+      video,
+      identity: { key: "url:t", title: "T" },
+      download: () => {},
+      clip: { ...emptyClipMeta(), target_court_id: "3" },
+      downloadClipMeta: (j) => json.push(j),
+    });
+    const r = shadow();
+    setField(r.querySelector('input[placeholder="start s"]'), "1");
+    setField(r.querySelector('input[placeholder="end s"]'), "5");
+    btn(r, "Save Rally").click();
+    expect(JSON.parse(json.at(-1)!).label_completeness.rally_count).toBe(1);
+    setField(r.querySelector('input[placeholder="start s"]'), "10");
+    setField(r.querySelector('input[placeholder="end s"]'), "20");
+    btn(r, "Save Rally").click();
+    expect(JSON.parse(json.at(-1)!).label_completeness).toMatchObject({
+      rally_count: 2,
+      labelled_to_s: 20,
+    });
     panel!.destroy();
   });
 });

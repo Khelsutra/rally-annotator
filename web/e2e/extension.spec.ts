@@ -67,9 +67,12 @@ test("records clip metadata without exposing manual target controls", async () =
     });
     await expect(page.locator(".hdr .t")).toContainText("Rally Annotator");
 
-    // GX010150: two courts in frame, only one of them in play.
-    await page.getByRole("button", { name: tt("en", "btn.clipInfo") }).click();
+    // First open for a video with no sidecar surfaces the optional one-time intake. GX010150:
+    // two courts in frame, only one of them in play.
+    await expect(page.locator("input[name=clip-venue]")).toBeVisible();
     await page.locator("input[name=clip-venue]").fill("bxh_indiranagar");
+    await page.locator("input[name=clip-targetCourt]").fill("3");
+    await page.locator("input[name=clip-cameraSetup]").fill("court-left-corner");
     await page.locator("input[name=clip-courtsVisible]").fill("2");
     await page.locator("input[name=clip-courtsActive]").fill("1");
     await page.getByRole("button", { name: tt("en", "btn.saveClip") }).click();
@@ -79,7 +82,12 @@ test("records clip metadata without exposing manual target controls", async () =
       const key = Object.keys(all).find((k) => k.startsWith("clip:"));
       return key ? (all as Record<string, unknown>)[key] : null;
     });
-    expect(clip).toMatchObject({ court_count: 2, active_court_count: 1 });
+    expect(clip).toMatchObject({
+      court_count: 2,
+      active_court_count: 1,
+      target_court_id: "3",
+      camera_setup_id: "court-left-corner",
+    });
     // The two counts must stay distinct, and an unset field must stay null, not 0.
     expect((clip as Record<string, unknown>).match_format).toBeNull();
     expect((clip as Record<string, unknown>).partially_visible_court_count).toBeNull();

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  CLIPMETA_VERSION, SPAN_WARN, TAIL_WARN_S, clipmetaFilename, completeness, emptyClipMeta,
-  optText, parseClipMeta, parseCount, serializeClipMeta, validateClipMeta,
+  CAMERA_SETUP_IDS, CLIPMETA_VERSION, SPAN_WARN, TAIL_WARN_S, clipmetaFilename, completeness,
+  emptyClipMeta, optText, parseClipMeta, parseCount, serializeClipMeta, validateClipMeta,
 } from "../src/state/clipmeta";
 import type { RallyRow } from "../src/state/csv";
 
@@ -34,6 +34,7 @@ describe("unset is not 'no'", () => {
     expect(j.court_count).toBeNull();
     expect(j.active_court_count).toBeNull();
     expect(j.match_format).toBeNull();
+    expect(j.target_court_id).toBeNull();
     expect(j.capture_time_utc).toBeNull();
     expect(j.capture_time_source).toBeNull();
     expect(j.clipmeta_version).toBe(CLIPMETA_VERSION);
@@ -90,8 +91,8 @@ describe("serialize / parse", () => {
   it("key order is fixed, so a re-save diffs cleanly instead of reshuffling", () => {
     const keys = Object.keys(JSON.parse(ser()));
     expect(keys).toEqual([
-      "clipmeta_version", "generator", "clip_name", "sport", "venue_id", "camera_setup_id",
-      "capture_time_utc", "capture_time_source", "court_count",
+      "clipmeta_version", "generator", "clip_name", "sport", "venue_id", "target_court_id",
+      "camera_setup_id", "capture_time_utc", "capture_time_source", "court_count",
       "active_court_count", "partially_visible_court_count", "match_format", "notes",
       "target_profiles", "label_completeness",
     ]);
@@ -99,7 +100,8 @@ describe("serialize / parse", () => {
 
   it("round-trips through parse", () => {
     const m = {
-      ...emptyClipMeta(), venue_id: "bxh_indiranagar", camera_setup_id: "bxh_low_side_a",
+      ...emptyClipMeta(), venue_id: "bxh_indiranagar", target_court_id: "3",
+      camera_setup_id: "court-left-corner",
       court_count: 4, active_court_count: 3, partially_visible_court_count: 1,
       match_format: "singles", notes: "one idle court on the right",
       sport: "badminton",
@@ -110,6 +112,7 @@ describe("serialize / parse", () => {
   it("a corrupt file reads as null, so it is never mistaken for 'nothing recorded'", () => {
     expect(parseClipMeta("{oops")).toBeNull();
     expect(parseClipMeta("")).toBeNull();
+    expect(parseClipMeta('{"clipmeta_version":4}')).toBeNull();
   });
 
   it("ignores unknown keys and wrong types rather than importing junk", () => {
@@ -123,6 +126,58 @@ describe("serialize / parse", () => {
     expect(JSON.parse(ser()).capture_time_source).toBeNull();
     const withDate = { ...emptyClipMeta(), capture_time_utc: "2026-05-22T04:11:07Z" };
     expect(JSON.parse(ser(withDate)).capture_time_source).toBe("container");
+  });
+
+  it("uses the owner orientation vocabulary without preventing free-text legacy ids", () => {
+    expect(CAMERA_SETUP_IDS).toEqual([
+      "court-left-corner", "court-right-corner", "court-center", "court-side-middle",
+    ]);
+    const legacy = { ...emptyClipMeta(), camera_setup_id: "bxh-lowside-3court" };
+    expect(parseClipMeta(ser(legacy))?.camera_setup_id).toBe("bxh-lowside-3court");
+  });
+
+  it("upgrades a v1 top-level target court into the v3 declarative field", () => {
+    const parsed = parseClipMeta(JSON.stringify({
+      clipmeta_version: 1,
+      venue_id: "Boxhill",
+      target_court_id: "3",
+    }));
+    expect(parsed?.target_court_id).toBe("3");
+    expect(JSON.parse(ser(parsed!))).toMatchObject({
+      clipmeta_version: 3,
+      target_court_id: "3",
+    });
+  });
+
+  it("restores a v2 target court only when every legacy profile agrees", () => {
+    const profile = (court: string) => ({
+      camera_section_id: "s1",
+      target_court_id: court,
+      camera_profile_id: null,
+      play_volume_polygon: [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]],
+      setup_validity: "supported",
+      notes: null,
+    });
+    const agreed = parseClipMeta(JSON.stringify({
+      clipmeta_version: 2,
+      target_profiles: [profile("4"), { ...profile("4"), camera_section_id: "s2" }],
+    }));
+    expect(agreed?.target_court_id).toBe("4");
+
+    const agreedDespiteBadLegacyGeometry = parseClipMeta(JSON.stringify({
+      clipmeta_version: 2,
+      target_profiles: [
+        { ...profile("4"), play_volume_polygon: [] },
+        { ...profile("4"), camera_section_id: "s2", play_volume_polygon: "damaged" },
+      ],
+    }));
+    expect(agreedDespiteBadLegacyGeometry?.target_court_id).toBe("4");
+
+    const conflicted = parseClipMeta(JSON.stringify({
+      clipmeta_version: 2,
+      target_profiles: [profile("4"), { ...profile("5"), camera_section_id: "s2" }],
+    }));
+    expect(conflicted?.target_court_id).toBeNull();
   });
 
   it("sanitizes the filename like the CSV does", () => {

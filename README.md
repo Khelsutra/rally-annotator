@@ -30,15 +30,16 @@ rally_number,start_time,end_time,ending_reason,sport,shots_count
 Times are **decimal seconds**; `shots_count` is an **optional** rally shot/stroke count (blank if you skip it).
 See [docs/CSV_FORMAT.md](docs/CSV_FORMAT.md).
 
-### Three tracks, three files
+### Rally labels plus optional metadata
 
-The rally CSV says **when** each rally happened. Two optional sidecars record what it can't:
+The rally CSV says **when** each rally happened. Optional compatibility artifacts can record what it
+cannot:
 
 | File | What it holds | Format |
 |---|---|---|
 | `<clip>.rallies.csv` | one row per rally — start/end/reason/sport/shots | [CSV_FORMAT.md](docs/CSV_FORMAT.md) |
-| `<clip>.clipmeta.json` | per-clip capture metadata + a **target profile per static camera section** (court id, play-volume polygon, setup validity) | [CLIP_METADATA.md](docs/CLIP_METADATA.md) · [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
-| `<clip>.target-review.csv` | **sparse** target-state answers: `rallying` / `not_rallying` / `unclear` | [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
+| `<clip>.clipmeta.json` | optional per-clip target/capture properties; legacy target profiles are preserved | [CLIP_METADATA.md](docs/CLIP_METADATA.md) · [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
+| `<clip>.target-review.csv` | legacy sparse target-state answers, preserved for compatibility | [TARGET_REVIEW.md](docs/TARGET_REVIEW.md) |
 
 Both sidecars are optional — the rally CSV alone still ingests exactly as before. **Only the
 prominent target match is ever indexed**: nothing here asks you to identify or time a rally on a
@@ -93,34 +94,17 @@ is a single toggle (it resumes when paused, pauses when playing).
    the button shows which one, e.g. `Undo last (#7)`, and the status panel shows that row's details — or clears an
    in-progress mark, or cancels an edit.
 6. **Help** button → usage + an [ending-reason decision guide](docs/ENDING_REASONS.md), rendered inside the dialog.
-7. The nav row at the top switches between **Rallies**, **Clip info** and **Windows**. Switching
-   screens never discards an in-progress `START → END`.
+7. The nav row at the top switches between **Rallies** and **Clip info**. Switching screens never
+   discards an in-progress `START → END`.
 
-**Clip info** (optional, once per clip): record the venue, the camera setup, how many courts are
-**visible** and how many are **in play**, how many are only partly in frame, the target court id and
-the match format, then **Save clip info**. Leave anything you did not check **blank** — a blank
-records "not screened", which is different from recording a negative. **Courts in play** may never
-exceed **courts visible**, and the tool refuses the save if it does.
-
-Before drawing a play-volume polygon, build an **empty-court still** — no live frame has all four
-corners unobstructed:
-
-```bash
-node tools/court_still.mjs "<clip>.MP4"
-```
-
-It temporal-medians 25 frames across the clip, which erases every player and leaves the lines, and
-writes `<clip>.court.png` next to the video. It only makes an image: it detects nothing, proposes
-nothing, and never touches a label file.
-
-**Target** (optional): save one **target profile per static camera section** — the section id, the
-court this recording indexes, the camera profile, a normalized play-volume polygon for that court,
-and whether the setup is `supported` / `unsupported` / `unclear`. Invalid geometry is refused rather
-than coerced.
-
-**Review** (optional, sparse): answer **was the target court rallying?** for an interval —
-`rallying`, `not_rallying` or `unclear`. There is no quota and no sweep: these are a handful of
-answers about uncertain stretches, and no surrounding match is ever identified or timed.
+**Clip info** (optional, once per clip): when no sidecar exists, the form opens as a skippable
+first-use prompt. Record the venue, target court, camera orientation, how many courts are **visible**
+and **in play**, how many are partly in frame, and the match format, then **Save clip info**. VLC
+prefills editable values from a sibling sidecar in the same folder when available, but does not
+write anything until you save. Leave anything you did not check **blank** — blank means "not
+screened." The camera picker offers `court-left-corner`, `court-right-corner`, `court-center`, and
+`court-side-middle`, with free text for older identifiers. **Courts in play** may never exceed
+**courts visible**.
 
 **Output:** `<video-stem>.rallies.csv` next to the video (falls back to your home dir if the path can't be
 resolved). Re-opening the extension **continues** rally numbering from the existing file — no duplicate IDs.
@@ -183,11 +167,11 @@ in **[docs/ENDING_REASONS.md](docs/ENDING_REASONS.md)** (also available via the 
       fully localized** — the browser extension and the *entire* VLC dialog (chrome, status messages, and
       the in-dialog ending-reason guide). Machine drafts pending native review — see
       [docs/LOCALIZATION.md](docs/LOCALIZATION.md).
-- [x] **Per-clip metadata + target-first profiles (v2.0.0)** — a **Clip info** screen writing
-      `<clip>.clipmeta.json`, a **Target** screen holding one profile per static camera section
-      (court id, play-volume polygon, setup validity), a sparse **Review** screen writing
-      `<clip>.target-review.csv`, and a label-completeness readout that warns on an unfinished pass.
-      Both front-ends, all 7 languages.
+- [x] **Per-clip metadata (v2.2.0)** — optional **Clip info** writes `clipmeta_version: 3` with
+      top-level target/capture properties, a camera-orientation picker, skippable first-open intake,
+      same-folder VLC prefill, and completeness refreshed throughout the rally pass. Legacy target
+      profiles/reviews remain readable but are no longer operator workflows. Both front-ends, all
+      7 languages.
 - [ ] Optional per-sport reason presets / hotkeys.
 - [x] **Browser front-end for web video incl. YouTube** — Chrome MV3 extension emitting the same CSV
       ([web/](web/)). Firefox/Safari build legs and embedded-iframe (`youtube.com/embed`) support are

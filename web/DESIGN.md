@@ -171,6 +171,20 @@ with ffprobe at import and that value is authoritative.
 **Consequence.** On the web there is no container to read, so `capture_time_utc` is always `null`
 there and the field renders as an explanation rather than an input.
 
+### LD-16 — Clipmeta v3 intake is optional and completeness stays live
+
+**Decision.** `clipmeta_version: 3` restores the top-level `target_court_id`. A missing sidecar
+first-opens Clip info as a skippable prompt, and the camera setup input suggests
+`court-left-corner`, `court-right-corner`, `court-center`, and `court-side-middle` while still
+accepting free text. After an explicit Clip info save, every successful rally mutation downloads a
+fresh sidecar with recomputed `label_completeness`.
+**Why.** These are cheap one-time facts while the operator can see the clip, but they must not
+become a prerequisite for the primary labeling task. Completeness is derived state and a snapshot
+from the middle of a pass must not look current.
+**Consequence.** Rally work neither creates a sidecar before the operator saves one nor fails when
+an optional metadata download fails. A browser page cannot enumerate sibling files in the user's
+local video directory; same-folder prefill is therefore implemented only by the VLC frontend.
+
 ## Deferred / north star (not locked — tracked work)
 
 - **LD-10 — YouTube/Vimeo embed handler.** Inject into the provider frame (`all_frames` + host

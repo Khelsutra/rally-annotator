@@ -6,12 +6,13 @@ is free: the operator is already watching the video.
 
 ```json
 {
-  "clipmeta_version": 2,
-  "generator": "rally-annotator-vlc/2.0.0",
+  "clipmeta_version": 3,
+  "generator": "rally-annotator-vlc/2.2.0",
   "clip_name": "GX010150",
   "sport": "badminton",
   "venue_id": "Boxhill",
-  "camera_setup_id": "bxh-lowside-3court",
+  "target_court_id": "3",
+  "camera_setup_id": "court-left-corner",
   "capture_time_utc": null,
   "capture_time_source": null,
   "court_count": 2,
@@ -51,11 +52,12 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 
 | Field | Type | Unset | Notes |
 |---|---|---|---|
-| `clipmeta_version` | int | — | Always present. **`2`** today; `1` files are read and upgraded in memory (see [Migration](#migration-from-clipmeta_version-1)). Readers must reject a version they don't know. |
+| `clipmeta_version` | int | — | Always present. **`3`** today; v1/v2 files are read and upgraded on their next save (see [Migration](#migration-from-clipmeta_version-1-or-2)). Readers must reject a version they don't know. |
 | `generator` | string | — | `rally-annotator-<frontend>/<version>`, e.g. `rally-annotator-web/0.2.0`. |
 | `clip_name` | string | `null` | Video stem (VLC) or the page's video title (web). Provenance only — never a source of dates. |
 | `sport` | enum | `null` | Same vocabulary as the rally CSV: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. |
 | `venue_id` | string | `null` | Stable identifier for the **physical facility**. |
+| `target_court_id` | string | `null` | The venue's stable identifier for the prominent court whose rallies are being labelled. Declarative metadata only; never a rally-saving gate. |
 | `camera_setup_id` | string | `null` | Stable identifier for the camera **placement/framing**. Two materially different setups at one venue count as distinct. An absent value is never assumed to differ from anything. |
 | `capture_time_utc` | string | `null` | ISO-8601 UTC, **container-derived only** — see [Capture time](#capture-time). |
 | `capture_time_source` | enum | `null` | `container` when a container tag supplied it; `null` when unknown. There is deliberately **no** `operator` value. |
@@ -106,8 +108,9 @@ If the variation is worth a human note — "court 3 idle until ~6:00, then a dou
 
 ### The three identifiers: how to choose them
 
-`venue_id`, `camera_setup_id` and `target_court_id` are free text — there is no enum, here or in
-`sports-data-collector`. They are nevertheless **identity keys, not descriptions**: downstream
+`venue_id` and `target_court_id` are free text. `camera_setup_id` offers the orientation vocabulary
+below while retaining free text for compatibility and genuinely venue-specific legacy values.
+All three are nevertheless **identity keys, not descriptions**: downstream
 gating counts *distinct values*, and the collector's rule is that an **absent value is never assumed
 to differ from anything**. A typo invents a venue, or a camera setup, and quietly inflates the
 apparent diversity of a training split.
@@ -158,9 +161,10 @@ worse than an inconsistent one — but new setups use the table above.
 
 #### `target_court_id` — use the venue's own court numbering
 
-In legacy target profiles, `target_court_id` lives inside the profile rather than at the top level
-because it is a property of a camera section (see [TARGET_REVIEW.md](TARGET_REVIEW.md)). The
-annotator no longer asks the operator to create or name a target profile.
+In v3, `target_court_id` is restored at the top level as a declarative property of the clip. Legacy
+v2 target profiles may also carry it per camera section (see
+[TARGET_REVIEW.md](TARGET_REVIEW.md)); those profiles are preserved compatibility data and are not
+an operator workflow.
 
 **Name the target court by the number the venue itself paints on it.** At Boxhill that is Boxhill's
 court numbering; at any other venue, that venue's own numbering.
@@ -170,10 +174,10 @@ frame-relative id silently re-points at a different slab of floor the moment the
 two clips of the same physical court disagree about which court they are. A painted number is a
 property of the building, so it stays true across every setup, session and clip.
 
-For rally annotation, the target is implicitly the video's **largest, most visually focused court**:
-that is the match whose rallies go into `<clip>.rallies.csv`. Court localization/selection is
-derived downstream; a `target_court_id` profile is optional metadata and never a prerequisite for
-marking or saving rallies.
+For rally annotation, the target is the video's **largest, most visually focused court**: that is
+the match whose rallies go into `<clip>.rallies.csv`. `target_court_id` records its stable venue
+identity when the operator knows it; court localization/selection is still derived downstream, and
+the field is never a prerequisite for marking or saving rallies.
 
 Rules that make the id load-bearing rather than decorative:
 
@@ -215,8 +219,11 @@ container probe is right.
 
 ### Label completeness
 
-A snapshot of the rally-label coverage at the moment the sidecar was saved. `null` when the video
-duration is unknown — **no rule should ever fire on a guess**.
+A snapshot of the current rally-label coverage. After the sidecar has been explicitly saved once,
+the annotator rewrites this block after every successful rally save/edit/delete/undo, so it cannot
+go stale during the rest of that labeling pass. Rally work does not create a missing sidecar and an
+optional sidecar-refresh failure never blocks or rolls back the rally CSV. The value is `null` when
+the video duration is unknown — **no rule should ever fire on a guess**.
 
 ```json
 "label_completeness": {
@@ -275,6 +282,7 @@ imports with no schema work:
 | Sidecar field | `VideoMetadata` attribute | `curate.py import-local` flag |
 |---|---|---|
 | `venue_id` | `venue_id` | `--venue-id` |
+| `target_court_id` | **no home yet** | — |
 | `camera_setup_id` | `camera_setup_id` | `--camera-setup-id` |
 | `court_count` | `court_count` | `--court-count` |
 | `active_court_count` | `active_court_count` | `--active-court-count` |
@@ -282,7 +290,7 @@ imports with no schema work:
 | `sport` | `sport` | `--sport` |
 | `capture_time_utc` | `capture_time_utc` | *(none — the collector probes the container itself)* |
 | `notes` | `candidate_reason` | `--candidate-reason` |
-| `target_profiles[].target_court_id` | **no home yet** | — |
+| `target_profiles[].target_court_id` | **legacy compatibility only** | — |
 | `target_profiles[]` (section id, polygon, validity) | **no home yet** | — |
 | `partially_visible_court_count` | **no home yet** | — |
 | `label_completeness` | recomputed at import | — |
@@ -305,26 +313,46 @@ python -m src.cli.curate import-local --sport badminton \
 
 ## Compatibility
 
-- **Additive only.** New fields may be added at `clipmeta_version` 1; a reader must ignore fields it
-  does not know. Removing or re-typing a field bumps the version.
+- **Additive evolution.** A reader must ignore fields it does not know. Version 3 restores the
+  top-level target identifier while preserving all v2 fields, including `target_profiles`.
 - **Absent == `null`.** A reader must treat a missing key exactly like an explicit `null`.
 - The sidecar is written next to the video (VLC) or downloaded alongside the CSV (browser
   extension, which cannot write next to a web video — see [../web/DESIGN.md](../web/DESIGN.md)).
 - Stable key order and 2-space indentation, so a re-save produces a readable diff rather than a
   reshuffle.
 
-### Migration from `clipmeta_version` 1
+### Migration from `clipmeta_version` 1 or 2
 
-A v1 file has no `target_profiles` and carries a top-level `target_court_id`. Reading one:
+- Every unchanged field is read as-is, and existing `target_profiles` remain preserved.
+- A v1 top-level `target_court_id` becomes the v3 top-level value directly.
+- A v2 file normally has no top-level target. When every non-empty profile target agrees, that
+  consensus seeds the v3 top-level value. If profiles conflict, it remains `null`; the annotator
+  never chooses one.
+- Saving writes `clipmeta_version: 3`. A legacy file that is never touched stays valid on disk.
 
-- every other field is read unchanged;
-- `target_profiles` starts **empty** — no profile is invented, because a profile without a validated
-  camera section and polygon would fail its own validation;
-- the v1 `target_court_id` remains compatibility input and is never promoted into a profile
-  automatically;
-- saving writes `clipmeta_version: 2`.
+## First-open intake and sibling prefill
 
-A v1 file is therefore upgraded on the next save, and a v1 file you never touch stays valid on disk.
+When a real clip has no sidecar, Clip info opens as a one-time, skippable prompt. Navigation back to
+Rallies is always available and all rally actions work without completing the form.
+
+For local VLC clips, the first valid sibling `.clipmeta.json` in the same directory (lexical
+filename order) seeds the whole declarative form: sport, venue, target court, camera setup, court
+counts, match format, and notes. This is visibly an **unsaved starting point**. It does not copy the
+sibling's clip name, container capture time, target profiles/geometry, or completeness, and it does
+not write the new clip's sidecar until the operator presses **Save clip info**. The browser
+extension cannot enumerate the directory around a web video, so sibling prefill is VLC-only.
+
+## Compatibility when a newer producer adds fields
+
+The VLC extension writes a canonical document containing the fields in this specification. Pressing
+**Save clip info** is therefore an explicit replacement operation: unknown top-level fields written
+by a newer producer are not round-tripped.
+
+Automatic `label_completeness` maintenance is deliberately safer. If an existing sidecar contains
+any unknown top-level field, rally save/edit/delete/undo leaves the sidecar byte-for-byte untouched
+and logs a warning instead of erasing data it cannot serialize. The rally CSV write still succeeds.
+Use a producer that understands the newer field, or deliberately press **Save clip info** after
+deciding that canonical replacement is intended.
 
 See also: [CSV_FORMAT.md](CSV_FORMAT.md) (the rally track) and
 [TARGET_REVIEW.md](TARGET_REVIEW.md) (target profiles + sparse target-state review).

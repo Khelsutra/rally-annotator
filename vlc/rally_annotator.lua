@@ -1,4 +1,4 @@
---[[ rally_annotator.lua  --  VLC Lua EXTENSION (v1.6.4)
+--[[ rally_annotator.lua  --  VLC Lua EXTENSION (v2.2.0)
 
   Rally Annotator for NET-SEPARATED RACQUET SPORTS
   (badminton · tennis · table tennis · pickleball · padel)
@@ -10,6 +10,17 @@
 
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
+
+  WHAT'S NEW IN v2.2.0
+    - clipmeta.json is now additive version 3: target_court_id is restored as a
+      one-time declarative clip property while legacy target_profiles stay readable.
+    - Camera setup offers the owner orientation vocabulary with free-text fallback.
+    - A clip with no sidecar opens the optional Clip info screen once; rally marking
+      remains immediately available and never waits on metadata.
+    - New clips prefill declarative fields from a sibling sidecar in the same folder.
+      Prefill is never auto-saved.
+    - Whenever rally rows change, an existing sidecar is rewritten with freshly
+      computed label_completeness so a mid-pass snapshot cannot remain stale.
 
   WHAT'S NEW IN v2.1.0
     - Rally annotation is NEVER gated on court metadata. The target is the largest,
@@ -140,7 +151,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.1.0"
+local VERSION = "2.2.0"
 
 function descriptor()
   return {
@@ -203,7 +214,17 @@ local LEGACY_WINDOW_MARKERS = { "window_label", "adjacent_court_rally", "simulta
 -- Format played on the TARGET court. "" is a real, savable choice meaning NOT SET -- it
 -- writes JSON null, so a forgotten pick can never record a guessed format.
 local MATCH_FORMATS = { "singles", "doubles", "mixed" }
-local CLIPMETA_VERSION = 2
+local CAMERA_SETUP_IDS = {
+  "court-left-corner", "court-right-corner", "court-center", "court-side-middle"
+}
+local CLIPMETA_VERSION = 3
+local CLIPMETA_TOP_LEVEL_KEYS = {
+  clipmeta_version = true, generator = true, clip_name = true, sport = true,
+  venue_id = true, target_court_id = true, camera_setup_id = true,
+  capture_time_utc = true, capture_time_source = true, court_count = true,
+  active_court_count = true, partially_visible_court_count = true,
+  match_format = true, notes = true, target_profiles = true, label_completeness = true,
+}
 
 -- Label-completeness thresholds, copied from sports-data-collector's report spec so the
 -- readout here and the gate there cannot disagree (src/reporting/spec.yaml):
@@ -298,7 +319,9 @@ STRINGS = {
     ["btn.saveClip"] = "Save clip info",
     ["clip.saved"] = "Saved clip info: {summary}",
     ["clip.savedNoFormat"] = "Saved clip info: {summary} — but MATCH FORMAT is still (not set), so this clip records no singles/doubles. Pick one and save again; leave it only if you genuinely cannot tell.",
+    ["clip.savedPickerWins"] = "The camera vocabulary selection was saved; the simultaneous free-text camera value was not. Clear the picker first to save a custom value.",
     ["clip.loaded"] = "Loaded the clip info already recorded for this video.",
+    ["clip.prefilled"] = "Prefilled from sibling {source}. Review and save; nothing was written automatically.",
     ["clip.invalidActive"] = "Courts in play ({active}) cannot exceed courts visible ({visible}) -- a court cannot be in play without being in frame.",
     ["clip.invalidPartial"] = "Only-partly-visible ({partial}) cannot exceed courts visible ({visible}).",
     ["clip.invalidNumber"] = "{field} needs a whole number of {min} or more -- or leave it BLANK to record 'not screened'.",
@@ -450,7 +473,9 @@ STRINGS = {
     ["btn.saveClip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಿ",
     ["clip.saved"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary}",
     ["clip.savedNoFormat"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary} — ಆದರೆ ಪಂದ್ಯದ ಸ್ವರೂಪ ಇನ್ನೂ (ಹೊಂದಿಸಿಲ್ಲ), ಆದ್ದರಿಂದ ಈ ಕ್ಲಿಪ್ ಸಿಂಗಲ್ಸ್/ಡಬಲ್ಸ್ ದಾಖಲಿಸುವುದಿಲ್ಲ. ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ ಮತ್ತೆ ಉಳಿಸಿ; ನಿಜಕ್ಕೂ ತಿಳಿಯದಿದ್ದರೆ ಮಾತ್ರ ಹಾಗೇ ಬಿಡಿ.",
+    ["clip.savedPickerWins"] = "ಕ್ಯಾಮೆರಾ ಪಟ್ಟಿಯ ಆಯ್ಕೆಯನ್ನು ಉಳಿಸಲಾಗಿದೆ; ಅದೇ ವೇಳೆ ನಮೂದಿಸಿದ ಮುಕ್ತ-ಪಠ್ಯ ಕ್ಯಾಮೆರಾ ಮೌಲ್ಯವನ್ನು ಉಳಿಸಲಿಲ್ಲ. ಕಸ್ಟಮ್ ಮೌಲ್ಯ ಉಳಿಸಲು ಮೊದಲು ಪಟ್ಟಿಯ ಆಯ್ಕೆಯನ್ನು ತೆರವುಗೊಳಿಸಿ.",
     ["clip.loaded"] = "ಈ ವೀಡಿಯೋಗಾಗಿ ಈಗಾಗಲೇ ದಾಖಲಾದ ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಯಿತು.",
+    ["clip.prefilled"] = "ಅದೇ ಫೋಲ್ಡರ್‌ನ {source} ನಿಂದ ಪೂರ್ವಭರ್ತಿ ಮಾಡಲಾಗಿದೆ. ಪರಿಶೀಲಿಸಿ ಉಳಿಸಿ; ಯಾವುದನ್ನೂ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಬರೆಯಲಾಗಿಲ್ಲ.",
     ["clip.invalidActive"] = "ಆಟವಿರುವ ಕೋರ್ಟ್‌ಗಳು ({active}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು -- ಚೌಕಟ್ಟಿನಲ್ಲಿ ಇಲ್ಲದೆ ಕೋರ್ಟ್ ಆಟದಲ್ಲಿರಲಾಗದು.",
     ["clip.invalidPartial"] = "ಭಾಗಶಃ ಕಾಣುವವು ({partial}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು.",
     ["clip.invalidNumber"] = "{field} ಗೆ {min} ಅಥವಾ ಹೆಚ್ಚಿನ ಪೂರ್ಣ ಸಂಖ್ಯೆ ಬೇಕು -- ಅಥವಾ 'ಪರಿಶೀಲಿಸಿಲ್ಲ' ಎಂದು ದಾಖಲಿಸಲು ಖಾಲಿ ಬಿಡಿ.",
@@ -602,7 +627,9 @@ STRINGS = {
     ["btn.saveClip"] = "क्लिप जानकारी सहेजें",
     ["clip.saved"] = "क्लिप जानकारी सहेजी गई: {summary}",
     ["clip.savedNoFormat"] = "क्लिप जानकारी सहेजी गई: {summary} — लेकिन मैच फ़ॉर्मैट अब भी (सेट नहीं) है, इसलिए यह क्लिप सिंगल्स/डबल्स दर्ज नहीं करती। एक चुनकर दोबारा सहेजें; केवल तभी छोड़ें जब वाकई पता न चल रहा हो।",
+    ["clip.savedPickerWins"] = "कैमरा सूची का चयन सहेजा गया; साथ दिया गया फ़्री-टेक्स्ट कैमरा मान नहीं सहेजा गया। कस्टम मान सहेजने के लिए पहले सूची का चयन साफ़ करें।",
     ["clip.loaded"] = "इस वीडियो के लिए पहले से दर्ज क्लिप जानकारी लोड की गई।",
+    ["clip.prefilled"] = "उसी फ़ोल्डर के {source} से पहले से भरा गया। जाँचकर सहेजें; कुछ भी अपने-आप नहीं लिखा गया।",
     ["clip.invalidActive"] = "खेल वाले कोर्ट ({active}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते -- फ्रेम में हुए बिना कोई कोर्ट खेल में नहीं हो सकता।",
     ["clip.invalidPartial"] = "आंशिक रूप से दिखने वाले ({partial}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते।",
     ["clip.invalidNumber"] = "{field} के लिए {min} या उससे बड़ी पूर्ण संख्या चाहिए -- या 'जाँचा नहीं गया' दर्ज करने के लिए इसे खाली छोड़ें।",
@@ -754,7 +781,9 @@ STRINGS = {
     ["btn.saveClip"] = "క్లిప్ సమాచారం సేవ్ చేయి",
     ["clip.saved"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary}",
     ["clip.savedNoFormat"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary} — కానీ మ్యాచ్ ఫార్మాట్ ఇంకా (సెట్ చేయలేదు), కాబట్టి ఈ క్లిప్ సింగిల్స్/డబుల్స్ నమోదు చేయదు. ఒకటి ఎంచుకుని మళ్లీ సేవ్ చేయండి; నిజంగా చెప్పలేకపోతే మాత్రమే వదిలేయండి.",
+    ["clip.savedPickerWins"] = "కెమెరా జాబితా ఎంపిక సేవ్ అయింది; అదే సమయంలో ఇచ్చిన స్వేచ్ఛా-పాఠ్య కెమెరా విలువ సేవ్ కాలేదు. అనుకూల విలువను సేవ్ చేయడానికి ముందుగా జాబితా ఎంపికను తొలగించండి.",
     ["clip.loaded"] = "ఈ వీడియో కోసం ఇప్పటికే నమోదైన క్లిప్ సమాచారం లోడ్ అయింది.",
+    ["clip.prefilled"] = "అదే ఫోల్డర్‌లోని {source} నుండి ముందుగా నింపబడింది. పరిశీలించి సేవ్ చేయండి; ఏదీ స్వయంచాలకంగా రాయబడలేదు.",
     ["clip.invalidActive"] = "ఆట జరుగుతున్న కోర్టులు ({active}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు -- ఫ్రేమ్‌లో లేకుండా కోర్టు ఆటలో ఉండలేదు.",
     ["clip.invalidPartial"] = "పాక్షికంగా కనిపించేవి ({partial}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు.",
     ["clip.invalidNumber"] = "{field} కు {min} లేదా అంతకంటే ఎక్కువ పూర్ణ సంఖ్య కావాలి -- లేదా 'పరిశీలించలేదు' అని నమోదు చేయడానికి ఖాళీగా వదలండి.",
@@ -906,7 +935,9 @@ STRINGS = {
     ["btn.saveClip"] = "Guardar datos del clip",
     ["clip.saved"] = "Datos del clip guardados: {summary}",
     ["clip.savedNoFormat"] = "Datos del clip guardados: {summary} — pero la MODALIDAD sigue en (sin definir), así que este clip no registra individuales/dobles. Elige una y vuelve a guardar; déjalo solo si de verdad no puedes saberlo.",
+    ["clip.savedPickerWins"] = "Se guardó la selección de la lista de cámaras; no se guardó el valor de texto libre introducido a la vez. Borra primero la selección para guardar un valor personalizado.",
     ["clip.loaded"] = "Se cargaron los datos del clip ya registrados para este vídeo.",
+    ["clip.prefilled"] = "Rellenado desde el archivo hermano {source}. Revísalo y guarda; no se escribió nada automáticamente.",
     ["clip.invalidActive"] = "Las pistas en juego ({active}) no pueden superar las pistas visibles ({visible}): una pista no puede estar en juego sin estar en cuadro.",
     ["clip.invalidPartial"] = "Las parcialmente visibles ({partial}) no pueden superar las pistas visibles ({visible}).",
     ["clip.invalidNumber"] = "{field} necesita un número entero de {min} o más, o déjalo EN BLANCO para registrar «sin revisar».",
@@ -1058,7 +1089,9 @@ STRINGS = {
     ["btn.saveClip"] = "Gem klipinfo",
     ["clip.saved"] = "Klipinfo gemt: {summary}",
     ["clip.savedNoFormat"] = "Klipinfo gemt: {summary} — men KAMPFORMAT er stadig (ikke angivet), så dette klip registrerer ikke single/double. Vælg ét og gem igen; lad det kun stå, hvis du virkelig ikke kan afgøre det.",
+    ["clip.savedPickerWins"] = "Valget fra kameralisten blev gemt; den samtidige fritekstværdi blev ikke gemt. Ryd først listevalget for at gemme en brugerdefineret værdi.",
     ["clip.loaded"] = "Indlæste den klipinfo, der allerede er registreret for denne video.",
+    ["clip.prefilled"] = "Forudfyldt fra søsterfilen {source}. Gennemgå og gem; intet blev skrevet automatisk.",
     ["clip.invalidActive"] = "Baner med spil ({active}) kan ikke overstige synlige baner ({visible}) -- en bane kan ikke være i spil uden at være i billedet.",
     ["clip.invalidPartial"] = "Delvist synlige ({partial}) kan ikke overstige synlige baner ({visible}).",
     ["clip.invalidNumber"] = "{field} kræver et helt tal på {min} eller derover -- eller lad feltet stå TOMT for at registrere \"ikke screenet\".",
@@ -1210,7 +1243,9 @@ STRINGS = {
     ["btn.saveClip"] = "Simpan info klip",
     ["clip.saved"] = "Info klip tersimpan: {summary}",
     ["clip.savedNoFormat"] = "Info klip tersimpan: {summary} — tetapi FORMAT PERTANDINGAN masih (belum diatur), sehingga klip ini tidak mencatat tunggal/ganda. Pilih satu lalu simpan lagi; biarkan kosong hanya jika Anda benar-benar tidak bisa memastikan.",
+    ["clip.savedPickerWins"] = "Pilihan dari daftar kamera disimpan; nilai kamera teks bebas yang diisi bersamaan tidak disimpan. Kosongkan pilihan daftar terlebih dahulu untuk menyimpan nilai khusus.",
     ["clip.loaded"] = "Memuat info klip yang sudah tercatat untuk video ini.",
+    ["clip.prefilled"] = "Diisi awal dari file saudara {source}. Tinjau lalu simpan; tidak ada yang ditulis otomatis.",
     ["clip.invalidActive"] = "Lapangan yang dimainkan ({active}) tidak boleh melebihi lapangan terlihat ({visible}) -- sebuah lapangan tidak bisa dimainkan tanpa berada dalam bingkai.",
     ["clip.invalidPartial"] = "Yang terlihat sebagian ({partial}) tidak boleh melebihi lapangan terlihat ({visible}).",
     ["clip.invalidNumber"] = "{field} memerlukan bilangan bulat {min} atau lebih -- atau biarkan KOSONG untuk mencatat 'belum disaring'.",
@@ -1551,7 +1586,8 @@ local w_help_btn        -- the Help button (relabeled "Hide help" when open)
 local w_help            -- the help panel widget; nil when hidden (toggled via del_widget)
 local w_lang            -- language-selector dropdown (en/kn/hi/te/es/da/id)
 
-local w_venue, w_camera, w_visible, w_active, w_partial   -- Clip info screen inputs
+local w_venue, w_target_court, w_camera_picker, w_camera  -- Clip info screen inputs
+local w_visible, w_active, w_partial                      -- Clip info screen inputs
 local w_format, w_capture, w_notes                        -- Clip info screen inputs
 local w_sec, w_court, w_profile, w_poly, w_tnotes         -- Target screen inputs
 local w_validity, w_profile_list                          -- Target screen dropdown + list
@@ -1583,11 +1619,14 @@ local clip_path                 -- <video-stem>.clipmeta.json
 -- an unset dropdown repaints as "(not set)", which looks like a deliberate answer rather than
 -- a cleared box, so a lost match_format left no trace until the sidecar came back null.
 local clip_form = nil
+local clipmeta_exists = false   -- never create the optional sidecar merely because a rally changed
+local clip_prefill_source = nil -- sibling filename used as unsaved starting values, if any
+local clipmeta_has_unknown_top_level = false -- automatic rewrites must not erase newer fields
 
 -- TARGET PROFILES: one per static camera section, held on the clip (docs/TARGET_REVIEW.md).
 local profiles = {}             -- { section, court, profile_id, poly = {{x,y},...}, validity, notes }
 local selected_section = nil    -- which profile the list has selected
-local legacy_target_court = nil -- a v1 clipmeta's top-level target_court_id, kept as a default only
+local legacy_target_court = nil -- top-level target used only to prefill the hidden legacy profile UI
 
 -- SPARSE TARGET-STATE REVIEW: its own file, its own numbering.
 local reviews = {}              -- { n, s, e, state, section, source, notes }
@@ -1603,6 +1642,7 @@ local rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
 -- Forward declarations: the button callbacks below are defined BEFORE the dialog builders
 -- they call. Without these the callbacks would resolve these names as (nil) globals.
 local capture_form, capture_clip_form, target_refresh, create_dialog, rebuild_after_sync
+local refresh_clipmeta_completeness
 
 --------------------------------------------------------------------------------
 -- Helpers (declared before the global callbacks that capture them)
@@ -1731,7 +1771,10 @@ local function save_all()
   end
   f:close()
   -- Atomic on POSIX; also succeeds on Windows when out_path doesn't exist yet.
-  if os.rename(tmp, out_path) then return true end
+  if os.rename(tmp, out_path) then
+    if refresh_clipmeta_completeness then refresh_clipmeta_completeness() end
+    return true
+  end
   -- Windows overwrite path: keep a backup so the original is never lost.
   local bak = out_path .. ".bak"
   os.remove(bak)
@@ -1742,6 +1785,7 @@ local function save_all()
     return false, ("cannot replace CSV: " .. tostring(rerr))
   end
   os.remove(bak)
+  if refresh_clipmeta_completeness then refresh_clipmeta_completeness() end
   return true
 end
 
@@ -1915,30 +1959,113 @@ end
 -- screen, where no clip widget exists to re-stage the operator's edits from. Clearing here would
 -- silently discard them -- the exact failure this whole change exists to fix. The three real
 -- context changes clear it themselves: activate(), adopt_current_video_csv(), rebuild_after_sync(true).
+local function read_clipmeta_doc(path)
+  local f = io.open(path, "r")
+  if not f then return nil, nil, false end
+  local body = f:read("*a"); f:close()
+  local doc, why = jdec(body or "")
+  if type(doc) ~= "table" then return nil, why or "unreadable", true end
+  local version = tonumber(doc.clipmeta_version or 1)
+  if not version or version < 1 or version > CLIPMETA_VERSION then
+    return nil, "unsupported clipmeta_version", true
+  end
+  local has_unknown = false
+  for key, _ in pairs(doc) do
+    if type(key) == "string" and not CLIPMETA_TOP_LEVEL_KEYS[key] then
+      has_unknown = true
+      break
+    end
+  end
+  return doc, nil, true, has_unknown
+end
+
+-- v1 already had the declarative top-level id. v2 moved it into camera-section profiles;
+-- restore that value only when every recorded profile agrees, never by guessing through a
+-- conflict. v3 writes the resulting identity back at the top level.
+local function target_court_from_doc(doc)
+  if type(doc.target_court_id) == "string" and doc.target_court_id ~= "" then
+    return doc.target_court_id
+  end
+  local found = nil
+  if type(doc.target_profiles) == "table" then
+    for _, raw in ipairs(doc.target_profiles) do
+      local court = type(raw) == "table" and raw.target_court_id or nil
+      if type(court) == "string" and court ~= "" then
+        if found and found ~= court then return nil end
+        found = court
+      end
+    end
+  end
+  return found
+end
+
+local function apply_declarative_clipmeta(doc, include_capture_time)
+  for _, k in ipairs({ "venue_id", "camera_setup_id", "match_format", "notes", "sport" }) do
+    if type(doc[k]) == "string" and doc[k] ~= "" then clip[k] = doc[k] end
+  end
+  if clip.sport then
+    for _, sport in ipairs(SPORTS) do
+      if sport == clip.sport then form.sport = sport end
+    end
+  end
+  if include_capture_time and type(doc.capture_time_utc) == "string"
+      and doc.capture_time_utc ~= "" then
+    clip.capture_time_utc = doc.capture_time_utc
+  end
+  clip.target_court_id = target_court_from_doc(doc)
+  for _, k in ipairs({ "court_count", "active_court_count", "partially_visible_court_count" }) do
+    if type(doc[k]) == "number" then clip[k] = math.floor(doc[k]) end
+  end
+end
+
+-- Later chapters in one capture sitting normally share a directory. Pick the first valid sibling
+-- deterministically (lexical filename order) and copy only declarative form fields: never geometry,
+-- completeness, clip identity, or the sibling's container timestamp. This is an unsaved starting
+-- point, not evidence and never an auto-save.
+local function sibling_clipmeta()
+  if not current_media_path() or type(vlc.io) ~= "table"
+      or type(vlc.io.readdir) ~= "function" then return nil end
+  local dir = clip_path and clip_path:match("^(.*[\\/])")
+  local current = clip_path and clip_path:match("([^\\/]+)$")
+  if not dir or not current then return nil end
+  local ok, names = pcall(function() return vlc.io.readdir(dir) end)
+  if not ok or type(names) ~= "table" then return nil end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if type(name) == "string" and name ~= current and name:match("%.clipmeta%.json$") then
+      local doc = read_clipmeta_doc(dir .. name)
+      if type(doc) == "table" then return doc, name end
+    end
+  end
+  return nil
+end
 local function load_clipmeta()
   clip = {}
   profiles = {}
   legacy_target_court = nil
   selected_section = nil
+  clipmeta_exists = false
+  clip_prefill_source = nil
+  clipmeta_has_unknown_top_level = false
   clip_path = sidecar_path(".clipmeta.json")
   if not clip_path then return nil end
-  local f = io.open(clip_path, "r")
-  if not f then return nil end
-  local body = f:read("*a"); f:close()
-  local doc, why = jdec(body or "")
-  if type(doc) ~= "table" then return why or "unreadable" end
-  for _, k in ipairs({ "venue_id", "camera_setup_id", "match_format",
-                       "capture_time_utc", "notes", "sport" }) do
-    if type(doc[k]) == "string" and doc[k] ~= "" then clip[k] = doc[k] end
+
+  local doc, why, found, has_unknown = read_clipmeta_doc(clip_path)
+  local from_sibling = false
+  if found and type(doc) ~= "table" then return why or "unreadable" end
+  if not found then
+    doc, clip_prefill_source = sibling_clipmeta()
+    from_sibling = type(doc) == "table"
+  else
+    clipmeta_exists = true
+    clipmeta_has_unknown_top_level = has_unknown
   end
-  for _, k in ipairs({ "court_count", "active_court_count", "partially_visible_court_count" }) do
-    if type(doc[k]) == "number" then clip[k] = math.floor(doc[k]) end
-  end
-  -- MIGRATION: v1 kept the court id at the top level. Keep it as the first profile's DEFAULT,
-  -- never as a profile -- one without a validated section and polygon would fail its own check.
-  if type(doc.target_court_id) == "string" and doc.target_court_id ~= "" then
-    legacy_target_court = doc.target_court_id
-  end
+  if type(doc) ~= "table" then return nil end
+
+  apply_declarative_clipmeta(doc, not from_sibling)
+  legacy_target_court = clip.target_court_id
+  if from_sibling then return nil end
+
   if type(doc.target_profiles) == "table" then
     for _, raw in ipairs(doc.target_profiles) do
       if type(raw) == "table" then
@@ -2004,6 +2131,7 @@ local function save_clipmeta_file()
     { "clip_name", stem },
     { "sport", clip.sport },
     { "venue_id", clip.venue_id },
+    { "target_court_id", clip.target_court_id },
     { "camera_setup_id", clip.camera_setup_id },
     { "capture_time_utc", clip.capture_time_utc },
     { "capture_time_source", clip.capture_time_utc and "container" or nil },
@@ -2025,6 +2153,24 @@ local function save_clipmeta_file()
   local ok, rerr = os.rename(tmp, clip_path)
   if not ok then return false, tostring(rerr) end
   return true
+end
+
+-- Rally writes must never create or gate on the optional clip sidecar. When one already exists,
+-- however, keep its advisory completeness block synchronized with the just-written CSV. A sidecar
+-- failure is logged but cannot roll back or block a successfully saved rally.
+refresh_clipmeta_completeness = function()
+  if not clipmeta_exists then return end
+  if clipmeta_has_unknown_top_level then
+    if vlc.msg and vlc.msg.warn then
+      vlc.msg.warn("Rally Annotator: skipped clipmeta completeness refresh because the sidecar "
+        .. "contains unknown top-level fields; use Save clip info only if replacing them is intended")
+    end
+    return
+  end
+  local ok, err = save_clipmeta_file()
+  if not ok and vlc.msg and vlc.msg.warn then
+    vlc.msg.warn("Rally Annotator: could not refresh clipmeta label_completeness: " .. tostring(err))
+  end
 end
 
 -- The window CSV has no quoting (same deliberate simplicity as rallies.csv), so free text
@@ -2424,6 +2570,7 @@ local function sync_to_current_video()
   -- Switching video must not carry the previous clip's fields across. Without this the
   -- Clip info boxes still held video A's venue/court counts while `clip_path` already
   -- pointed at video B, so a Save would have written A's metadata into B's sidecar.
+  if not clipmeta_exists then screen = "clip" end
   rebuild_after_sync(true)
   set_status(t("sync.switched", { count = #rows, n = next_rally_number() }))
 end
@@ -2617,6 +2764,17 @@ local function opt_text(w)
   return s
 end
 
+local function camera_setup_index(value)
+  for i, setup in ipairs(CAMERA_SETUP_IDS) do if setup == value then return i end end
+  return 0
+end
+
+local function camera_setup_from_widgets()
+  local id = w_camera_picker and w_camera_picker:get_value() or 0
+  if id and id > 0 and CAMERA_SETUP_IDS[id] then return CAMERA_SETUP_IDS[id] end
+  return opt_text(w_camera)
+end
+
 function save_clip_info()
   local visible, ok1 = opt_count(w_visible, 1)
   if not ok1 then
@@ -2640,9 +2798,13 @@ function save_clip_info()
   end
 
   local fid = w_format and w_format:get_value() or 0
+  local camera_picker_id = w_camera_picker and w_camera_picker:get_value() or 0
+  local camera_custom = opt_text(w_camera)
+  local camera_picker_wins = camera_picker_id and camera_picker_id > 0 and camera_custom ~= nil
   clip.match_format = (fid ~= nil and fid ~= 0) and MATCH_FORMATS[fid] or nil
   clip.venue_id = opt_text(w_venue)
-  clip.camera_setup_id = opt_text(w_camera)
+  clip.target_court_id = opt_text(w_target_court)
+  clip.camera_setup_id = camera_setup_from_widgets()
   clip.notes = opt_text(w_notes)
   clip.court_count, clip.active_court_count, clip.partially_visible_court_count =
     visible, active, partial
@@ -2652,13 +2814,20 @@ function save_clip_info()
   local okw, err = save_clipmeta_file()
   if not okw then set_status(t("save.writeFailed", { err = tostring(err) })); return end
   clip_form = nil                        -- committed; `clip` is the source of truth again
+  clipmeta_exists = true
+  clip_prefill_source = nil
+  clipmeta_has_unknown_top_level = false
+  legacy_target_court = clip.target_court_id
   local summary = string.format("%s/%s courts", visible and tostring(visible) or "?",
                                 active and tostring(active) or "?")
   -- A null match_format is WARNED, never blocked. Blocking would force an answer out of an
   -- operator who cannot tell, and a guessed singles/doubles is worse than a recorded "unknown".
   -- But it is not silent either: the downstream primary-split gate cannot evidence its
   -- singles+doubles minimum from nulls, and finding out then costs a re-annotation round trip.
-  set_status(t(clip.match_format and "clip.saved" or "clip.savedNoFormat", { summary = summary }))
+  local saved_status = t(clip.match_format and "clip.saved" or "clip.savedNoFormat",
+                         { summary = summary })
+  if camera_picker_wins then saved_status = saved_status .. " " .. t("clip.savedPickerWins") end
+  set_status(saved_status)
 end
 
 --------------------------------------------------------------------------------
@@ -2689,6 +2858,8 @@ function save_target_profile()
   selected_section = p.section
   local ok, err = save_clipmeta_file()
   if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  clipmeta_exists = true
+  clip_prefill_source = nil
   target_refresh()
   set_status(t("target.saved", { section = p.section, n = #poly,
                                  pct = string.format("%.1f", polygon_area(poly) * 100) }))
@@ -2702,6 +2873,8 @@ function delete_target_profile()
   selected_section = nil
   local ok, err = save_clipmeta_file()
   if not ok then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  clipmeta_exists = true
+  clip_prefill_source = nil
   target_refresh()
   set_status(t("target.deleted", { section = section }))
 end
@@ -2888,7 +3061,8 @@ function capture_clip_form()
   local fid = w_format and w_format:get_value() or 0
   local staged = {
     venue_id = w_venue:get_text() or "",
-    camera_setup_id = w_camera and w_camera:get_text() or "",
+    target_court_id = w_target_court and w_target_court:get_text() or "",
+    camera_setup_id = camera_setup_from_widgets() or "",
     court_count = w_visible and w_visible:get_text() or "",
     active_court_count = w_active and w_active:get_text() or "",
     partially_visible_court_count = w_partial and w_partial:get_text() or "",
@@ -2897,7 +3071,8 @@ function capture_clip_form()
   }
   local function shown(v) return v == nil and "" or tostring(v) end
   local dirty = false
-  for _, k in ipairs({ "venue_id", "camera_setup_id", "court_count", "active_court_count",
+  for _, k in ipairs({ "venue_id", "target_court_id", "camera_setup_id",
+                       "court_count", "active_court_count",
                        "partially_visible_court_count", "match_format", "notes" }) do
     if shown(staged[k]) ~= shown(clip[k]) then dirty = true; break end
   end
@@ -3010,20 +3185,36 @@ local function build_clip_screen()
   local src = clip_form or clip
   d:add_label(t("label.venue"), 1, 2, 1, 1)
   w_venue = d:add_text_input(txt(src.venue_id), 2, 2, 1, 1)
-  d:add_label(t("label.cameraSetup"), 3, 2, 1, 1)
-  w_camera = d:add_text_input(txt(src.camera_setup_id), 4, 2, 1, 1)
+  d:add_label(t("label.targetCourt"), 3, 2, 1, 1)
+  w_target_court = d:add_text_input(txt(src.target_court_id), 4, 2, 1, 1)
 
-  d:add_label(t("label.courtsVisible"), 1, 3, 1, 1)
-  w_visible = d:add_text_input(txt(src.court_count), 2, 3, 1, 1)
-  d:add_label(t("label.courtsActive"), 3, 3, 1, 1)
-  w_active = d:add_text_input(txt(src.active_court_count), 4, 3, 1, 1)
+  d:add_label(t("label.cameraSetup"), 1, 3, 1, 1)
+  w_camera_picker = d:add_dropdown(2, 3, 1, 1)
+  local camera_pick = camera_setup_index(src.camera_setup_id)
+  if camera_pick > 0 then
+    w_camera_picker:add_value(CAMERA_SETUP_IDS[camera_pick], camera_pick)
+  else
+    w_camera_picker:add_value(t("fmt.unset"), 0)
+  end
+  for i, v in ipairs(CAMERA_SETUP_IDS) do
+    if i ~= camera_pick then w_camera_picker:add_value(v, i) end
+  end
+  if camera_pick > 0 then w_camera_picker:add_value(t("fmt.unset"), 0) end
+  -- VLC dropdowns cannot accept a custom value. Keep a text field alongside the
+  -- vocabulary picker so older or venue-specific identifiers remain round-trippable.
+  w_camera = d:add_text_input(camera_pick == 0 and txt(src.camera_setup_id) or "", 3, 3, 2, 1)
 
-  d:add_label(t("label.courtsPartial"), 1, 4, 1, 1)
-  w_partial = d:add_text_input(txt(src.partially_visible_court_count), 2, 4, 1, 1)
+  d:add_label(t("label.courtsVisible"), 1, 4, 1, 1)
+  w_visible = d:add_text_input(txt(src.court_count), 2, 4, 1, 1)
+  d:add_label(t("label.courtsActive"), 3, 4, 1, 1)
+  w_active = d:add_text_input(txt(src.active_court_count), 4, 4, 1, 1)
+
+  d:add_label(t("label.courtsPartial"), 1, 5, 1, 1)
+  w_partial = d:add_text_input(txt(src.partially_visible_court_count), 2, 5, 1, 1)
 
   -- "(not set)" is added FIRST so it shows selected, i.e. the default writes null.
-  d:add_label(t("label.matchFormat"), 1, 5, 1, 1)
-  w_format = d:add_dropdown(2, 5, 1, 1)
+  d:add_label(t("label.matchFormat"), 1, 6, 1, 1)
+  w_format = d:add_dropdown(2, 6, 1, 1)
   local sel = src.match_format
   if sel then
     for i, v in ipairs(MATCH_FORMATS) do if v == sel then w_format:add_value(t("fmt." .. v), i) end end
@@ -3039,19 +3230,19 @@ local function build_clip_screen()
   -- Capture time is READ-ONLY on purpose: there is no box to type a date into, because an
   -- operator-typed date is exactly the "folder says May 19, container says May 21" failure
   -- this sidecar exists to prevent. It is written only when the container supplies one.
-  d:add_label(t("label.captureTime"), 3, 5, 1, 1)
-  w_capture = d:add_label(clip.capture_time_utc or t("clip.captureUnknown"), 4, 5, 1, 1)
+  d:add_label(t("label.captureTime"), 3, 6, 1, 1)
+  w_capture = d:add_label(clip.capture_time_utc or t("clip.captureUnknown"), 4, 6, 1, 1)
 
-  d:add_label(t("label.notes"), 1, 6, 1, 1)
-  w_notes = d:add_text_input(txt(src.notes), 2, 6, 3, 1)
+  d:add_label(t("label.notes"), 1, 7, 1, 1)
+  w_notes = d:add_text_input(txt(src.notes), 2, 7, 3, 1)
 
-  d:add_button(t("btn.saveClip"), save_clip_info, 1, 7, 1, 1)
-  w_help_btn = d:add_button(t("btn.help"), show_help, 2, 7, 1, 1)
-  d:add_button(t("btn.refresh"), refresh_now, 4, 7, 1, 1)
+  d:add_button(t("btn.saveClip"), save_clip_info, 1, 8, 1, 1)
+  w_help_btn = d:add_button(t("btn.help"), show_help, 2, 8, 1, 1)
+  d:add_button(t("btn.refresh"), refresh_now, 4, 8, 1, 1)
 
-  w_status = d:add_html("", 1, 8, 4, 2)
-  build_language_row(10)
-  help_row = 11
+  w_status = d:add_html("", 1, 9, 4, 2)
+  build_language_row(11)
+  help_row = 12
 end
 
 -- Target profile: one per static camera section. Fields prefill from the selected profile so
@@ -3064,8 +3255,8 @@ local function build_target_screen()
   d:add_label(t("label.cameraSection"), 1, 2, 1, 1)
   w_sec = d:add_text_input(txt(sel and sel.section), 2, 2, 1, 1)
   d:add_label(t("label.targetCourt"), 3, 2, 1, 1)
-  -- A v1 sidecar's top-level target_court_id becomes the DEFAULT here and nothing more: it is
-  -- never promoted into a profile without a human supplying a section and a polygon.
+  -- The declarative top-level target is only a DEFAULT here and is never promoted into a
+  -- legacy profile without a human supplying a section and a polygon.
   w_court = d:add_text_input(txt(sel and sel.court or legacy_target_court), 4, 2, 1, 1)
 
   d:add_label(t("label.cameraProfile"), 1, 3, 1, 1)
@@ -3152,7 +3343,8 @@ function create_dialog()
   -- refreshers no-op for widgets the current screen does not have.
   w_status, w_reason, w_sport, w_start, w_end, w_list, w_save = nil, nil, nil, nil, nil, nil, nil
   w_mark_start, w_mark_end, w_undo, w_next, w_shots, w_help = nil, nil, nil, nil, nil, nil
-  w_venue, w_camera, w_visible, w_active, w_partial = nil, nil, nil, nil, nil
+  w_venue, w_target_court, w_camera_picker, w_camera, w_visible, w_active, w_partial =
+    nil, nil, nil, nil, nil, nil, nil
   w_format, w_capture, w_notes = nil, nil, nil
   w_sec, w_court, w_profile, w_poly, w_tnotes = nil, nil, nil, nil, nil
   w_validity, w_profile_list = nil, nil
@@ -3166,7 +3358,9 @@ function create_dialog()
   else build_rally_screen() end
 
   d:show()
-  if screen ~= "rally" then
+  if screen == "clip" and clip_prefill_source then
+    set_status(t("clip.prefilled", { source = clip_prefill_source }))
+  elseif screen ~= "rally" then
     set_status("")
   elseif out_path_is_fallback then
     set_status(t("activate.fallback"))
@@ -3247,6 +3441,9 @@ function activate()
   load_clipmeta()         -- capture metadata + target profiles, if recorded
   load_reviews()
   detect_legacy_windows() -- a withdrawn-design windows.csv is flagged, never read
+  -- A missing sidecar gets one skippable first-open prompt. Navigation remains
+  -- available and rally saving never depends on whether the operator fills it in.
+  if not out_path_is_fallback and not clipmeta_exists then screen = "clip" end
   create_dialog()
 end
 

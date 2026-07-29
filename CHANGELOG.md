@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## v2.2.0 — 2026-07-29
+- **`clipmeta_version: 3` restores declarative `target_court_id` at the top level.** Existing v1
+  values are preserved; v2 target profiles seed the value only when every recorded profile agrees,
+  so a conflict never becomes a guess. Legacy `target_profiles` remain readable and round-trip.
+- **One-time target-properties intake.** A clip without a sidecar opens optional Clip info on first
+  use, with the owner-approved camera orientation vocabulary (`court-left-corner`,
+  `court-right-corner`, `court-center`, `court-side-middle`) plus a free-text compatibility
+  fallback. Skipping it never blocks Mark START or Save Rally.
+- **Same-folder sibling prefill in VLC.** A new chapter starts from the first valid sibling
+  `.clipmeta.json` in lexical order, copying only declarative form fields. The values remain unsaved
+  until the operator reviews and saves; clip identity, capture time, target geometry, and
+  completeness are never copied. Browser pages cannot enumerate the user's video folder, so the web
+  frontend provides the shared v3 form and first-open behavior without filesystem prefill.
+- **Fresh completeness throughout a labeling pass.** Once a sidecar exists, each successful rally
+  save/edit/delete/undo rewrites `label_completeness`. Rally writes still neither create a sidecar
+  nor fail because an optional sidecar refresh failed. A sidecar containing unknown top-level keys
+  is left untouched by automatic refresh so a newer producer's fields cannot be erased.
 - **Fix: unsaved Clip-info input no longer vanishes when the dialog is rebuilt.** `capture_form()`
   carried the rally screen's in-progress values across a rebuild but never the clip screen, so a nav
   switch, a language switch, or the **Refresh** button — which sits one cell from **Save clip info**
@@ -25,7 +41,6 @@
   recorded unknown — so the save still succeeds and still writes `null`. But it is no longer silent:
   the downstream primary-split gate cannot evidence its singles+doubles minimum from nulls, and
   discovering that later costs a whole re-annotation pass.
-
 ## v2.1.0 — 2026-07-29
 - **Rally annotation is explicitly NOT gated on court metadata.** Mark START and Save Rally work
   with no target profile in both front-ends. The annotated match is the largest, most visually
