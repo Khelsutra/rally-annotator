@@ -55,7 +55,9 @@ jobs:
 
       - name: Upload E2E screencast + report
         uses: actions/upload-artifact@v4
-        if: always()
+        # Forgejo does not implement the GitHub artifact-service API used by
+        # upload-artifact v4; the test evidence remains in the job log there.
+        if: ${{ always() && github.server_url == 'https://github.com' }}
         with:
           name: chromium-e2e-screencast
           path: |
@@ -66,7 +68,7 @@ jobs:
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
         with:
           name: coverage
           path: web/coverage
