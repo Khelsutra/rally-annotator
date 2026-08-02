@@ -71,7 +71,10 @@ pausing to the exact frame before each mark — turning "watch a match" into "pr
 2. In VLC: **Tools → Plugins and extensions → Reload extensions** (or just restart VLC).
 3. Enable it from the **View** menu → **Rally Annotator**. A small dialog opens and stays open while you watch.
 
-Requires **VLC 3.0.x**. (VLC 4.0 changed the Lua input/listener API; targeting 3.x for now.)
+Requires **VLC 3.0.x or VLC 4.x**. Playback helpers support both APIs (`vlc.object.input` /
+`vlc.var` on 3.x, `vlc.player.*` on 4.x). On Linux Snap VLC, install the extension under
+`~/snap/vlc/current/.local/share/vlc/lua/extensions/` (or the deb path
+`~/.local/share/vlc/lua/extensions/`).
 The annotator exposes only **Rallies** and optional **Clip info**. There is no Target, Review, or
 court-picker step: **Mark START** and **Save Rally** are available immediately.
 

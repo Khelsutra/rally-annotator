@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.0 — 2026-08-02
+- **VLC 4.x Lua playback API support.** Playback time, seek, and current-item helpers now use
+  `vlc.player.*` when present (VLC 4) and fall back to `vlc.object.input` / `vlc.var` / `vlc.input`
+  (VLC 3). Same extension file works on both; dialog suite green on the dual path.
+- README: document Snap VLC extension install path and dual-version support.
+
 ## v2.2.0 — 2026-07-29
 - **`clipmeta_version: 3` restores declarative `target_court_id` at the top level.** Existing v1
   values are preserved; v2 target profiles seed the value only when every recorded profile agrees,
