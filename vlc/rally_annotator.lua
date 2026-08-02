@@ -134,7 +134,8 @@
     time is portable, precise, and lets the rater pause/scrub before committing.
     So we declare NO listener capabilities.
 
-  UNITS: in VLC 3.x, vlc.var.get(input,"time") is in MICROSECONDS -> /1e6.
+  UNITS: playback time is MICROSECONDS on VLC 3.x and 4.x -> /1e6 for seconds.
+    VLC 3: vlc.var.get(input,"time"); VLC 4: vlc.player.get_time().
 
   Widget grid args are (col, row, colspan, rowspan), 1-indexed.
 
@@ -151,7 +152,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.2.0"
+local VERSION = "2.3.0"
 
 function descriptor()
   return {
@@ -1648,11 +1649,51 @@ local refresh_clipmeta_completeness
 -- Helpers (declared before the global callbacks that capture them)
 --------------------------------------------------------------------------------
 
+-- VLC 3.x used vlc.object.input() + vlc.var.get/set("time") + vlc.input.item().
+-- VLC 4.x replaced that surface with vlc.player.* (time still in MICROSECONDS).
+-- These shims keep one extension working on both without branching at call sites.
+
+local function player_item()
+  if vlc.player and vlc.player.item then
+    local ok, item = pcall(vlc.player.item)
+    if ok and item then return item end
+  end
+  if vlc.input and vlc.input.item then
+    local ok, item = pcall(vlc.input.item)
+    if ok and item then return item end
+  end
+  return nil
+end
+
+-- Current playback time in MICROSECONDS, or nil if nothing is playing.
+local function get_time_us()
+  if vlc.player and vlc.player.get_time then
+    local ok, t = pcall(vlc.player.get_time)
+    if ok and type(t) == "number" then return t end
+  end
+  local input = vlc.object and vlc.object.input and vlc.object.input()
+  if not input or not vlc.var or not vlc.var.get then return nil end
+  local ok, t = pcall(function() return vlc.var.get(input, "time") end)
+  if ok and type(t) == "number" then return t end
+  return nil
+end
+
+local function set_time_us(us)
+  if type(us) ~= "number" then return false end
+  if us < 0 then us = 0 end
+  if vlc.player and vlc.player.seek_by_time_absolute then
+    local ok = pcall(function() vlc.player.seek_by_time_absolute(us) end)
+    return ok and true or false
+  end
+  local input = vlc.object and vlc.object.input and vlc.object.input()
+  if not input or not vlc.var or not vlc.var.set then return false end
+  local ok = pcall(function() vlc.var.set(input, "time", us) end)
+  return ok and true or false
+end
+
 -- Current playback time in SECONDS, or nil if nothing is playing.
 local function now_seconds()
-  local input = vlc.object.input()
-  if not input then return nil end
-  local t_us = vlc.var.get(input, "time")   -- MICROSECONDS in VLC 3.x
+  local t_us = get_time_us()
   if not t_us then return nil end
   return t_us / 1000000.0
 end
@@ -1677,9 +1718,7 @@ end
 
 -- Best-effort path to the currently playing media file (decoded from URI).
 local function current_media_path()
-  local input = vlc.object.input()
-  if not input then return nil end
-  local item = vlc.input.item()           -- VLC 3.x: vlc.input.item()
+  local item = player_item()
   if not item then return nil end
   local uri = item:uri()                   -- item:uri()
   if not uri or uri == "" then return nil end
@@ -1802,18 +1841,18 @@ local function sidecar_path(suffix)
   return stem .. suffix
 end
 
--- Clip duration in SECONDS, or nil. item:duration() is seconds in VLC 3.x; "length" on the
--- input object is MICROSECONDS. Both are wrapped: a build where either is absent must leave
--- the duration UNKNOWN rather than throw, because every completeness rule is gated on
+-- Clip duration in SECONDS, or nil. item:duration() is seconds (VLC 3 + 4); "length" on the
+-- VLC 3 input object is MICROSECONDS. Both are wrapped: a build where either is absent must
+-- leave the duration UNKNOWN rather than throw, because every completeness rule is gated on
 -- having a real duration (never a guess).
 local function media_duration()
-  local ok, item = pcall(function() return vlc.input.item() end)
-  if ok and item and item.duration then
+  local item = player_item()
+  if item and item.duration then
     local ok2, secs = pcall(function() return item:duration() end)
     if ok2 and type(secs) == "number" and secs > 0 then return secs end
   end
-  local input = vlc.object.input()
-  if input then
+  local input = vlc.object and vlc.object.input and vlc.object.input()
+  if input and vlc.var and vlc.var.get then
     local ok3, us = pcall(function() return vlc.var.get(input, "length") end)
     if ok3 and type(us) == "number" and us > 0 then return us / 1000000.0 end
   end
@@ -1825,8 +1864,8 @@ end
 -- 2026-05-21. sports-data-collector re-probes the container at import and that value wins;
 -- this is the operator's record, not the authority.
 local function container_capture_time()
-  local ok, item = pcall(function() return vlc.input.item() end)
-  if not ok or not item or not item.metas then return nil end
+  local item = player_item()
+  if not item or not item.metas then return nil end
   local ok2, metas = pcall(function() return item:metas() end)
   if not ok2 or type(metas) ~= "table" then return nil end
   local v = metas["date"] or metas["Date"]
@@ -2597,15 +2636,13 @@ local function adopt_current_video_csv()
   refresh_list()
 end
 
--- Seek the player by delta_s seconds (relative), clamped at 0 (time is microseconds in 3.x).
+-- Seek the player by delta_s seconds (relative), clamped at 0 (time is microseconds in 3.x/4.x).
 local function seek_by(delta_s)
-  local input = vlc.object.input()
-  if not input then set_status(t("seek.noMedia")); return end
-  local cur = vlc.var.get(input, "time")   -- microseconds (named 'cur', not 't', to not shadow t())
-  if not cur then set_status(t("seek.noTime")); return end
+  local cur = get_time_us()   -- microseconds (named 'cur', not 't', to not shadow t())
+  if not cur then set_status(t("seek.noMedia")); return end
   local nt = cur + delta_s * 1000000
   if nt < 0 then nt = 0 end
-  vlc.var.set(input, "time", nt)
+  if not set_time_us(nt) then set_status(t("seek.noTime")); return end
   set_status(t("seek.done", { delta = string.format("%+d", delta_s), clock = fmt_clock(nt / 1000000.0) }))
 end
 
@@ -2978,11 +3015,11 @@ function undo_review()
   set_status(t("review.removed", { n = last.n, count = #reviews }))
 end
 
--- Playback control (verified available to VLC 3.x extensions). pause() is a TOGGLE
+-- Playback control (VLC 3.x + 4.x playlist API). pause() is a TOGGLE
 -- (playlist_TogglePause), so we branch on status() to keep one Play / Pause button
 -- deterministic: pause() flips playing<->paused, and from stopped we play() fresh.
 function play_pause()
-  local st = vlc.playlist.status()
+  local st = vlc.playlist and vlc.playlist.status and vlc.playlist.status()
   if st == "playing" then
     vlc.playlist.pause()        -- toggles playing -> paused
     set_status(t("play.paused"))
