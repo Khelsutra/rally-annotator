@@ -1,4 +1,4 @@
---[[ rally_annotator.lua  --  VLC Lua EXTENSION (v2.2.0)
+--[[ rally_annotator.lua  --  VLC Lua EXTENSION (v2.3.1)
 
   Rally Annotator for NET-SEPARATED RACQUET SPORTS
   (badminton · tennis · table tennis · pickleball · padel)
@@ -10,6 +10,13 @@
 
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
+
+  WHAT'S NEW IN v2.3.1
+    - Sport is selected once in Clip info and shown read-only on the rally screen.
+      Every CSV row remains a compatibility projection of that video-level value.
+    - Mixed legacy rows and CSV/clipmeta disagreement fail closed until Clip info
+      explicitly normalizes all rows to the chosen sport.
+    - The tool is English-only; translated catalogs and language controls are removed.
 
   WHAT'S NEW IN v2.2.0
     - clipmeta.json is now additive version 3: target_court_id is restored as a
@@ -75,7 +82,7 @@
     - The status panel now carries a LABEL-COMPLETENESS readout (span coverage +
       unlabelled tail), warning at the same thresholds the collector blocks on, so
       a half-finished pass is caught while annotating rather than at import.
-    - Switching screen or language no longer discards the in-progress Start/End.
+    - Switching screens no longer discards the in-progress Start/End.
 
   WHAT'S NEW IN v1.6.4
     - Guard against silently losing unsaved work: once a rally is fully marked
@@ -152,7 +159,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.3.0"
+local VERSION = "2.3.1"
 
 function descriptor()
   return {
@@ -241,22 +248,10 @@ local SPAN_WARN = 0.9
 local REASON_ID = {}
 local SPORT_ID = {}
 
--- (In-dialog HELP is localized -- it now lives in STRINGS[lang]["help.html"]; see show_help.)
-
 --------------------------------------------------------------------------------
--- i18n -- the dialog CHROME (labels, buttons, reason/sport display, language picker)
--- is localized into en/kn/hi/te/es/da/id. Status messages and the HELP guide stay
--- English for now (the large prose block is a documented later phase; see
--- docs/LOCALIZATION.md). reason/sport DISPLAY labels are localized, but the CSV always
--- stores the CANONICAL English value (mapped from the selected dropdown id), so output
--- stays byte-compatible regardless of interface language.
---
--- STRINGS is GLOBAL (like the callbacks below) so the headless test can assert key-parity.
--- Machine-draft translations, pending native review.
+-- English message catalog. Keys keep callbacks free of duplicated prose, while reason/sport
+-- DATA values written to CSV remain the canonical identifiers declared above.
 --------------------------------------------------------------------------------
--- AUTO-GENERATED translations (chrome + status + HELP guide). Machine drafts, pending native
--- review (see docs/LOCALIZATION.md). Global (not local) so the headless test can assert key-parity.
--- reason/sport are DISPLAY labels; the CSV stores the canonical English value (via the dropdown id).
 STRINGS = {
   ["en"] = {
     ["label.sport"] = "Sport:",
@@ -319,6 +314,7 @@ STRINGS = {
     ["fmt.mixed"] = "mixed",
     ["btn.saveClip"] = "Save clip info",
     ["clip.saved"] = "Saved clip info: {summary}",
+    ["clip.sportNormalized"] = "Normalized {count} existing rally row(s) to the video sport {sport}.",
     ["clip.savedNoFormat"] = "Saved clip info: {summary} — but MATCH FORMAT is still (not set), so this clip records no singles/doubles. Pick one and save again; leave it only if you genuinely cannot tell.",
     ["clip.savedPickerWins"] = "The camera vocabulary selection was saved; the simultaneous free-text camera value was not. Clear the picker first to save a custom value.",
     ["clip.loaded"] = "Loaded the clip info already recorded for this video.",
@@ -337,7 +333,6 @@ STRINGS = {
     ["label.shots"] = "Number of shots:",
     ["label.reason"] = "Ending reason:",
     ["label.recent"] = "Recent rallies (select one, then Edit/Delete):",
-    ["label.language"] = "Language:",
     ["btn.help"] = "Help",
     ["btn.hideHelp"] = "Hide help",
     ["btn.back5"] = "Back 5s",
@@ -383,6 +378,8 @@ STRINGS = {
     ["markEnd.noMedia"] = "No media playing -- cannot mark END.",
     ["markEnd.set"] = "END set @ {clock}. Choose the Ending reason, then click Save Rally.",
     ["save.needStart"] = "Set a START time first (click Mark START).",
+    ["save.needVideoSport"] = "Choose and save the video sport in Clip info before saving rallies.",
+    ["save.mixedVideoSport"] = "Existing rally rows disagree with the video sport. Open Clip info and save the correct sport to normalize them.",
     ["save.needEnd"] = "Set an END time first (click Mark END).",
     ["save.zeroLen"] = "END must be later than START (rally must be > 0s).",
     ["save.writeFailed"] = "WRITE FAILED: {err}",
@@ -409,945 +406,15 @@ STRINGS = {
     ["sync.switched"] = "Switched to the current video. Loaded {count} existing rallies; next is #{n}.",
     ["activate.fallback"] = "No video detected yet. Open/play the video, then click Mark START -- the tool will switch to that video's own .rallies.csv automatically (and load any rallies already saved for it). Tip: open the video FIRST, then enable this extension.",
     ["activate.resumed"] = "Resumed this video: {count} existing rallies loaded (next is #{n}). Click Help for the guide.",
-    ["activate.ready"] = "Ready. Pick the Sport, then mark rallies. Click Help for usage + the ending-reason guide.",
-    ["help.html"] = "<b>Rally Annotator &mdash; how to use</b><br>\n<b>Playback:</b> the <b>Back 5s / Play / Pause / Fwd 5s</b> row drives the VLC player from here &mdash; <b>Play / Pause</b> is one toggle (pause, annotate, and resume without switching to the main VLC window).<br>\n1. Pick the <b>Sport</b> (top). It stays set across rallies.<br>\n2. When a rally begins, click <b>Mark START</b> (pause/scrub first for frame accuracy &mdash; it snapshots the current playback time into the Start field).<br>\n3. When the rally ends, click <b>Mark END</b>. You may fine-tune the Start/End seconds by editing those fields directly.<br>\n4. Choose the <b>Ending reason</b> (the box between <b>Mark END</b> and <b>Save Rally</b>; or leave it as <b>unknown</b>), optionally type a <b>Number of shots</b> (the rally's shot/stroke count &mdash; leave blank to skip), then click <b>Save Rally</b> &mdash; one CSV row is written next to the video.<br>\n5. The reason RESETS to <b>unknown</b> after every save (never silently reused), and you can pick the same reason on consecutive rallies.<br>\n6. <b>Recent rallies</b>: select a row, then <b>Edit selected</b> (loads it back into the fields) or <b>Delete selected</b>. <b>Undo last</b> removes the most recent row (the button shows which, e.g. <i>Undo last (#7)</i>), or clears an in-progress mark, or cancels an edit.<br>\n7. <b>Resuming later:</b> labels are saved to the CSV next to the video as you go. Re-open the SAME video and enable the extension &mdash; it reloads your existing rallies and continues numbering. Set the <b>Next rally #</b> field to resume numbering from any value (e.g. restart at 1, or continue from 50); it auto-advances after each save. If you switch videos with this dialog open, click <b>Refresh</b> to load the current video's rallies. (The video's playback position is not restored &mdash; scrub to where you stopped.)<br>\n<br>\n<b>Ending reasons &mdash; what they mean (pick the one that says WHY the rally ended).</b><br>\nAll reasons except <i>winner</i> are charged to the side that LOST the rally.<br>\n&bull; <b>winner</b> &mdash; the last shot landed IN and was not returned (opponent couldn't reach it, or only waved at it). A clean untouched serve (ace) counts here.<br>\n&bull; <b>forced_error</b> &mdash; the loser MISSED (out, or into the net) while UNDER PRESSURE: stretched, rushed, jammed, or handling the opponent's pace/spin/depth. They were made to miss.<br>\n&bull; <b>unforced_error</b> &mdash; the loser MISSED a routine shot they had time AND position to make, with little or no pressure. They gave it away.<br>\n&bull; <b>service_fault</b> &mdash; the point ended on the SERVE: serve into the net, out of the service box, illegal action/foot fault, or a double fault (tennis/padel).<br>\n&bull; <b>let</b> &mdash; the rally is REPLAYED under the rules (no point): e.g. a tennis/table-tennis serve that clips the net and is otherwise good, or outside interference.<br>\n&bull; <b>other</b> &mdash; anything else (occluded footage, injury/retirement, penalty, hindrance). Use sparingly.<br>\n&bull; <b>unknown</b> &mdash; the default; this rally hasn't been classified yet (pick a specific reason when you can).<br>\n<br>\n<b>Quick cases</b><br>\n&bull; Ball/shuttle lands <b>OUT</b> (past the baseline / outside the lines): it is the hitter's miss &mdash; <b>forced</b> if they were under pressure, <b>unforced</b> if it was a comfortable ball. (OUT is NOT automatically forced, and never a winner for the opponent.)<br>\n&bull; <b>Into the net</b> during a rally: same &mdash; forced if pressured, unforced if routine. A <b>serve</b> into the net is <b>service_fault</b>.<br>\n&bull; <b>Net-cord that dribbles over and lands in</b>: live and good &mdash; usually a <b>winner</b> if unreachable, else judge what happens next. On the SERVE it varies by sport: tennis/table-tennis = <b>let</b> (replay); badminton net-tick that passes over and lands in = play on (but a serve shuttle CAUGHT on the net = service_fault); pickleball (2026) = play on.<br>\n&bull; <b>Unsure forced vs unforced?</b> Default to <b>unforced</b> &mdash; only mark forced when you can point to the specific pressure.<br>\n<br>\nOutput: <i>&lt;video&gt;.rallies.csv</i> next to the video. Full guide: docs/ENDING_REASONS.md in the repo.<br>\nClick <b>Hide help</b> to return to the status panel.",
-  },
-  ["kn"] = {
-    ["label.sport"] = "ಕ್ರೀಡೆ:",
-    ["btn.saveTarget"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ",
-    ["btn.deleteProfile"] = "ಪ್ರೊಫೈಲ್ ಅಳಿಸಿ",
-    ["btn.saveReview"] = "ಪರಿಶೀಲನೆ ಉಳಿಸಿ",
-    ["btn.saveReviewN"] = "ಪರಿಶೀಲನೆ ಉಳಿಸಿ (#{n})",
-    ["label.cameraSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ ID:",
-    ["label.cameraProfile"] = "ಕ್ಯಾಮೆರಾ ಪ್ರೊಫೈಲ್ ID:",
-    ["label.polygon"] = "ಆಟದ ಪ್ರದೇಶ (x,y 0-1):",
-    ["label.setupValidity"] = "ಸೆಟಪ್ ಸಿಂಧುತ್ವ:",
-    ["label.profiles"] = "ಗುರಿ ಪ್ರೊಫೈಲ್‌ಗಳು (ಲೋಡ್ ಮಾಡಲು ಒಂದನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ):",
-    ["label.targetState"] = "ಗುರಿ ಕೋರ್ಟ್ ರ್ಯಾಲಿಯಲ್ಲಿತ್ತೇ?",
-    ["label.recentReviews"] = "ಪರಿಶೀಲನೆಗಳು (ಒಂದನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ, ನಂತರ ಅಳಿಸಿ):",
-    ["validity.supported"] = "ಬೆಂಬಲಿತ",
-    ["validity.unsupported"] = "ಬೆಂಬಲಿಸದ",
-    ["validity.unclear"] = "ಅಸ್ಪಷ್ಟ",
-    ["state.rallying"] = "ರ್ಯಾಲಿ ನಡೆಯುತ್ತಿದೆ",
-    ["state.not_rallying"] = "ರ್ಯಾಲಿ ಇಲ್ಲ",
-    ["state.unclear"] = "ಅಸ್ಪಷ್ಟ",
-    ["target.volumeSummary"] = "ಆಟದ ಪ್ರದೇಶ: {n} ಮೂಲೆಗಳು, ಚೌಕಟ್ಟಿನ {pct}% ಆವರಿಸಿದೆ.",
-    ["target.volumeEmpty"] = "ಇನ್ನೂ ಆಟದ ಪ್ರದೇಶ ದಾಖಲಾಗಿಲ್ಲ.",
-    ["target.volumeInvalid"] = "ಆಟದ ಪ್ರದೇಶ ಇನ್ನೂ ಬಳಸಲಾಗದು — {why}",
-    ["target.saved"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಉಳಿಸಲಾಯಿತು ({n}-ಬಿಂದು ಆಟದ ಪ್ರದೇಶ, ಚೌಕಟ್ಟಿನ {pct}%).",
-    ["target.deleted"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಅಳಿಸಲಾಯಿತು.",
-    ["target.needSelect"] = "ಮೊದಲು ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ಗುರಿ ಪ್ರೊಫೈಲ್ ಕ್ಲಿಕ್ ಮಾಡಿ.",
-    ["target.needSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ ID ಅಗತ್ಯ - ಈ ಪ್ರೊಫೈಲ್ ವಿವರಿಸುವ ಸ್ಥಿರ ವಿಭಾಗವನ್ನು ಇದು ಗುರುತಿಸುತ್ತದೆ.",
-    ["target.needCourt"] = "ಗುರಿ ಕೋರ್ಟ್ ID ಅಗತ್ಯ - ಸ್ಥಳವು ಕೋರ್ಟ್‌ಗೆ ಬರೆದ ಸಂಖ್ಯೆ ಬಳಸಿ.",
-    ["target.duplicateSection"] = "ಕ್ಯಾಮೆರಾ ವಿಭಾಗ '{section}' ಗೆ ಈಗಾಗಲೇ ಗುರಿ ಪ್ರೊಫೈಲ್ ಇದೆ - ಮತ್ತೆ ಉಳಿಸಿದರೆ ಬದಲಾಗುತ್ತದೆ.",
-    ["target.polygonSyntax"] = "ಆಟದ ಪ್ರದೇಶವು '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' ರೀತಿಯ ಬಿಂದುಗಳಾಗಿರಬೇಕು.",
-    ["target.polygonTooFewPoints"] = "ಆಟದ ಪ್ರದೇಶಕ್ಕೆ ಕನಿಷ್ಠ 3 ಬಿಂದುಗಳು ಬೇಕು (ಸಾಮಾನ್ಯ ಚತುರ್ಭುಜಕ್ಕೆ 4).",
-    ["target.polygonRange"] = "ಆಟದ ಪ್ರದೇಶದ ನಿರ್ದೇಶಾಂಕಗಳು ಸಾಮಾನ್ಯೀಕೃತ: ಪ್ರತಿ x ಮತ್ತು y 0 ರಿಂದ 1 ರ ನಡುವೆ ಇರಬೇಕು, ಪಿಕ್ಸೆಲ್ ಅಲ್ಲ.",
-    ["target.polygonSelfIntersecting"] = "ಆಟದ ಪ್ರದೇಶವು ತನ್ನನ್ನೇ ಛೇದಿಸುತ್ತದೆ — ಮೂಲೆಗಳ ಕ್ರಮ ತಪ್ಪಿದೆ. ಕೋರ್ಟ್ ಸುತ್ತ ಕ್ರಮವಾಗಿ ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.",
-    ["target.needProfile"] = "ಮೊದಲು ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ - ಪರಿಶೀಲನೆಯು ಒಂದು ಕ್ಯಾಮೆರಾ ವಿಭಾಗದ ಬಗ್ಗೆ ಉತ್ತರಿಸುತ್ತದೆ.",
-    ["review.saved"] = "ಪರಿಶೀಲನೆ #{n} ಉಳಿಸಲಾಯಿತು: {s} → {e} [{state}].",
-    ["review.deleted"] = "ಪರಿಶೀಲನೆ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["review.removed"] = "ಕೊನೆಯ ಪರಿಶೀಲನೆ #{n} ತೆಗೆಯಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["review.nothing"] = "ತೆಗೆಯಲು ಯಾವುದೇ ಪರಿಶೀಲನೆ ಇಲ್ಲ.",
-    ["legacy.windowsPresent"] = "ಈ ಕ್ಲಿಪ್‌ಗೆ ಹಳೆಯ ನೆರೆ-ಕೋರ್ಟ್ ವಿಂಡೋ ಫೈಲ್ ಇದೆ. ಅದು ಕೇವಲ ರೋಗನಿರ್ಣಯ ಸಾಮಗ್ರಿ: ಇಲ್ಲಿ ಓದಲಾಗುವುದಿಲ್ಲ, ಪರಿವರ್ತಿಸಲಾಗುವುದಿಲ್ಲ, ಆಮದು ಮಾಡಲಾಗುವುದಿಲ್ಲ.",
-    ["nav.target"] = "ಗುರಿ",
-    ["nav.review"] = "ಪರಿಶೀಲನೆ",
-    ["btn.loadProfile"] = "ಆಯ್ದದ್ದನ್ನು ಲೋಡ್ ಮಾಡಿ",
-    ["target.loaded"] = "ಗುರಿ ಪ್ರೊಫೈಲ್ '{section}' ಲೋಡ್ ಆಯಿತು. ಕ್ಷೇತ್ರಗಳನ್ನು ಸಂಪಾದಿಸಿ, ನಂತರ ಗುರಿ ಪ್ರೊಫೈಲ್ ಉಳಿಸಿ.",
-    ["target.mode"] = "ಗುರಿ ಪ್ರೊಫೈಲ್‌ಗಳು: {count} ಉಳಿಸಲಾಗಿದೆ. ಪ್ರತಿ ಸ್ಥಿರ ಕ್ಯಾಮೆರಾ ವಿಭಾಗಕ್ಕೆ ಒಂದು.",
-    ["review.mode"] = "ವಿರಳ ಪರಿಶೀಲನೆ: ಗುರಿ ಕೋರ್ಟ್ ರ್ಯಾಲಿಯಲ್ಲಿತ್ತೇ ಎಂದು ಉತ್ತರಿಸಿ. ಕೋಟಾ ಇಲ್ಲ, ಸಂಪೂರ್ಣ ಪಾಸ್ ಇಲ್ಲ.",
-    ["nav.rallies"] = "ರ್ಯಾಲಿಗಳು",
-    ["nav.clip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ",
-    ["label.venue"] = "ಸ್ಥಳ ID:",
-    ["label.cameraSetup"] = "ಕ್ಯಾಮೆರಾ ಸೆಟಪ್ ID:",
-    ["label.courtsVisible"] = "ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳು:",
-    ["label.courtsActive"] = "ಆಟವಿರುವ ಕೋರ್ಟ್‌ಗಳು:",
-    ["label.courtsPartial"] = "ಭಾಗಶಃ ಮಾತ್ರ ಕಾಣುವವು:",
-    ["label.targetCourt"] = "ಗುರಿ ಕೋರ್ಟ್ ID:",
-    ["label.matchFormat"] = "ಪಂದ್ಯದ ಸ್ವರೂಪ:",
-    ["label.captureTime"] = "ಸೆರೆಹಿಡಿದ ಸಮಯ (UTC):",
-    ["label.notes"] = "ಟಿಪ್ಪಣಿಗಳು:",
-    ["fmt.unset"] = "(ಹೊಂದಿಸಿಲ್ಲ)",
-    ["fmt.singles"] = "ಸಿಂಗಲ್ಸ್",
-    ["fmt.doubles"] = "ಡಬಲ್ಸ್",
-    ["fmt.mixed"] = "ಮಿಶ್ರ",
-    ["btn.saveClip"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಿ",
-    ["clip.saved"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary}",
-    ["clip.savedNoFormat"] = "ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಉಳಿಸಲಾಯಿತು: {summary} — ಆದರೆ ಪಂದ್ಯದ ಸ್ವರೂಪ ಇನ್ನೂ (ಹೊಂದಿಸಿಲ್ಲ), ಆದ್ದರಿಂದ ಈ ಕ್ಲಿಪ್ ಸಿಂಗಲ್ಸ್/ಡಬಲ್ಸ್ ದಾಖಲಿಸುವುದಿಲ್ಲ. ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ ಮತ್ತೆ ಉಳಿಸಿ; ನಿಜಕ್ಕೂ ತಿಳಿಯದಿದ್ದರೆ ಮಾತ್ರ ಹಾಗೇ ಬಿಡಿ.",
-    ["clip.savedPickerWins"] = "ಕ್ಯಾಮೆರಾ ಪಟ್ಟಿಯ ಆಯ್ಕೆಯನ್ನು ಉಳಿಸಲಾಗಿದೆ; ಅದೇ ವೇಳೆ ನಮೂದಿಸಿದ ಮುಕ್ತ-ಪಠ್ಯ ಕ್ಯಾಮೆರಾ ಮೌಲ್ಯವನ್ನು ಉಳಿಸಲಿಲ್ಲ. ಕಸ್ಟಮ್ ಮೌಲ್ಯ ಉಳಿಸಲು ಮೊದಲು ಪಟ್ಟಿಯ ಆಯ್ಕೆಯನ್ನು ತೆರವುಗೊಳಿಸಿ.",
-    ["clip.loaded"] = "ಈ ವೀಡಿಯೋಗಾಗಿ ಈಗಾಗಲೇ ದಾಖಲಾದ ಕ್ಲಿಪ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಯಿತು.",
-    ["clip.prefilled"] = "ಅದೇ ಫೋಲ್ಡರ್‌ನ {source} ನಿಂದ ಪೂರ್ವಭರ್ತಿ ಮಾಡಲಾಗಿದೆ. ಪರಿಶೀಲಿಸಿ ಉಳಿಸಿ; ಯಾವುದನ್ನೂ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಬರೆಯಲಾಗಿಲ್ಲ.",
-    ["clip.invalidActive"] = "ಆಟವಿರುವ ಕೋರ್ಟ್‌ಗಳು ({active}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು -- ಚೌಕಟ್ಟಿನಲ್ಲಿ ಇಲ್ಲದೆ ಕೋರ್ಟ್ ಆಟದಲ್ಲಿರಲಾಗದು.",
-    ["clip.invalidPartial"] = "ಭಾಗಶಃ ಕಾಣುವವು ({partial}) ಕಾಣುವ ಕೋರ್ಟ್‌ಗಳಿಗಿಂತ ({visible}) ಹೆಚ್ಚಿರಬಾರದು.",
-    ["clip.invalidNumber"] = "{field} ಗೆ {min} ಅಥವಾ ಹೆಚ್ಚಿನ ಪೂರ್ಣ ಸಂಖ್ಯೆ ಬೇಕು -- ಅಥವಾ 'ಪರಿಶೀಲಿಸಿಲ್ಲ' ಎಂದು ದಾಖಲಿಸಲು ಖಾಲಿ ಬಿಡಿ.",
-    ["clip.captureUnknown"] = "(ಇಲ್ಲಿ ಓದಲಾಗದು -- ಆಮದಿನ ವೇಳೆ ಕಂಟೇನರ್‌ನಿಂದ ಪಡೆಯಲಾಗುತ್ತದೆ)",
-    ["cov.line"] = "{dur}ಸೆ ಯಲ್ಲಿ {to}ಸೆ ವರೆಗೆ ಲೇಬಲ್ ({pct}% ವ್ಯಾಪ್ತಿ)  |  ಲೇಬಲ್ ಇಲ್ಲದ ಕೊನೆ {tail}ಸೆ  |  ದೊಡ್ಡ ಅಂತರ {gap}ಸೆ",
-    ["cov.tail"] = "ಎಚ್ಚರಿಕೆ: ಕೊನೆಯಲ್ಲಿ {tail}ಸೆ ಗೆ ಯಾವುದೇ ಲೇಬಲ್ ಇಲ್ಲ. ಅಲ್ಲಿ ಆಟ ಮುಂದುವರಿದರೆ ಈ ಪಾಸ್ ಅಪೂರ್ಣ ({limit}ಸೆ ಮೀರಿದರೆ ಆಮದು ತಡೆಯುತ್ತದೆ).",
-    ["cov.span"] = "ಸೂಚನೆ: ಲೇಬಲ್‌ಗಳು ಕ್ಲಿಪ್‌ನ {limit}% ಗಿಂತ ಕಡಿಮೆ ವ್ಯಾಪಿಸಿವೆ -- ದೀರ್ಘ ನಿಷ್ಕ್ರಿಯ ಅಂತ್ಯಕ್ಕೆ ಸಹಜ, ಅಡಚಣೆಯಾದ ಪಾಸ್‌ಗೆ ಎಚ್ಚರಿಕೆ.",
-    ["cov.unknown"] = "ಕ್ಲಿಪ್ ಅವಧಿ ತಿಳಿದಿಲ್ಲ -- ಪೂರ್ಣತೆಯ ವಾಚನ ಇಲ್ಲ (ಎಂದಿಗೂ ಊಹಿಸುವುದಿಲ್ಲ).",
-    ["label.start"] = "ಆರಂಭ (ಸೆ):",
-    ["label.end"] = "ಅಂತ್ಯ (ಸೆ):",
-    ["label.next"] = "ಮುಂದಿನ ರ್ಯಾಲಿ #:",
-    ["label.shots"] = "ಹೊಡೆತಗಳ ಸಂಖ್ಯೆ:",
-    ["label.reason"] = "ಮುಗಿದ ಕಾರಣ:",
-    ["label.recent"] = "ಇತ್ತೀಚಿನ ರ್ಯಾಲಿಗಳು (ಒಂದನ್ನು ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ಸಂಪಾದಿಸಿ/ಅಳಿಸಿ):",
-    ["label.language"] = "ಭಾಷೆ:",
-    ["btn.help"] = "ಸಹಾಯ",
-    ["btn.hideHelp"] = "ಸಹಾಯ ಮರೆಮಾಡಿ",
-    ["btn.back5"] = "5ಸೆ ಹಿಂದೆ",
-    ["btn.playPause"] = "ಪ್ಲೇ / ವಿರಾಮ",
-    ["btn.fwd5"] = "5ಸೆ ಮುಂದೆ",
-    ["btn.markStart"] = "ಆರಂಭ ಗುರುತಿಸಿ",
-    ["btn.markEnd"] = "ಅಂತ್ಯ ಗುರುತಿಸಿ",
-    ["btn.reMarkStart"] = "ಆರಂಭ ಮರುಗುರುತಿಸಿ (#{n})",
-    ["btn.reMarkEnd"] = "ಅಂತ್ಯ ಮರುಗುರುತಿಸಿ (#{n})",
-    ["btn.saveRally"] = "ರ್ಯಾಲಿ ಉಳಿಸಿ",
-    ["btn.saveRallyN"] = "ರ್ಯಾಲಿ ಉಳಿಸಿ (#{n})",
-    ["btn.saveChangesN"] = "ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ (#{n})",
-    ["btn.edit"] = "ಆಯ್ದದ್ದನ್ನು ಸಂಪಾದಿಸಿ",
-    ["btn.delete"] = "ಆಯ್ದದ್ದನ್ನು ಅಳಿಸಿ",
-    ["btn.undo"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ",
-    ["btn.undoCancelEdit"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (ಸಂಪಾದನೆ ರದ್ದು)",
-    ["btn.undoClearMark"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (ಗುರುತು ತೆರವು)",
-    ["btn.undoN"] = "ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ (#{n})",
-    ["btn.refresh"] = "ರಿಫ್ರೆಶ್",
-    ["reason.unknown"] = "ಗೊತ್ತಿಲ್ಲ",
-    ["reason.winner"] = "ವಿನ್ನರ್",
-    ["reason.forced_error"] = "ಒತ್ತಡದ ತಪ್ಪು",
-    ["reason.unforced_error"] = "ಸ್ವಯಂ ತಪ್ಪು",
-    ["reason.service_fault"] = "ಸರ್ವಿಸ್ ಫಾಲ್ಟ್",
-    ["reason.let"] = "ಲೆಟ್",
-    ["reason.other"] = "ಇತರೆ",
-    ["sport.badminton"] = "ಬ್ಯಾಡ್ಮಿಂಟನ್",
-    ["sport.tennis"] = "ಟೆನಿಸ್",
-    ["sport.table_tennis"] = "ಟೇಬಲ್ ಟೆನಿಸ್",
-    ["sport.pickleball"] = "ಪಿಕಲ್‌ಬಾಲ್",
-    ["sport.padel"] = "ಪ್ಯಾಡೆಲ್",
-    ["status.modeEdit"] = "ಮೋಡ್: ರ್ಯಾಲಿ #{n} ಸಂಪಾದಿಸುತ್ತಿದೆ  (ಕಮಿಟ್ ಮಾಡಲು ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ, ರದ್ದುಗೊಳಿಸಲು ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ).",
-    ["status.modeNew"] = "ಮೋಡ್: ಹೊಸ ರ್ಯಾಲಿ  (ಆರಂಭ ಗುರುತಿಸಿ, ಅಂತ್ಯ ಗುರುತಿಸಿ, ಕಾರಣ ಆಯ್ಕೆಮಾಡಿ, ರ್ಯಾಲಿ ಉಳಿಸಿ).",
-    ["status.lastRow"] = "ಕೊನೆಯ ಸಾಲು (ರದ್ದುಗೊಳಿಸುವಿಕೆ ತೆಗೆಯುವುದು): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "ಈಗ: {clock}  |  CSV ನಲ್ಲಿ ರ್ಯಾಲಿಗಳು: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "ಯಾವುದೇ ಮೀಡಿಯಾ ಪ್ಲೇ ಆಗುತ್ತಿಲ್ಲ -- ಸೀಕ್ ಮಾಡಲಾಗದು.",
-    ["seek.noTime"] = "ಸೀಕ್ ಮಾಡಲು ಯಾವುದೇ ಪ್ಲೇಬ್ಯಾಕ್ ಸಮಯ ಲಭ್ಯವಿಲ್ಲ.",
-    ["seek.done"] = "ಸೀಕ್ {delta}ಸೆ  ->  {clock}.",
-    ["markStart.noMedia"] = "ಯಾವುದೇ ಮೀಡಿಯಾ ಪ್ಲೇ ಆಗುತ್ತಿಲ್ಲ -- ಆರಂಭ ಗುರುತಿಸಲಾಗದು.",
-    ["markStart.armed"] = "ನಿಮ್ಮಲ್ಲಿ ಉಳಿಸದ ರ್ಯಾಲಿ ಇದೆ (ಆರಂಭ -> ಅಂತ್ಯ). ಹೊಸ ಆರಂಭ ಗುರುತಿಸುವ ಮುನ್ನ ಅದನ್ನು ಇಡಲು 'ರ್ಯಾಲಿ ಉಳಿಸಿ' ಕ್ಲಿಕ್ ಮಾಡಿ, ಅಥವಾ ತೆರವುಗೊಳಿಸಲು 'ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ'. (ಆರಂಭ ಕ್ಷೇತ್ರವನ್ನು ಕೈಯಿಂದಲೂ ಸಂಪಾದಿಸಬಹುದು.)",
-    ["markStart.set"] = "ಆರಂಭ @ {clock} ನಲ್ಲಿ ಸೆಟ್ ಆಯಿತು. ರ್ಯಾಲಿಯ ಅಂತ್ಯದವರೆಗೆ ಪ್ಲೇ ಮಾಡಿ, ನಂತರ ಅಂತ್ಯ ಗುರುತಿಸಿ.",
-    ["markEnd.noMedia"] = "ಯಾವುದೇ ಮೀಡಿಯಾ ಪ್ಲೇ ಆಗುತ್ತಿಲ್ಲ -- ಅಂತ್ಯ ಗುರುತಿಸಲಾಗದು.",
-    ["markEnd.set"] = "ಅಂತ್ಯ @ {clock} ನಲ್ಲಿ ಸೆಟ್ ಆಯಿತು. ಮುಗಿದ ಕಾರಣ ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ರ್ಯಾಲಿ ಉಳಿಸಿ ಕ್ಲಿಕ್ ಮಾಡಿ.",
-    ["save.needStart"] = "ಮೊದಲು ಆರಂಭ ಸಮಯ ಸೆಟ್ ಮಾಡಿ (ಆರಂಭ ಗುರುತಿಸಿ ಕ್ಲಿಕ್ ಮಾಡಿ).",
-    ["save.needEnd"] = "ಮೊದಲು ಅಂತ್ಯ ಸಮಯ ಸೆಟ್ ಮಾಡಿ (ಅಂತ್ಯ ಗುರುತಿಸಿ ಕ್ಲಿಕ್ ಮಾಡಿ).",
-    ["save.zeroLen"] = "ಅಂತ್ಯವು ಆರಂಭಕ್ಕಿಂತ ನಂತರ ಇರಬೇಕು (ರ್ಯಾಲಿ > 0ಸೆ ಇರಬೇಕು).",
-    ["save.writeFailed"] = "ಬರೆಯುವಿಕೆ ವಿಫಲವಾಯಿತು: {err}",
-    ["save.updated"] = "ರ್ಯಾಲಿ #{n} ಅಪ್‌ಡೇಟ್ ಆಯಿತು: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["save.duplicate"] = "ರ್ಯಾಲಿ #{n} ಈಗಾಗಲೇ ಇದೆ -- \"ಮುಂದಿನ ರ್ಯಾಲಿ #\" ಅನ್ನು ಖಾಲಿ ಸಂಖ್ಯೆಗೆ ಸೆಟ್ ಮಾಡಿ.",
-    ["save.saved"] = "ರ್ಯಾಲಿ #{n} ಉಳಿಸಲಾಯಿತು: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["edit.armedGuard"] = "ಮತ್ತೊಂದನ್ನು ಸಂಪಾದಿಸುವ ಮುನ್ನ ಪ್ರಸ್ತುತ ರ್ಯಾಲಿಯನ್ನು ಮುಗಿಸಿ ('ರ್ಯಾಲಿ ಉಳಿಸಿ') ಅಥವಾ ತೆರವುಗೊಳಿಸಿ ('ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ') -- ನಿಮ್ಮ ಉಳಿಸದ ಆರಂಭ -> ಅಂತ್ಯ ಕಳೆದುಹೋಗುತ್ತದೆ.",
-    ["edit.needSelect"] = "ಮೊದಲು ಇತ್ತೀಚಿನ ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ರ್ಯಾಲಿ ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ಆಯ್ದದ್ದನ್ನು ಸಂಪಾದಿಸಿ.",
-    ["edit.notFound"] = "ರ್ಯಾಲಿ #{n} ಸಿಗಲಿಲ್ಲ (ರಿಫ್ರೆಶ್ ಪ್ರಯತ್ನಿಸಿ).",
-    ["edit.editing"] = "ರ್ಯಾಲಿ #{n} ಸಂಪಾದಿಸುತ್ತಿದೆ. ಆರಂಭ/ಅಂತ್ಯ/ಕಾರಣ ಸರಿಹೊಂದಿಸಿ, ನಂತರ ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ. (ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ ರದ್ದು ಮಾಡುತ್ತದೆ.)",
-    ["del.needSelect"] = "ಮೊದಲು ಇತ್ತೀಚಿನ ಪಟ್ಟಿಯಲ್ಲಿ ಒಂದು ರ್ಯಾಲಿ ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ಆಯ್ದದ್ದನ್ನು ಅಳಿಸಿ.",
-    ["del.deleted"] = "ರ್ಯಾಲಿ #{n} ಅಳಿಸಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["undo.cancelled"] = "ಸಂಪಾದನೆ ರದ್ದಾಯಿತು.",
-    ["undo.cleared"] = "ಪ್ರಗತಿಯಲ್ಲಿರುವ ಆರಂಭ/ಅಂತ್ಯ ತೆರವಾಯಿತು (ಏನೂ ಬರೆಯಲಾಗಲಿಲ್ಲ).",
-    ["undo.nothing"] = "ರದ್ದುಗೊಳಿಸಲು ಏನೂ ಇಲ್ಲ.",
-    ["undo.removed"] = "ಕೊನೆಯ ರ್ಯಾಲಿ #{n} ತೆಗೆಯಲಾಯಿತು. {count} ಉಳಿದಿವೆ.",
-    ["play.paused"] = "ವಿರಾಮಗೊಂಡಿದೆ. ಟಿಪ್ಪಣಿ ಮಾಡಿ (ಅಥವಾ ಆರಂಭ/ಅಂತ್ಯ ಸೂಕ್ಷ್ಮ ಹೊಂದಿಸಿ), ನಂತರ ಮುಂದುವರಿಸಲು ಪ್ಲೇ / ವಿರಾಮ.",
-    ["play.resumed"] = "ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯಿತು.",
-    ["play.started"] = "ಪ್ಲೇಬ್ಯಾಕ್ ಆರಂಭವಾಯಿತು.",
-    ["play.noMedia"] = "ಪ್ಲೇ ಮಾಡಲು ಯಾವುದೇ ಮೀಡಿಯಾ ಲೋಡ್ ಆಗಿಲ್ಲ.",
-    ["sync.editFirst"] = "ರಿಫ್ರೆಶ್ ಮಾಡುವ ಮುನ್ನ ಪ್ರಸ್ತುತ ಸಂಪಾದನೆಯನ್ನು ಮುಗಿಸಿ (ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ) ಅಥವಾ ರದ್ದು ಮಾಡಿ (ಕೊನೆಯದನ್ನು ರದ್ದುಗೊಳಿಸಿ).",
-    ["sync.noMedia"] = "ಯಾವುದೇ ಮೀಡಿಯಾ ಪ್ಲೇ ಆಗುತ್ತಿಲ್ಲ -- ಇನ್ನೂ ಈ CSV ಬಳಸುತ್ತಿದೆ. ವೀಡಿಯೋ ತೆರೆಯಿರಿ, ನಂತರ ರಿಫ್ರೆಶ್ ಕ್ಲಿಕ್ ಮಾಡಿ.",
-    ["sync.refreshed"] = "ರಿಫ್ರೆಶ್ ಆಯಿತು. ಈ ವೀಡಿಯೋಗಾಗಿ {count} ರ್ಯಾಲಿಗಳು ಲೋಡ್ ಆದವು.",
-    ["sync.switched"] = "ಪ್ರಸ್ತುತ ವೀಡಿಯೋಗೆ ಬದಲಾಯಿತು. {count} ಅಸ್ತಿತ್ವದ ರ್ಯಾಲಿಗಳು ಲೋಡ್ ಆದವು; ಮುಂದಿನದು #{n}.",
-    ["activate.fallback"] = "ಇನ್ನೂ ಯಾವುದೇ ವೀಡಿಯೋ ಪತ್ತೆಯಾಗಿಲ್ಲ. ವೀಡಿಯೋ ತೆರೆಯಿರಿ/ಪ್ಲೇ ಮಾಡಿ, ನಂತರ ಆರಂಭ ಗುರುತಿಸಿ ಕ್ಲಿಕ್ ಮಾಡಿ -- ಸಾಧನವು ಆ ವೀಡಿಯೋದ ಸ್ವಂತ .rallies.csv ಗೆ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಬದಲಾಗುತ್ತದೆ (ಮತ್ತು ಅದಕ್ಕಾಗಿ ಈಗಾಗಲೇ ಉಳಿಸಿದ ಯಾವುದೇ ರ್ಯಾಲಿಗಳನ್ನು ಲೋಡ್ ಮಾಡುತ್ತದೆ). ಸಲಹೆ: ಮೊದಲು ವೀಡಿಯೋ ತೆರೆಯಿರಿ, ನಂತರ ಈ ವಿಸ್ತರಣೆ ಸಕ್ರಿಯಗೊಳಿಸಿ.",
-    ["activate.resumed"] = "ಈ ವೀಡಿಯೋ ಮುಂದುವರಿಯಿತು: {count} ಅಸ್ತಿತ್ವದ ರ್ಯಾಲಿಗಳು ಲೋಡ್ ಆದವು (ಮುಂದಿನದು #{n}). ಮಾರ್ಗದರ್ಶಿಗಾಗಿ ಸಹಾಯ ಕ್ಲಿಕ್ ಮಾಡಿ.",
-    ["activate.ready"] = "ಸಿದ್ಧ. ಕ್ರೀಡೆ ಆಯ್ಕೆಮಾಡಿ, ನಂತರ ರ್ಯಾಲಿಗಳನ್ನು ಗುರುತಿಸಿ. ಬಳಕೆ + ಮುಗಿದ-ಕಾರಣ ಮಾರ್ಗದರ್ಶಿಗಾಗಿ ಸಹಾಯ ಕ್ಲಿಕ್ ಮಾಡಿ.",
-    ["help.html"] = "<b>Rally Annotator &mdash; ಬಳಸುವುದು ಹೇಗೆ</b><br>\n<b>ಪ್ಲೇಬ್ಯಾಕ್:</b> <b>5ಸೆ ಹಿಂದೆ / ಪ್ಲೇ / ವಿರಾಮ / 5ಸೆ ಮುಂದೆ</b> ಸಾಲು VLC ಪ್ಲೇಯರ್ ಅನ್ನು ಇಲ್ಲಿಂದಲೇ ನಡೆಸುತ್ತದೆ &mdash; <b>ಪ್ಲೇ / ವಿರಾಮ</b> ಒಂದೇ ಟಾಗಲ್ (ಮುಖ್ಯ VLC ವಿಂಡೋಗೆ ಬದಲಾಯಿಸದೆ ವಿರಾಮಗೊಳಿಸಿ, ಟಿಪ್ಪಣಿ ಹಾಕಿ, ಮತ್ತೆ ಮುಂದುವರಿಸಿ).<br>\n1. <b>ಕ್ರೀಡೆ</b> ಅನ್ನು ಆಯ್ಕೆಮಾಡಿ (ಮೇಲ್ಭಾಗ). ಇದು ರ‍್ಯಾಲಿಗಳಾದ್ಯಂತ ಹಾಗೆಯೇ ಉಳಿಯುತ್ತದೆ.<br>\n2. ರ‍್ಯಾಲಿ ಪ್ರಾರಂಭವಾದಾಗ, <b>ಪ್ರಾರಂಭ ಗುರುತಿಸಿ</b> ಒತ್ತಿ (ಫ್ರೇಮ್ ನಿಖರತೆಗಾಗಿ ಮೊದಲು ವಿರಾಮಗೊಳಿಸಿ/ಸ್ಕ್ರಬ್ ಮಾಡಿ &mdash; ಇದು ಪ್ರಸ್ತುತ ಪ್ಲೇಬ್ಯಾಕ್ ಸಮಯವನ್ನು ಪ್ರಾರಂಭ ಕ್ಷೇತ್ರಕ್ಕೆ ಸ್ನ್ಯಾಪ್‌ಶಾಟ್ ಮಾಡುತ್ತದೆ).<br>\n3. ರ‍್ಯಾಲಿ ಮುಗಿದಾಗ, <b>ಅಂತ್ಯ ಗುರುತಿಸಿ</b> ಒತ್ತಿ. ಆ ಕ್ಷೇತ್ರಗಳನ್ನು ನೇರವಾಗಿ ಸಂಪಾದಿಸುವ ಮೂಲಕ ನೀವು ಪ್ರಾರಂಭ/ಅಂತ್ಯ ಸೆಕೆಂಡುಗಳನ್ನು ಸೂಕ್ಷ್ಮವಾಗಿ ಹೊಂದಿಸಬಹುದು.<br>\n4. <b>ಅಂತ್ಯದ ಕಾರಣ</b> ಆಯ್ಕೆಮಾಡಿ (<b>ಅಂತ್ಯ ಗುರುತಿಸಿ</b> ಮತ್ತು <b>ರ‍್ಯಾಲಿ ಉಳಿಸಿ</b> ನಡುವಿನ ಪೆಟ್ಟಿಗೆ; ಅಥವಾ ಅದನ್ನು <b>unknown</b> ಆಗಿಯೇ ಬಿಡಿ), ಐಚ್ಛಿಕವಾಗಿ <b>ಹೊಡೆತಗಳ ಸಂಖ್ಯೆ</b> ಟೈಪ್ ಮಾಡಿ (ರ‍್ಯಾಲಿಯ ಹೊಡೆತ/ಸ್ಟ್ರೋಕ್ ಎಣಿಕೆ &mdash; ಬಿಟ್ಟುಬಿಡಲು ಖಾಲಿ ಬಿಡಿ), ನಂತರ <b>ರ‍್ಯಾಲಿ ಉಳಿಸಿ</b> ಒತ್ತಿ &mdash; ವೀಡಿಯೋದ ಪಕ್ಕದಲ್ಲಿ ಒಂದು CSV ಸಾಲು ಬರೆಯಲ್ಪಡುತ್ತದೆ.<br>\n5. ಪ್ರತಿ ಉಳಿಸುವಿಕೆಯ ನಂತರ ಕಾರಣವು <b>unknown</b> ಗೆ ಮರುಹೊಂದಿಸಲ್ಪಡುತ್ತದೆ (ಎಂದಿಗೂ ಮೌನವಾಗಿ ಮರುಬಳಕೆಯಾಗುವುದಿಲ್ಲ), ಮತ್ತು ಸತತ ರ‍್ಯಾಲಿಗಳಲ್ಲಿ ನೀವು ಅದೇ ಕಾರಣವನ್ನು ಆಯ್ಕೆಮಾಡಬಹುದು.<br>\n6. <b>ಇತ್ತೀಚಿನ ರ‍್ಯಾಲಿಗಳು</b>: ಒಂದು ಸಾಲನ್ನು ಆಯ್ಕೆಮಾಡಿ, ನಂತರ <b>ಆಯ್ದದ್ದನ್ನು ಸಂಪಾದಿಸಿ</b> (ಅದನ್ನು ಕ್ಷೇತ್ರಗಳಿಗೆ ಮರಳಿ ಲೋಡ್ ಮಾಡುತ್ತದೆ) ಅಥವಾ <b>ಆಯ್ದದ್ದನ್ನು ಅಳಿಸಿ</b>. <b>ಕೊನೆಯದನ್ನು ರದ್ದುಮಾಡಿ</b> ಅತ್ಯಂತ ಇತ್ತೀಚಿನ ಸಾಲನ್ನು ತೆಗೆದುಹಾಕುತ್ತದೆ (ಬಟನ್ ಯಾವುದನ್ನು ತೋರಿಸುತ್ತದೆ, ಉದಾ. <i>ಕೊನೆಯದನ್ನು ರದ್ದುಮಾಡಿ (#7)</i>), ಅಥವಾ ಪ್ರಗತಿಯಲ್ಲಿರುವ ಗುರುತನ್ನು ತೆರವುಗೊಳಿಸುತ್ತದೆ, ಅಥವಾ ಸಂಪಾದನೆಯನ್ನು ರದ್ದುಗೊಳಿಸುತ್ತದೆ.<br>\n7. <b>ನಂತರ ಮುಂದುವರಿಸುವುದು:</b> ನೀವು ಮುಂದುವರಿದಂತೆ ಲೇಬಲ್‌ಗಳು ವೀಡಿಯೋದ ಪಕ್ಕದಲ್ಲಿನ CSV ಗೆ ಉಳಿಸಲ್ಪಡುತ್ತವೆ. ಅದೇ ವೀಡಿಯೋವನ್ನು ಮತ್ತೆ ತೆರೆದು ಎಕ್ಸ್‌ಟೆನ್ಶನ್ ಅನ್ನು ಸಕ್ರಿಯಗೊಳಿಸಿ &mdash; ಇದು ನಿಮ್ಮ ಅಸ್ತಿತ್ವದಲ್ಲಿರುವ ರ‍್ಯಾಲಿಗಳನ್ನು ಮರುಲೋಡ್ ಮಾಡುತ್ತದೆ ಮತ್ತು ಸಂಖ್ಯೆ ಮುಂದುವರಿಸುತ್ತದೆ. ಯಾವುದೇ ಮೌಲ್ಯದಿಂದ ಸಂಖ್ಯೆಯನ್ನು ಮುಂದುವರಿಸಲು <b>ಮುಂದಿನ ರ‍್ಯಾಲಿ #</b> ಕ್ಷೇತ್ರವನ್ನು ಹೊಂದಿಸಿ (ಉದಾ. 1ರಿಂದ ಮರುಪ್ರಾರಂಭಿಸಿ, ಅಥವಾ 50ರಿಂದ ಮುಂದುವರಿಸಿ); ಪ್ರತಿ ಉಳಿಸುವಿಕೆಯ ನಂತರ ಇದು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಮುಂದುವರಿಯುತ್ತದೆ. ಈ ಡೈಲಾಗ್ ತೆರೆದಿರುವಾಗ ನೀವು ವೀಡಿಯೋಗಳನ್ನು ಬದಲಾಯಿಸಿದರೆ, ಪ್ರಸ್ತುತ ವೀಡಿಯೋದ ರ‍್ಯಾಲಿಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು <b>ರಿಫ್ರೆಶ್</b> ಒತ್ತಿ. (ವೀಡಿಯೋದ ಪ್ಲೇಬ್ಯಾಕ್ ಸ್ಥಾನವನ್ನು ಮರುಸ್ಥಾಪಿಸಲಾಗುವುದಿಲ್ಲ &mdash; ನೀವು ನಿಲ್ಲಿಸಿದಲ್ಲಿಗೆ ಸ್ಕ್ರಬ್ ಮಾಡಿ.)<br>\n<br>\n<b>ಅಂತ್ಯದ ಕಾರಣಗಳು &mdash; ಅವುಗಳ ಅರ್ಥವೇನು (ರ‍್ಯಾಲಿ ಏಕೆ ಮುಗಿಯಿತು ಎಂದು ಹೇಳುವದನ್ನು ಆಯ್ಕೆಮಾಡಿ).</b><br>\n<i>winner</i> ಹೊರತುಪಡಿಸಿ ಎಲ್ಲಾ ಕಾರಣಗಳನ್ನು ರ‍್ಯಾಲಿ ಸೋತ ಭಾಗಕ್ಕೆ ಹೊರಿಸಲಾಗುತ್ತದೆ.<br>\n&bull; <b>winner</b> &mdash; ಕೊನೆಯ ಹೊಡೆತವು ಒಳಗೆ ಬಿದ್ದು ಹಿಂದಿರುಗಿಸಲ್ಪಡಲಿಲ್ಲ (ಎದುರಾಳಿ ಅದನ್ನು ತಲುಪಲಾಗಲಿಲ್ಲ, ಅಥವಾ ಅದರ ಕಡೆ ಕೈಬೀಸಿದರಷ್ಟೆ). ಸ್ಪಷ್ಟವಾದ, ಮುಟ್ಟದ ಸರ್ವ್ (ಏಸ್) ಇಲ್ಲಿ ಎಣಿಕೆಯಾಗುತ್ತದೆ.<br>\n&bull; <b>forced_error</b> &mdash; ಸೋತವರು ಒತ್ತಡದಲ್ಲಿರುವಾಗ ತಪ್ಪಿಸಿಕೊಂಡರು (ಹೊರಗೆ, ಅಥವಾ ನೆಟ್‌ಗೆ): ಎಳೆದಾಡಿ, ಆತುರಪಟ್ಟು, ಒತ್ತರಿಸಲ್ಪಟ್ಟು, ಅಥವಾ ಎದುರಾಳಿಯ ವೇಗ/ಸ್ಪಿನ್/ಆಳವನ್ನು ನಿಭಾಯಿಸುತ್ತಾ. ಅವರನ್ನು ತಪ್ಪಿಸುವಂತೆ ಮಾಡಲಾಯಿತು.<br>\n&bull; <b>unforced_error</b> &mdash; ಸೋತವರು ಮಾಡಲು ಸಮಯ ಮತ್ತು ಸ್ಥಾನ ಎರಡೂ ಇದ್ದ ಸಾಮಾನ್ಯ ಹೊಡೆತವನ್ನು, ಕಡಿಮೆ ಅಥವಾ ಯಾವುದೇ ಒತ್ತಡವಿಲ್ಲದೆ ತಪ್ಪಿಸಿಕೊಂಡರು. ಅವರೇ ಅದನ್ನು ಕೊಟ್ಟುಬಿಟ್ಟರು.<br>\n&bull; <b>service_fault</b> &mdash; ಪಾಯಿಂಟ್ ಸರ್ವ್‌ನಲ್ಲಿ ಮುಗಿಯಿತು: ನೆಟ್‌ಗೆ ಸರ್ವ್, ಸರ್ವಿಸ್ ಬಾಕ್ಸ್‌ನಿಂದ ಹೊರಗೆ, ಅಕ್ರಮ ಕ್ರಿಯೆ/ಫೂಟ್ ಫಾಲ್ಟ್, ಅಥವಾ ಡಬಲ್ ಫಾಲ್ಟ್ (ಟೆನಿಸ್/ಪ್ಯಾಡೆಲ್).<br>\n&bull; <b>let</b> &mdash; ನಿಯಮಗಳ ಪ್ರಕಾರ ರ‍್ಯಾಲಿಯನ್ನು ಮತ್ತೆ ಆಡಲಾಗುತ್ತದೆ (ಪಾಯಿಂಟ್ ಇಲ್ಲ): ಉದಾ. ನೆಟ್ ಅನ್ನು ತಾಗಿ ಇಲ್ಲದಿದ್ದರೆ ಒಳ್ಳೆಯದಾಗಿರುವ ಟೆನಿಸ್/ಟೇಬಲ್-ಟೆನಿಸ್ ಸರ್ವ್, ಅಥವಾ ಹೊರಗಿನ ಹಸ್ತಕ್ಷೇಪ.<br>\n&bull; <b>other</b> &mdash; ಇನ್ನೇನಾದರೂ (ಮುಚ್ಚಿಹೋದ ಫೂಟೇಜ್, ಗಾಯ/ನಿವೃತ್ತಿ, ದಂಡ, ಅಡಚಣೆ). ಮಿತವಾಗಿ ಬಳಸಿ.<br>\n&bull; <b>unknown</b> &mdash; ಡೀಫಾಲ್ಟ್; ಈ ರ‍್ಯಾಲಿ ಇನ್ನೂ ವರ್ಗೀಕರಿಸಲ್ಪಟ್ಟಿಲ್ಲ (ಸಾಧ್ಯವಾದಾಗ ನಿರ್ದಿಷ್ಟ ಕಾರಣವನ್ನು ಆಯ್ಕೆಮಾಡಿ).<br>\n<br>\n<b>ತ್ವರಿತ ಪ್ರಕರಣಗಳು</b><br>\n&bull; ಬಾಲ್/ಶಟಲ್ <b>ಹೊರಗೆ</b> ಬೀಳುತ್ತದೆ (ಬೇಸ್‌ಲೈನ್ ದಾಟಿ / ಗೆರೆಗಳ ಹೊರಗೆ): ಇದು ಹೊಡೆದವರ ತಪ್ಪು &mdash; ಅವರು ಒತ್ತಡದಲ್ಲಿದ್ದರೆ <b>forced</b>, ಅದು ಆರಾಮದಾಯಕ ಬಾಲ್ ಆಗಿದ್ದರೆ <b>unforced</b>. (ಹೊರಗೆ ಎಂಬುದು ಸ್ವಯಂಚಾಲಿತವಾಗಿ forced ಅಲ್ಲ, ಮತ್ತು ಎದುರಾಳಿಗೆ ಎಂದಿಗೂ winner ಅಲ್ಲ.)<br>\n&bull; ರ‍್ಯಾಲಿಯ ಸಮಯದಲ್ಲಿ <b>ನೆಟ್‌ಗೆ</b>: ಅದೇ &mdash; ಒತ್ತಡದಲ್ಲಿದ್ದರೆ forced, ಸಾಮಾನ್ಯವಾಗಿದ್ದರೆ unforced. ನೆಟ್‌ಗೆ ಬಿದ್ದ <b>ಸರ್ವ್</b> <b>service_fault</b>.<br>\n&bull; <b>ನೆಟ್-ಕಾರ್ಡ್ ಅನ್ನು ತಾಗಿ ಮೇಲೆ ತೊಟ್ಟಿಕ್ಕಿ ಒಳಗೆ ಬೀಳುತ್ತದೆ</b>: ಜೀವಂತ ಮತ್ತು ಒಳ್ಳೆಯದು &mdash; ತಲುಪಲಾಗದಿದ್ದರೆ ಸಾಮಾನ್ಯವಾಗಿ <b>winner</b>, ಇಲ್ಲದಿದ್ದರೆ ಮುಂದೇನಾಗುತ್ತದೆ ಎಂದು ತೀರ್ಮಾನಿಸಿ. ಸರ್ವ್‌ನಲ್ಲಿ ಇದು ಕ್ರೀಡೆಗನುಸಾರ ಬದಲಾಗುತ್ತದೆ: ಟೆನಿಸ್/ಟೇಬಲ್-ಟೆನಿಸ್ = <b>let</b> (ಮತ್ತೆ ಆಡಿ); ನೆಟ್ ತಾಗಿ ಮೇಲೆ ದಾಟಿ ಒಳಗೆ ಬೀಳುವ ಬ್ಯಾಡ್ಮಿಂಟನ್ ಸರ್ವ್ = ಆಟ ಮುಂದುವರಿಸಿ (ಆದರೆ ನೆಟ್‌ನಲ್ಲಿ ಸಿಕ್ಕಿಕೊಂಡ ಸರ್ವ್ ಶಟಲ್ = service_fault); ಪಿಕಲ್‌ಬಾಲ್ (2026) = ಆಟ ಮುಂದುವರಿಸಿ.<br>\n&bull; <b>forced ಮತ್ತು unforced ನಡುವೆ ಖಚಿತವಿಲ್ಲವೇ?</b> ಡೀಫಾಲ್ಟ್ ಆಗಿ <b>unforced</b> ಆಯ್ಕೆಮಾಡಿ &mdash; ನಿರ್ದಿಷ್ಟ ಒತ್ತಡವನ್ನು ತೋರಿಸಲು ಸಾಧ್ಯವಾದಾಗ ಮಾತ್ರ forced ಎಂದು ಗುರುತಿಸಿ.<br>\n<br>\nಔಟ್‌ಪುಟ್: ವೀಡಿಯೋದ ಪಕ್ಕದಲ್ಲಿ <i>&lt;video&gt;.rallies.csv</i>. ಪೂರ್ಣ ಮಾರ್ಗದರ್ಶಿ: ರೆಪೋದಲ್ಲಿ docs/ENDING_REASONS.md.<br>\nಸ್ಥಿತಿ ಫಲಕಕ್ಕೆ ಮರಳಲು <b>ಸಹಾಯ ಮರೆಮಾಡಿ</b> ಒತ್ತಿ.",
-  },
-  ["hi"] = {
-    ["label.sport"] = "खेल:",
-    ["btn.saveTarget"] = "लक्ष्य प्रोफ़ाइल सहेजें",
-    ["btn.deleteProfile"] = "प्रोफ़ाइल हटाएँ",
-    ["btn.saveReview"] = "समीक्षा सहेजें",
-    ["btn.saveReviewN"] = "समीक्षा सहेजें (#{n})",
-    ["label.cameraSection"] = "कैमरा सेक्शन ID:",
-    ["label.cameraProfile"] = "कैमरा प्रोफ़ाइल ID:",
-    ["label.polygon"] = "खेल क्षेत्र (x,y 0-1):",
-    ["label.setupValidity"] = "सेटअप वैधता:",
-    ["label.profiles"] = "लक्ष्य प्रोफ़ाइलें (लोड करने के लिए एक पर क्लिक करें):",
-    ["label.targetState"] = "क्या लक्ष्य कोर्ट पर रैली चल रही थी?",
-    ["label.recentReviews"] = "समीक्षाएँ (एक पर क्लिक करें, फिर हटाएँ):",
-    ["validity.supported"] = "समर्थित",
-    ["validity.unsupported"] = "असमर्थित",
-    ["validity.unclear"] = "अस्पष्ट",
-    ["state.rallying"] = "रैली चल रही है",
-    ["state.not_rallying"] = "रैली नहीं",
-    ["state.unclear"] = "अस्पष्ट",
-    ["target.volumeSummary"] = "खेल क्षेत्र: {n} कोने, फ़्रेम का {pct}% घेरता है।",
-    ["target.volumeEmpty"] = "अभी कोई खेल क्षेत्र दर्ज नहीं है।",
-    ["target.volumeInvalid"] = "खेल क्षेत्र अभी उपयोग योग्य नहीं — {why}",
-    ["target.saved"] = "लक्ष्य प्रोफ़ाइल '{section}' सहेजी गई ({n}-बिंदु खेल क्षेत्र, फ़्रेम का {pct}%)।",
-    ["target.deleted"] = "लक्ष्य प्रोफ़ाइल '{section}' हटाई गई।",
-    ["target.needSelect"] = "पहले सूची में एक लक्ष्य प्रोफ़ाइल पर क्लिक करें।",
-    ["target.needSection"] = "कैमरा सेक्शन ID आवश्यक है - यह उस स्थिर सेक्शन की पहचान करता है जिसका यह प्रोफ़ाइल वर्णन करता है।",
-    ["target.needCourt"] = "लक्ष्य कोर्ट ID आवश्यक है - वही नंबर उपयोग करें जो स्थल ने कोर्ट पर लिखा है।",
-    ["target.duplicateSection"] = "कैमरा सेक्शन '{section}' के पास पहले से एक लक्ष्य प्रोफ़ाइल है - दोबारा सहेजने पर वह बदल जाएगी।",
-    ["target.polygonSyntax"] = "खेल क्षेत्र '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' जैसे बिंदुओं में होना चाहिए।",
-    ["target.polygonTooFewPoints"] = "खेल क्षेत्र के लिए कम से कम 3 बिंदु चाहिए (सामान्य चतुर्भुज के लिए 4)।",
-    ["target.polygonRange"] = "खेल क्षेत्र के निर्देशांक सामान्यीकृत हैं: हर x और y 0 और 1 के बीच होना चाहिए, पिक्सेल नहीं।",
-    ["target.polygonSelfIntersecting"] = "खेल क्षेत्र स्वयं को काटता है — कोने गलत क्रम में हैं, इसलिए यह कुछ भी घेरता नहीं। कोर्ट के चारों ओर क्रम से दोबारा चुनें।",
-    ["target.needProfile"] = "पहले एक लक्ष्य प्रोफ़ाइल सहेजें - समीक्षा एक कैमरा सेक्शन के बारे में उत्तर देती है।",
-    ["review.saved"] = "समीक्षा #{n} सहेजी गई: {s} → {e} [{state}]।",
-    ["review.deleted"] = "समीक्षा #{n} हटाई गई। {count} शेष।",
-    ["review.removed"] = "अंतिम समीक्षा #{n} हटाई गई। {count} शेष।",
-    ["review.nothing"] = "हटाने के लिए कोई समीक्षा नहीं।",
-    ["legacy.windowsPresent"] = "इस क्लिप के लिए एक पुरानी पड़ोसी-कोर्ट विंडो फ़ाइल मौजूद है। वह केवल नैदानिक सामग्री है: यहाँ न पढ़ी जाती है, न बदली जाती है, न आयात होती है।",
-    ["nav.target"] = "लक्ष्य",
-    ["nav.review"] = "समीक्षा",
-    ["btn.loadProfile"] = "चयनित लोड करें",
-    ["target.loaded"] = "लक्ष्य प्रोफ़ाइल '{section}' लोड हुई। फ़ील्ड संपादित करें, फिर लक्ष्य प्रोफ़ाइल सहेजें।",
-    ["target.mode"] = "लक्ष्य प्रोफ़ाइलें: {count} सहेजी गईं। हर स्थिर कैमरा सेक्शन के लिए एक।",
-    ["review.mode"] = "विरल समीक्षा: बताएँ कि लक्ष्य कोर्ट पर रैली चल रही थी या नहीं। कोई कोटा नहीं, कोई पूरा पास नहीं।",
-    ["nav.rallies"] = "रैलियाँ",
-    ["nav.clip"] = "क्लिप जानकारी",
-    ["label.venue"] = "स्थल ID:",
-    ["label.cameraSetup"] = "कैमरा सेटअप ID:",
-    ["label.courtsVisible"] = "दिखने वाले कोर्ट:",
-    ["label.courtsActive"] = "खेल वाले कोर्ट:",
-    ["label.courtsPartial"] = "केवल आंशिक रूप से दिखने वाले:",
-    ["label.targetCourt"] = "लक्ष्य कोर्ट ID:",
-    ["label.matchFormat"] = "मैच प्रारूप:",
-    ["label.captureTime"] = "रिकॉर्डिंग समय (UTC):",
-    ["label.notes"] = "टिप्पणियाँ:",
-    ["fmt.unset"] = "(सेट नहीं)",
-    ["fmt.singles"] = "एकल",
-    ["fmt.doubles"] = "युगल",
-    ["fmt.mixed"] = "मिश्रित",
-    ["btn.saveClip"] = "क्लिप जानकारी सहेजें",
-    ["clip.saved"] = "क्लिप जानकारी सहेजी गई: {summary}",
-    ["clip.savedNoFormat"] = "क्लिप जानकारी सहेजी गई: {summary} — लेकिन मैच फ़ॉर्मैट अब भी (सेट नहीं) है, इसलिए यह क्लिप सिंगल्स/डबल्स दर्ज नहीं करती। एक चुनकर दोबारा सहेजें; केवल तभी छोड़ें जब वाकई पता न चल रहा हो।",
-    ["clip.savedPickerWins"] = "कैमरा सूची का चयन सहेजा गया; साथ दिया गया फ़्री-टेक्स्ट कैमरा मान नहीं सहेजा गया। कस्टम मान सहेजने के लिए पहले सूची का चयन साफ़ करें।",
-    ["clip.loaded"] = "इस वीडियो के लिए पहले से दर्ज क्लिप जानकारी लोड की गई।",
-    ["clip.prefilled"] = "उसी फ़ोल्डर के {source} से पहले से भरा गया। जाँचकर सहेजें; कुछ भी अपने-आप नहीं लिखा गया।",
-    ["clip.invalidActive"] = "खेल वाले कोर्ट ({active}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते -- फ्रेम में हुए बिना कोई कोर्ट खेल में नहीं हो सकता।",
-    ["clip.invalidPartial"] = "आंशिक रूप से दिखने वाले ({partial}) दिखने वाले कोर्ट ({visible}) से अधिक नहीं हो सकते।",
-    ["clip.invalidNumber"] = "{field} के लिए {min} या उससे बड़ी पूर्ण संख्या चाहिए -- या 'जाँचा नहीं गया' दर्ज करने के लिए इसे खाली छोड़ें।",
-    ["clip.captureUnknown"] = "(यहाँ पढ़ा नहीं जा सकता -- आयात के समय कंटेनर से लिया जाता है)",
-    ["cov.line"] = "{dur}से में से {to}से तक लेबल ({pct}% विस्तार)  |  बिना लेबल का अंत {tail}से  |  सबसे बड़ा अंतराल {gap}से",
-    ["cov.tail"] = "चेतावनी: अंत में {tail}से पर कोई लेबल नहीं है। यदि वहाँ खेल जारी है तो यह पास अधूरा है ({limit}से से अधिक पर आयात रुक जाता है)।",
-    ["cov.span"] = "ध्यान दें: लेबल क्लिप के {limit}% से कम में फैले हैं -- लंबे निष्क्रिय अंत के लिए सामान्य, बाधित पास के लिए चेतावनी।",
-    ["cov.unknown"] = "क्लिप की अवधि अज्ञात -- कोई पूर्णता रीडआउट नहीं (कभी अनुमान नहीं)।",
-    ["label.start"] = "शुरू (से):",
-    ["label.end"] = "समाप्त (से):",
-    ["label.next"] = "अगली रैली #:",
-    ["label.shots"] = "शॉट्स की संख्या:",
-    ["label.reason"] = "समाप्ति का कारण:",
-    ["label.recent"] = "हाल की रैलियाँ (एक चुनें, फिर संपादित/हटाएँ):",
-    ["label.language"] = "भाषा:",
-    ["btn.help"] = "मदद",
-    ["btn.hideHelp"] = "मदद छिपाएँ",
-    ["btn.back5"] = "5सै पीछे",
-    ["btn.playPause"] = "चलाएँ / रोकें",
-    ["btn.fwd5"] = "5सै आगे",
-    ["btn.markStart"] = "शुरू चिह्नित करें",
-    ["btn.markEnd"] = "समाप्त चिह्नित करें",
-    ["btn.reMarkStart"] = "शुरू फिर चिह्नित करें (#{n})",
-    ["btn.reMarkEnd"] = "समाप्त फिर चिह्नित करें (#{n})",
-    ["btn.saveRally"] = "रैली सहेजें",
-    ["btn.saveRallyN"] = "रैली सहेजें (#{n})",
-    ["btn.saveChangesN"] = "बदलाव सहेजें (#{n})",
-    ["btn.edit"] = "चयनित संपादित करें",
-    ["btn.delete"] = "चयनित हटाएँ",
-    ["btn.undo"] = "पिछला पूर्ववत करें",
-    ["btn.undoCancelEdit"] = "पिछला पूर्ववत करें (संपादन रद्द)",
-    ["btn.undoClearMark"] = "पिछला पूर्ववत करें (चिह्न हटाएँ)",
-    ["btn.undoN"] = "पिछला पूर्ववत करें (#{n})",
-    ["btn.refresh"] = "ताज़ा करें",
-    ["reason.unknown"] = "अज्ञात",
-    ["reason.winner"] = "विनर",
-    ["reason.forced_error"] = "दबाव में गलती",
-    ["reason.unforced_error"] = "बेवजह गलती",
-    ["reason.service_fault"] = "सर्विस फॉल्ट",
-    ["reason.let"] = "लेट",
-    ["reason.other"] = "अन्य",
-    ["sport.badminton"] = "बैडमिंटन",
-    ["sport.tennis"] = "टेनिस",
-    ["sport.table_tennis"] = "टेबल टेनिस",
-    ["sport.pickleball"] = "पिकलबॉल",
-    ["sport.padel"] = "पैडल",
-    ["status.modeEdit"] = "मोड: रैली #{n} संपादित कर रहे हैं  (पुष्टि के लिए बदलाव सहेजें, रद्द के लिए पिछला पूर्ववत करें)।",
-    ["status.modeNew"] = "मोड: नई रैली  (शुरू चिह्नित करें, समाप्त चिह्नित करें, कारण चुनें, रैली सहेजें)।",
-    ["status.lastRow"] = "अंतिम पंक्ति (जिसे पूर्ववत हटाता है): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "अभी: {clock}  |  CSV में रैलियाँ: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "कोई मीडिया नहीं चल रहा -- सीक नहीं कर सकते।",
-    ["seek.noTime"] = "सीक करने के लिए कोई प्लेबैक समय उपलब्ध नहीं।",
-    ["seek.done"] = "सीक {delta}सै  ->  {clock}।",
-    ["markStart.noMedia"] = "कोई मीडिया नहीं चल रहा -- शुरू चिह्नित नहीं कर सकते।",
-    ["markStart.armed"] = "आपके पास एक बिना सहेजी रैली है (शुरू -> समाप्त)। नई शुरू चिह्नित करने से पहले इसे रखने के लिए 'रैली सहेजें' पर क्लिक करें, या हटाने के लिए 'पिछला पूर्ववत करें'। (आप शुरू फ़ील्ड को हाथ से भी संपादित कर सकते हैं।)",
-    ["markStart.set"] = "शुरू सेट @ {clock}। रैली के अंत तक चलाएँ, फिर समाप्त चिह्नित करें।",
-    ["markEnd.noMedia"] = "कोई मीडिया नहीं चल रहा -- समाप्त चिह्नित नहीं कर सकते।",
-    ["markEnd.set"] = "समाप्त सेट @ {clock}। समाप्ति का कारण चुनें, फिर रैली सहेजें पर क्लिक करें।",
-    ["save.needStart"] = "पहले शुरू समय सेट करें (शुरू चिह्नित करें पर क्लिक करें)।",
-    ["save.needEnd"] = "पहले समाप्त समय सेट करें (समाप्त चिह्नित करें पर क्लिक करें)।",
-    ["save.zeroLen"] = "समाप्त, शुरू से बाद का होना चाहिए (रैली > 0सै होनी चाहिए)।",
-    ["save.writeFailed"] = "लिखने में विफल: {err}",
-    ["save.updated"] = "रैली #{n} अपडेट हुई: {start} -> {end}  [{reason}, {sport}{shots}]।",
-    ["save.duplicate"] = "रैली #{n} पहले से मौजूद है -- \"अगली रैली #\" को किसी खाली नंबर पर सेट करें।",
-    ["save.saved"] = "रैली #{n} सहेजी गई: {start} -> {end}  [{reason}, {sport}{shots}]।",
-    ["edit.armedGuard"] = "दूसरी रैली संपादित करने से पहले मौजूदा रैली पूरी करें ('रैली सहेजें') या उसे हटाएँ ('पिछला पूर्ववत करें') -- आपकी बिना सहेजी शुरू -> समाप्त खो जाएगी।",
-    ["edit.needSelect"] = "पहले हाल की सूची में एक रैली चुनें, फिर चयनित संपादित करें।",
-    ["edit.notFound"] = "रैली #{n} नहीं मिली (ताज़ा करें आज़माएँ)।",
-    ["edit.editing"] = "रैली #{n} संपादित कर रहे हैं। शुरू/समाप्त/कारण समायोजित करें, फिर बदलाव सहेजें। (पिछला पूर्ववत करें रद्द करता है।)",
-    ["del.needSelect"] = "पहले हाल की सूची में एक रैली चुनें, फिर चयनित हटाएँ।",
-    ["del.deleted"] = "रैली #{n} हटाई गई। {count} शेष।",
-    ["undo.cancelled"] = "संपादन रद्द किया गया।",
-    ["undo.cleared"] = "प्रगति में चल रही शुरू/समाप्त हटाई गई (कुछ भी नहीं लिखा गया)।",
-    ["undo.nothing"] = "पूर्ववत करने के लिए कुछ नहीं।",
-    ["undo.removed"] = "अंतिम रैली #{n} हटाई गई। {count} शेष।",
-    ["play.paused"] = "रुका हुआ। एनोटेट करें (या शुरू/समाप्त को बारीकी से सेट करें), फिर जारी रखने के लिए चलाएँ / रोकें।",
-    ["play.resumed"] = "प्लेबैक फिर शुरू हुआ।",
-    ["play.started"] = "प्लेबैक शुरू हुआ।",
-    ["play.noMedia"] = "चलाने के लिए कोई मीडिया लोड नहीं है।",
-    ["sync.editFirst"] = "ताज़ा करने से पहले मौजूदा संपादन पूरा करें (बदलाव सहेजें) या रद्द करें (पिछला पूर्ववत करें)।",
-    ["sync.noMedia"] = "कोई मीडिया नहीं चल रहा -- अभी भी इसी CSV का उपयोग हो रहा है। वीडियो खोलें, फिर ताज़ा करें पर क्लिक करें।",
-    ["sync.refreshed"] = "ताज़ा किया गया। इस वीडियो के लिए {count} रैलियाँ लोड हुईं।",
-    ["sync.switched"] = "मौजूदा वीडियो पर स्विच किया गया। {count} मौजूदा रैलियाँ लोड हुईं; अगली #{n} है।",
-    ["activate.fallback"] = "अभी तक कोई वीडियो नहीं मिला। वीडियो खोलें/चलाएँ, फिर शुरू चिह्नित करें पर क्लिक करें -- टूल स्वतः उस वीडियो की अपनी .rallies.csv पर स्विच कर जाएगा (और उसके लिए पहले से सहेजी कोई भी रैलियाँ लोड करेगा)। सुझाव: पहले वीडियो खोलें, फिर इस एक्सटेंशन को सक्षम करें।",
-    ["activate.resumed"] = "इस वीडियो को फिर शुरू किया: {count} मौजूदा रैलियाँ लोड हुईं (अगली #{n} है)। गाइड के लिए मदद पर क्लिक करें।",
-    ["activate.ready"] = "तैयार। खेल चुनें, फिर रैलियाँ चिह्नित करें। उपयोग + समाप्ति-कारण गाइड के लिए मदद पर क्लिक करें।",
-    ["help.html"] = "<b>Rally Annotator &mdash; उपयोग कैसे करें</b><br>\n<b>प्लेबैक:</b> <b>5 सेकंड पीछे / चलाएँ / रोकें / 5 सेकंड आगे</b> पंक्ति यहीं से VLC प्लेयर को नियंत्रित करती है &mdash; <b>चलाएँ / रोकें</b> एक ही टॉगल है (मुख्य VLC विंडो पर स्विच किए बिना रोकें, लेबल करें और फिर से चलाएँ)।<br>\n1. <b>खेल</b> (सबसे ऊपर) चुनें। यह सभी रैलियों में सेट रहता है।<br>\n2. जब कोई रैली शुरू हो, तो <b>शुरुआत चिह्नित करें</b> पर क्लिक करें (फ़्रेम-सटीकता के लिए पहले रोकें/स्क्रब करें &mdash; यह वर्तमान प्लेबैक समय को Start फ़ील्ड में सहेज लेता है)।<br>\n3. जब रैली समाप्त हो, तो <b>समाप्ति चिह्नित करें</b> पर क्लिक करें। आप उन फ़ील्ड्स को सीधे संपादित करके Start/End सेकंड को बारीकी से समायोजित कर सकते हैं।<br>\n4. <b>समाप्ति कारण</b> चुनें (<b>समाप्ति चिह्नित करें</b> और <b>रैली सहेजें</b> के बीच वाला बॉक्स; या इसे <b>unknown</b> ही रहने दें), वैकल्पिक रूप से <b>शॉट्स की संख्या</b> टाइप करें (रैली में शॉट/स्ट्रोक की गिनती &mdash; छोड़ने के लिए खाली रखें), फिर <b>रैली सहेजें</b> पर क्लिक करें &mdash; वीडियो के बगल में एक CSV पंक्ति लिखी जाती है।<br>\n5. हर सहेजने के बाद कारण <b>unknown</b> पर रीसेट हो जाता है (कभी भी चुपचाप दोबारा उपयोग नहीं होता), और आप लगातार रैलियों में वही कारण चुन सकते हैं।<br>\n6. <b>हाल की रैलियाँ</b>: एक पंक्ति चुनें, फिर <b>चयनित संपादित करें</b> (इसे वापस फ़ील्ड्स में लोड करता है) या <b>चयनित हटाएँ</b>। <b>अंतिम पूर्ववत करें</b> सबसे हाल की पंक्ति को हटाता है (बटन दिखाता है कि कौन-सी, जैसे <i>अंतिम पूर्ववत करें (#7)</i>), या किसी प्रगति-में चिह्न को साफ़ करता है, या किसी संपादन को रद्द करता है।<br>\n7. <b>बाद में फिर से शुरू करना:</b> जैसे-जैसे आप काम करते हैं, लेबल वीडियो के बगल वाली CSV में सहेजे जाते हैं। उसी वीडियो को फिर से खोलें और एक्सटेंशन सक्षम करें &mdash; यह आपकी मौजूदा रैलियाँ फिर से लोड कर लेता है और क्रमांकन जारी रखता है। किसी भी मान से क्रमांकन फिर से शुरू करने के लिए <b>अगली रैली #</b> फ़ील्ड सेट करें (जैसे 1 से फिर से शुरू करें, या 50 से जारी रखें); यह हर सहेजने के बाद स्वतः आगे बढ़ता है। यदि आप इस संवाद को खुला रखते हुए वीडियो बदलते हैं, तो वर्तमान वीडियो की रैलियाँ लोड करने के लिए <b>ताज़ा करें</b> पर क्लिक करें। (वीडियो की प्लेबैक स्थिति पुनर्स्थापित नहीं होती &mdash; जहाँ आपने रोका था वहाँ स्क्रब करें।)<br>\n<br>\n<b>समाप्ति कारण &mdash; इनका क्या अर्थ है (वह कारण चुनें जो बताता है कि रैली क्यों समाप्त हुई)।</b><br>\n<i>winner</i> को छोड़कर सभी कारण उस पक्ष के खाते में दर्ज होते हैं जो रैली हार गया।<br>\n&bull; <b>winner</b> &mdash; अंतिम शॉट IN गिरा और वापस नहीं लौटाया गया (प्रतिद्वंद्वी उस तक पहुँच नहीं सका, या केवल उसकी ओर हाथ हिलाया)। एक साफ़ बिना-छुआ सर्व (ace) यहीं गिना जाता है।<br>\n&bull; <b>forced_error</b> &mdash; हारने वाला दबाव में रहते हुए चूका (बाहर, या नेट में): खिंचा हुआ, जल्दबाज़ी में, फँसा हुआ, या प्रतिद्वंद्वी की गति/स्पिन/गहराई को संभालते हुए। उसे चूकने पर मजबूर किया गया।<br>\n&bull; <b>unforced_error</b> &mdash; हारने वाले ने एक सामान्य शॉट चूका जिसे खेलने के लिए उसके पास समय और स्थिति दोनों थे, बहुत कम या बिना किसी दबाव के। उसने खुद गलती की।<br>\n&bull; <b>service_fault</b> &mdash; अंक SERVE पर समाप्त हुआ: नेट में सर्व, सर्विस बॉक्स के बाहर, अवैध क्रिया/फुट फ़ॉल्ट, या डबल फ़ॉल्ट (टेनिस/पैडल)।<br>\n&bull; <b>let</b> &mdash; नियमों के अनुसार रैली फिर से खेली जाती है (कोई अंक नहीं): जैसे एक टेनिस/टेबल-टेनिस सर्व जो नेट को छूकर निकले और अन्यथा सही हो, या बाहरी हस्तक्षेप।<br>\n&bull; <b>other</b> &mdash; और कुछ भी (बाधित फ़ुटेज, चोट/संन्यास, पेनल्टी, बाधा)। संयम से उपयोग करें।<br>\n&bull; <b>unknown</b> &mdash; डिफ़ॉल्ट; इस रैली को अभी तक वर्गीकृत नहीं किया गया है (जब संभव हो तब कोई विशिष्ट कारण चुनें)।<br>\n<br>\n<b>त्वरित मामले</b><br>\n&bull; गेंद/शटल <b>OUT</b> गिरती है (बेसलाइन के पार / लाइनों के बाहर): यह मारने वाले की चूक है &mdash; <b>forced</b> यदि वह दबाव में था, <b>unforced</b> यदि वह एक आरामदायक गेंद थी। (OUT स्वतः forced नहीं होता, और प्रतिद्वंद्वी के लिए कभी winner नहीं होता।)<br>\n&bull; रैली के दौरान <b>नेट में</b>: वही &mdash; दबाव में हो तो forced, सामान्य हो तो unforced। नेट में किया गया <b>सर्व</b> <b>service_fault</b> है।<br>\n&bull; <b>नेट-कॉर्ड जो लुढ़ककर पार जाए और अंदर गिरे</b>: जीवित और सही &mdash; आमतौर पर <b>winner</b> यदि अपहुँच हो, अन्यथा आगे जो होता है उससे आँकें। SERVE पर यह खेल के अनुसार बदलता है: टेनिस/टेबल-टेनिस = <b>let</b> (फिर से खेलें); बैडमिंटन नेट-टिक जो ऊपर से पार जाकर अंदर गिरे = खेल जारी (पर नेट पर फँसी सर्व शटल = service_fault); पिकलबॉल (2026) = खेल जारी।<br>\n&bull; <b>forced बनाम unforced को लेकर अनिश्चित?</b> डिफ़ॉल्ट रूप से <b>unforced</b> रखें &mdash; forced तभी चिह्नित करें जब आप विशिष्ट दबाव की ओर इशारा कर सकें।<br>\n<br>\nआउटपुट: वीडियो के बगल में <i>&lt;video&gt;.rallies.csv</i>। पूरी गाइड: रिपॉज़िटरी में docs/ENDING_REASONS.md।<br>\nस्थिति पैनल पर लौटने के लिए <b>सहायता छिपाएँ</b> पर क्लिक करें।",
-  },
-  ["te"] = {
-    ["label.sport"] = "క్రీడ:",
-    ["btn.saveTarget"] = "లక్ష్య ప్రొఫైల్ సేవ్ చేయి",
-    ["btn.deleteProfile"] = "ప్రొఫైల్ తొలగించు",
-    ["btn.saveReview"] = "సమీక్ష సేవ్ చేయి",
-    ["btn.saveReviewN"] = "సమీక్ష సేవ్ చేయి (#{n})",
-    ["label.cameraSection"] = "కెమెరా విభాగం ID:",
-    ["label.cameraProfile"] = "కెమెరా ప్రొఫైల్ ID:",
-    ["label.polygon"] = "ఆట ప్రాంతం (x,y 0-1):",
-    ["label.setupValidity"] = "సెటప్ చెల్లుబాటు:",
-    ["label.profiles"] = "లక్ష్య ప్రొఫైల్‌లు (లోడ్ చేయడానికి ఒకదానిపై క్లిక్ చేయండి):",
-    ["label.targetState"] = "లక్ష్య కోర్టు ర్యాలీలో ఉందా?",
-    ["label.recentReviews"] = "సమీక్షలు (ఒకదానిపై క్లిక్ చేసి, తర్వాత తొలగించు):",
-    ["validity.supported"] = "మద్దతు ఉంది",
-    ["validity.unsupported"] = "మద్దతు లేదు",
-    ["validity.unclear"] = "అస్పష్టం",
-    ["state.rallying"] = "ర్యాలీ జరుగుతోంది",
-    ["state.not_rallying"] = "ర్యాలీ లేదు",
-    ["state.unclear"] = "అస్పష్టం",
-    ["target.volumeSummary"] = "ఆట ప్రాంతం: {n} మూలలు, ఫ్రేమ్‌లో {pct}% ఆక్రమిస్తుంది.",
-    ["target.volumeEmpty"] = "ఇంకా ఆట ప్రాంతం నమోదు కాలేదు.",
-    ["target.volumeInvalid"] = "ఆట ప్రాంతం ఇంకా ఉపయోగించలేము — {why}",
-    ["target.saved"] = "లక్ష్య ప్రొఫైల్ '{section}' సేవ్ అయింది ({n}-బిందువుల ఆట ప్రాంతం, ఫ్రేమ్‌లో {pct}%).",
-    ["target.deleted"] = "లక్ష్య ప్రొఫైల్ '{section}' తొలగించబడింది.",
-    ["target.needSelect"] = "ముందుగా జాబితాలో ఒక లక్ష్య ప్రొఫైల్‌పై క్లిక్ చేయండి.",
-    ["target.needSection"] = "కెమెరా విభాగం ID అవసరం - ఈ ప్రొఫైల్ వివరించే స్థిర విభాగాన్ని ఇది గుర్తిస్తుంది.",
-    ["target.needCourt"] = "లక్ష్య కోర్టు ID అవసరం - వేదిక కోర్టుపై రాసిన సంఖ్యను వాడండి.",
-    ["target.duplicateSection"] = "కెమెరా విభాగం '{section}' కు ఇప్పటికే లక్ష్య ప్రొఫైల్ ఉంది - మళ్లీ సేవ్ చేస్తే అది మారుతుంది.",
-    ["target.polygonSyntax"] = "ఆట ప్రాంతం '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98' వంటి బిందువులుగా ఉండాలి.",
-    ["target.polygonTooFewPoints"] = "ఆట ప్రాంతానికి కనీసం 3 బిందువులు కావాలి (సాధారణ చతుర్భుజానికి 4).",
-    ["target.polygonRange"] = "ఆట ప్రాంత నిర్దేశాంకాలు సాధారణీకరించబడ్డాయి: ప్రతి x, y 0 నుండి 1 మధ్య ఉండాలి, పిక్సెల్‌లు కాదు.",
-    ["target.polygonSelfIntersecting"] = "ఆట ప్రాంతం తనను తానే ఖండిస్తుంది — మూలలు తప్పు క్రమంలో ఉన్నాయి, కాబట్టి ఇది దేనినీ చుట్టుముట్టదు. కోర్టు చుట్టూ క్రమంగా మళ్లీ ఎంచుకోండి.",
-    ["target.needProfile"] = "ముందుగా లక్ష్య ప్రొఫైల్ సేవ్ చేయండి - సమీక్ష ఒక కెమెరా విభాగం గురించి సమాధానం ఇస్తుంది.",
-    ["review.saved"] = "సమీక్ష #{n} సేవ్ అయింది: {s} → {e} [{state}].",
-    ["review.deleted"] = "సమీక్ష #{n} తొలగించబడింది. {count} మిగిలాయి.",
-    ["review.removed"] = "చివరి సమీక్ష #{n} తీసివేయబడింది. {count} మిగిలాయి.",
-    ["review.nothing"] = "తీసివేయడానికి సమీక్షలు లేవు.",
-    ["legacy.windowsPresent"] = "ఈ క్లిప్‌కు పాత పొరుగు-కోర్టు విండో ఫైల్ ఉంది. అది కేవలం విశ్లేషణ సామగ్రి: ఇక్కడ చదవబడదు, మార్చబడదు, దిగుమతి కాదు.",
-    ["nav.target"] = "లక్ష్యం",
-    ["nav.review"] = "సమీక్ష",
-    ["btn.loadProfile"] = "ఎంచుకున్నది లోడ్ చేయి",
-    ["target.loaded"] = "లక్ష్య ప్రొఫైల్ '{section}' లోడ్ అయింది. ఫీల్డ్‌లు సవరించి, తర్వాత లక్ష్య ప్రొఫైల్ సేవ్ చేయండి.",
-    ["target.mode"] = "లక్ష్య ప్రొఫైల్‌లు: {count} సేవ్ అయ్యాయి. ప్రతి స్థిర కెమెరా విభాగానికి ఒకటి.",
-    ["review.mode"] = "అరుదైన సమీక్ష: లక్ష్య కోర్టు ర్యాలీలో ఉందా అని సమాధానం ఇవ్వండి. కోటా లేదు, పూర్తి పాస్ లేదు.",
-    ["nav.rallies"] = "ర్యాలీలు",
-    ["nav.clip"] = "క్లిప్ సమాచారం",
-    ["label.venue"] = "వేదిక ID:",
-    ["label.cameraSetup"] = "కెమెరా సెటప్ ID:",
-    ["label.courtsVisible"] = "కనిపించే కోర్టులు:",
-    ["label.courtsActive"] = "ఆట జరుగుతున్న కోర్టులు:",
-    ["label.courtsPartial"] = "పాక్షికంగా మాత్రమే కనిపించేవి:",
-    ["label.targetCourt"] = "లక్ష్య కోర్టు ID:",
-    ["label.matchFormat"] = "మ్యాచ్ ఫార్మాట్:",
-    ["label.captureTime"] = "రికార్డ్ సమయం (UTC):",
-    ["label.notes"] = "గమనికలు:",
-    ["fmt.unset"] = "(సెట్ చేయలేదు)",
-    ["fmt.singles"] = "సింగిల్స్",
-    ["fmt.doubles"] = "డబుల్స్",
-    ["fmt.mixed"] = "మిశ్రమ",
-    ["btn.saveClip"] = "క్లిప్ సమాచారం సేవ్ చేయి",
-    ["clip.saved"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary}",
-    ["clip.savedNoFormat"] = "క్లిప్ సమాచారం సేవ్ అయింది: {summary} — కానీ మ్యాచ్ ఫార్మాట్ ఇంకా (సెట్ చేయలేదు), కాబట్టి ఈ క్లిప్ సింగిల్స్/డబుల్స్ నమోదు చేయదు. ఒకటి ఎంచుకుని మళ్లీ సేవ్ చేయండి; నిజంగా చెప్పలేకపోతే మాత్రమే వదిలేయండి.",
-    ["clip.savedPickerWins"] = "కెమెరా జాబితా ఎంపిక సేవ్ అయింది; అదే సమయంలో ఇచ్చిన స్వేచ్ఛా-పాఠ్య కెమెరా విలువ సేవ్ కాలేదు. అనుకూల విలువను సేవ్ చేయడానికి ముందుగా జాబితా ఎంపికను తొలగించండి.",
-    ["clip.loaded"] = "ఈ వీడియో కోసం ఇప్పటికే నమోదైన క్లిప్ సమాచారం లోడ్ అయింది.",
-    ["clip.prefilled"] = "అదే ఫోల్డర్‌లోని {source} నుండి ముందుగా నింపబడింది. పరిశీలించి సేవ్ చేయండి; ఏదీ స్వయంచాలకంగా రాయబడలేదు.",
-    ["clip.invalidActive"] = "ఆట జరుగుతున్న కోర్టులు ({active}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు -- ఫ్రేమ్‌లో లేకుండా కోర్టు ఆటలో ఉండలేదు.",
-    ["clip.invalidPartial"] = "పాక్షికంగా కనిపించేవి ({partial}) కనిపించే కోర్టుల ({visible}) కంటే ఎక్కువ ఉండకూడదు.",
-    ["clip.invalidNumber"] = "{field} కు {min} లేదా అంతకంటే ఎక్కువ పూర్ణ సంఖ్య కావాలి -- లేదా 'పరిశీలించలేదు' అని నమోదు చేయడానికి ఖాళీగా వదలండి.",
-    ["clip.captureUnknown"] = "(ఇక్కడ చదవలేము -- దిగుమతి సమయంలో కంటైనర్ నుండి తీసుకోబడుతుంది)",
-    ["cov.line"] = "{dur}సె లో {to}సె వరకు లేబుల్ ({pct}% విస్తృతి)  |  లేబుల్ లేని ముగింపు {tail}సె  |  అతిపెద్ద ఖాళీ {gap}సె",
-    ["cov.tail"] = "హెచ్చరిక: చివర {tail}సె కు ఎలాంటి లేబుల్ లేదు. అక్కడ ఆట కొనసాగితే ఈ పాస్ అసంపూర్ణం ({limit}సె దాటితే దిగుమతి ఆగుతుంది).",
-    ["cov.span"] = "గమనిక: లేబుళ్లు క్లిప్‌లో {limit}% కంటే తక్కువ విస్తరించాయి -- సుదీర్ఘ నిష్క్రియ ముగింపుకు సహజం, అంతరాయమైన పాస్‌కు హెచ్చరిక.",
-    ["cov.unknown"] = "క్లిప్ నిడివి తెలియదు -- పరిపూర్ణత రీడౌట్ లేదు (ఎప్పుడూ ఊహించము).",
-    ["label.start"] = "ప్రారంభం (s):",
-    ["label.end"] = "ముగింపు (s):",
-    ["label.next"] = "తదుపరి ర్యాలీ #:",
-    ["label.shots"] = "షాట్ల సంఖ్య:",
-    ["label.reason"] = "ముగింపు కారణం:",
-    ["label.recent"] = "ఇటీవలి ర్యాలీలు (ఒకటి ఎంచుకుని, ఆపై సవరించు/తొలగించు):",
-    ["label.language"] = "భాష:",
-    ["btn.help"] = "సహాయం",
-    ["btn.hideHelp"] = "సహాయం దాచు",
-    ["btn.back5"] = "వెనక్కి 5s",
-    ["btn.playPause"] = "ప్లే / పాజ్",
-    ["btn.fwd5"] = "ముందుకు 5s",
-    ["btn.markStart"] = "ప్రారంభం గుర్తించు",
-    ["btn.markEnd"] = "ముగింపు గుర్తించు",
-    ["btn.reMarkStart"] = "ప్రారంభం మళ్లీ గుర్తించు (#{n})",
-    ["btn.reMarkEnd"] = "ముగింపు మళ్లీ గుర్తించు (#{n})",
-    ["btn.saveRally"] = "ర్యాలీ సేవ్ చేయి",
-    ["btn.saveRallyN"] = "ర్యాలీ సేవ్ చేయి (#{n})",
-    ["btn.saveChangesN"] = "మార్పులు సేవ్ చేయి (#{n})",
-    ["btn.edit"] = "ఎంచుకున్నది సవరించు",
-    ["btn.delete"] = "ఎంచుకున్నది తొలగించు",
-    ["btn.undo"] = "చివరిది రద్దు చేయి",
-    ["btn.undoCancelEdit"] = "చివరిది రద్దు చేయి (సవరణ రద్దు)",
-    ["btn.undoClearMark"] = "చివరిది రద్దు చేయి (గుర్తు తొలగించు)",
-    ["btn.undoN"] = "చివరిది రద్దు చేయి (#{n})",
-    ["btn.refresh"] = "రిఫ్రెష్",
-    ["reason.unknown"] = "తెలియదు",
-    ["reason.winner"] = "విన్నర్",
-    ["reason.forced_error"] = "ఒత్తిడి తప్పు",
-    ["reason.unforced_error"] = "సొంత తప్పు",
-    ["reason.service_fault"] = "సర్వీస్ ఫాల్ట్",
-    ["reason.let"] = "లెట్",
-    ["reason.other"] = "ఇతరం",
-    ["sport.badminton"] = "బ్యాడ్మింటన్",
-    ["sport.tennis"] = "టెన్నిస్",
-    ["sport.table_tennis"] = "టేబుల్ టెన్నిస్",
-    ["sport.pickleball"] = "పికిల్‌బాల్",
-    ["sport.padel"] = "పాడెల్",
-    ["status.modeEdit"] = "మోడ్: ర్యాలీ #{n} సవరిస్తోంది  (కమిట్ చేయడానికి మార్పులు సేవ్ చేయి, రద్దు చేయడానికి చివరిది రద్దు చేయి).",
-    ["status.modeNew"] = "మోడ్: కొత్త ర్యాలీ  (ప్రారంభం గుర్తించు, ముగింపు గుర్తించు, కారణం ఎంచుకో, ర్యాలీ సేవ్ చేయి).",
-    ["status.lastRow"] = "చివరి వరుస (రద్దు ఏది తొలగిస్తుందో): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "ఇప్పుడు: {clock}  |  CSVలో ర్యాలీలు: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "మీడియా ఏదీ ప్లే కావడం లేదు -- సీక్ చేయలేము.",
-    ["seek.noTime"] = "సీక్ చేయడానికి ప్లేబ్యాక్ సమయం అందుబాటులో లేదు.",
-    ["seek.done"] = "సీక్ {delta}s  ->  {clock}.",
-    ["markStart.noMedia"] = "మీడియా ఏదీ ప్లే కావడం లేదు -- ప్రారంభం గుర్తించలేము.",
-    ["markStart.armed"] = "మీకు సేవ్ చేయని ర్యాలీ ఉంది (ప్రారంభం -> ముగింపు). కొత్త ప్రారంభం గుర్తించే ముందు, దాన్ని ఉంచడానికి 'ర్యాలీ సేవ్ చేయి' నొక్కండి, లేదా తొలగించడానికి 'చివరిది రద్దు చేయి' నొక్కండి. (ప్రారంభం ఫీల్డ్‌ను చేతితో కూడా సవరించవచ్చు.)",
-    ["markStart.set"] = "ప్రారంభం సెట్ చేయబడింది @ {clock}. ర్యాలీ ముగింపు వరకు ప్లే చేసి, ఆపై ముగింపు గుర్తించు.",
-    ["markEnd.noMedia"] = "మీడియా ఏదీ ప్లే కావడం లేదు -- ముగింపు గుర్తించలేము.",
-    ["markEnd.set"] = "ముగింపు సెట్ చేయబడింది @ {clock}. ముగింపు కారణం ఎంచుకుని, ఆపై ర్యాలీ సేవ్ చేయి నొక్కండి.",
-    ["save.needStart"] = "ముందుగా ప్రారంభ సమయం సెట్ చేయండి (ప్రారంభం గుర్తించు నొక్కండి).",
-    ["save.needEnd"] = "ముందుగా ముగింపు సమయం సెట్ చేయండి (ముగింపు గుర్తించు నొక్కండి).",
-    ["save.zeroLen"] = "ముగింపు ప్రారంభం కంటే తరువాత ఉండాలి (ర్యాలీ > 0s ఉండాలి).",
-    ["save.writeFailed"] = "రాయడం విఫలమైంది: {err}",
-    ["save.updated"] = "ర్యాలీ #{n} నవీకరించబడింది: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["save.duplicate"] = "ర్యాలీ #{n} ఇప్పటికే ఉంది -- \"తదుపరి ర్యాలీ #\"ను ఖాళీ సంఖ్యకు సెట్ చేయండి.",
-    ["save.saved"] = "ర్యాలీ #{n} సేవ్ చేయబడింది: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["edit.armedGuard"] = "మరొకటి సవరించే ముందు ప్రస్తుత ర్యాలీని పూర్తి చేయండి ('ర్యాలీ సేవ్ చేయి') లేదా తొలగించండి ('చివరిది రద్దు చేయి') -- మీ సేవ్ చేయని ప్రారంభం -> ముగింపు కోల్పోతుంది.",
-    ["edit.needSelect"] = "ముందుగా ఇటీవలి జాబితాలో ఒక ర్యాలీని ఎంచుకుని, ఆపై ఎంచుకున్నది సవరించు.",
-    ["edit.notFound"] = "ర్యాలీ #{n} కనబడలేదు (రిఫ్రెష్ ప్రయత్నించండి).",
-    ["edit.editing"] = "ర్యాలీ #{n} సవరిస్తోంది. ప్రారంభం/ముగింపు/కారణం సర్దుబాటు చేసి, ఆపై మార్పులు సేవ్ చేయి. (చివరిది రద్దు చేయి అది రద్దు చేస్తుంది.)",
-    ["del.needSelect"] = "ముందుగా ఇటీవలి జాబితాలో ఒక ర్యాలీని ఎంచుకుని, ఆపై ఎంచుకున్నది తొలగించు.",
-    ["del.deleted"] = "ర్యాలీ #{n} తొలగించబడింది. {count} మిగిలి ఉన్నాయి.",
-    ["undo.cancelled"] = "సవరణ రద్దు చేయబడింది.",
-    ["undo.cleared"] = "ప్రగతిలో ఉన్న ప్రారంభం/ముగింపు తొలగించబడింది (ఏదీ రాయబడలేదు).",
-    ["undo.nothing"] = "రద్దు చేయడానికి ఏమీ లేదు.",
-    ["undo.removed"] = "చివరి ర్యాలీ #{n} తొలగించబడింది. {count} మిగిలి ఉన్నాయి.",
-    ["play.paused"] = "పాజ్ చేయబడింది. ఏనోటేట్ చేయండి (లేదా ప్రారంభం/ముగింపు సర్దుబాటు చేయండి), ఆపై కొనసాగించడానికి ప్లే / పాజ్.",
-    ["play.resumed"] = "ప్లేబ్యాక్ కొనసాగించబడింది.",
-    ["play.started"] = "ప్లేబ్యాక్ ప్రారంభించబడింది.",
-    ["play.noMedia"] = "ప్లే చేయడానికి మీడియా ఏదీ లోడ్ కాలేదు.",
-    ["sync.editFirst"] = "రిఫ్రెష్ చేసే ముందు ప్రస్తుత సవరణను పూర్తి చేయండి (మార్పులు సేవ్ చేయి) లేదా రద్దు చేయండి (చివరిది రద్దు చేయి).",
-    ["sync.noMedia"] = "మీడియా ఏదీ ప్లే కావడం లేదు -- ఇంకా ఈ CSVను ఉపయోగిస్తోంది. వీడియో తెరిచి, ఆపై రిఫ్రెష్ నొక్కండి.",
-    ["sync.refreshed"] = "రిఫ్రెష్ చేయబడింది. ఈ వీడియో కోసం {count} ర్యాలీలు లోడ్ చేయబడ్డాయి.",
-    ["sync.switched"] = "ప్రస్తుత వీడియోకు మారబడింది. {count} ఉన్న ర్యాలీలు లోడ్ చేయబడ్డాయి; తదుపరిది #{n}.",
-    ["activate.fallback"] = "ఇంకా వీడియో ఏదీ గుర్తించబడలేదు. వీడియో తెరవండి/ప్లే చేయండి, ఆపై ప్రారంభం గుర్తించు నొక్కండి -- సాధనం ఆ వీడియో సొంత .rallies.csvకు స్వయంచాలకంగా మారుతుంది (మరియు దాని కోసం ఇప్పటికే సేవ్ చేసిన ఏ ర్యాలీలనైనా లోడ్ చేస్తుంది). చిట్కా: ముందుగా వీడియో తెరిచి, ఆపై ఈ ఎక్స్‌టెన్షన్‌ను ప్రారంభించండి.",
-    ["activate.resumed"] = "ఈ వీడియో కొనసాగించబడింది: {count} ఉన్న ర్యాలీలు లోడ్ చేయబడ్డాయి (తదుపరిది #{n}). గైడ్ కోసం సహాయం నొక్కండి.",
-    ["activate.ready"] = "సిద్ధం. క్రీడను ఎంచుకుని, ఆపై ర్యాలీలను గుర్తించండి. వినియోగం + ముగింపు-కారణ గైడ్ కోసం సహాయం నొక్కండి.",
-    ["help.html"] = "<b>Rally Annotator &mdash; ఎలా ఉపయోగించాలి</b><br>\n<b>ప్లేబ్యాక్:</b> <b>5 సె. వెనక్కి / ప్లే / పాజ్ / 5 సె. ముందుకు</b> వరుస ఇక్కడి నుండే VLC ప్లేయర్‌ను నడిపిస్తుంది &mdash; <b>ప్లే / పాజ్</b> ఒకే టోగుల్ (ప్రధాన VLC విండోకి మారకుండానే పాజ్ చేసి, లేబుల్ చేసి, తిరిగి కొనసాగించవచ్చు).<br>\n1. <b>క్రీడ</b> (పైన) ఎంచుకోండి. ఇది ర్యాలీల అంతటా అలాగే ఉంటుంది.<br>\n2. ఒక ర్యాలీ మొదలైనప్పుడు <b>మొదలు గుర్తించు</b> క్లిక్ చేయండి (ఫ్రేమ్ ఖచ్చితత్వం కోసం ముందుగా పాజ్ చేయండి/స్క్రబ్ చేయండి &mdash; ఇది ప్రస్తుత ప్లేబ్యాక్ సమయాన్ని Start ఫీల్డ్‌లోకి స్నాప్‌షాట్ చేస్తుంది).<br>\n3. ర్యాలీ ముగిసినప్పుడు <b>ముగింపు గుర్తించు</b> క్లిక్ చేయండి. ఆ ఫీల్డ్‌లను నేరుగా సవరించడం ద్వారా Start/End సెకన్లను మీరు సూక్ష్మంగా సర్దుబాటు చేయవచ్చు.<br>\n4. <b>ముగింపు కారణం</b> ఎంచుకోండి (<b>ముగింపు గుర్తించు</b> మరియు <b>ర్యాలీ సేవ్ చేయి</b> మధ్య ఉన్న బాక్స్; లేదా దానిని <b>unknown</b> గా వదిలేయండి), ఐచ్ఛికంగా <b>షాట్ల సంఖ్య</b> టైప్ చేయండి (ర్యాలీ యొక్క షాట్/స్ట్రోక్ లెక్క &mdash; దాటవేయడానికి ఖాళీగా వదిలేయండి), ఆపై <b>ర్యాలీ సేవ్ చేయి</b> క్లిక్ చేయండి &mdash; వీడియో పక్కన ఒక CSV వరుస వ్రాయబడుతుంది.<br>\n5. ప్రతి సేవ్ తర్వాత కారణం <b>unknown</b> కు రీసెట్ అవుతుంది (ఎప్పుడూ మౌనంగా తిరిగి ఉపయోగించబడదు), మరియు వరుస ర్యాలీలలో మీరు అదే కారణాన్ని ఎంచుకోవచ్చు.<br>\n6. <b>ఇటీవలి ర్యాలీలు</b>: ఒక వరుసను ఎంచుకుని, ఆపై <b>ఎంచుకున్నది సవరించు</b> (దాన్ని తిరిగి ఫీల్డ్‌లలోకి లోడ్ చేస్తుంది) లేదా <b>ఎంచుకున్నది తొలగించు</b>. <b>చివరిది రద్దుచేయి</b> అత్యంత ఇటీవలి వరుసను తీసివేస్తుంది (బటన్ ఏది అనేది చూపిస్తుంది, ఉదా. <i>చివరిది రద్దుచేయి (#7)</i>), లేదా జరుగుతున్న మార్క్‌ను క్లియర్ చేస్తుంది, లేదా సవరణను రద్దు చేస్తుంది.<br>\n7. <b>తర్వాత తిరిగి కొనసాగించడం:</b> మీరు చేస్తున్నప్పుడు లేబుల్‌లు వీడియో పక్కన ఉన్న CSVలో సేవ్ అవుతాయి. అదే వీడియోను మళ్ళీ తెరిచి ఎక్స్‌టెన్షన్‌ను ఎనేబుల్ చేయండి &mdash; ఇది మీ ఇప్పటికే ఉన్న ర్యాలీలను తిరిగి లోడ్ చేసి, నంబరింగ్‌ను కొనసాగిస్తుంది. ఏదైనా విలువ నుండి నంబరింగ్‌ను తిరిగి ప్రారంభించడానికి <b>తదుపరి ర్యాలీ #</b> ఫీల్డ్‌ను సెట్ చేయండి (ఉదా. 1 వద్ద పునఃప్రారంభించండి, లేదా 50 నుండి కొనసాగించండి); ఇది ప్రతి సేవ్ తర్వాత స్వయంచాలకంగా ముందుకు సాగుతుంది. ఈ డైలాగ్ తెరిచి ఉండగా మీరు వీడియోలను మార్చితే, ప్రస్తుత వీడియో యొక్క ర్యాలీలను లోడ్ చేయడానికి <b>రిఫ్రెష్</b> క్లిక్ చేయండి. (వీడియో యొక్క ప్లేబ్యాక్ స్థానం పునరుద్ధరించబడదు &mdash; మీరు ఆపిన చోటికి స్క్రబ్ చేయండి.)<br>\n<br>\n<b>ముగింపు కారణాలు &mdash; వాటి అర్థం ఏమిటి (ర్యాలీ ఎందుకు ముగిసిందో చెప్పేదాన్ని ఎంచుకోండి).</b><br>\n<i>winner</i> తప్ప అన్ని కారణాలు ర్యాలీని ఓడిన పక్షంపై వేయబడతాయి.<br>\n&bull; <b>winner</b> &mdash; చివరి షాట్ లోపల (IN) పడింది మరియు తిరిగి కొట్టబడలేదు (ప్రత్యర్థి దాన్ని చేరుకోలేకపోయాడు, లేదా దానిపై చేతిని ఊపాడంతే). స్పర్శించని శుభ్రమైన సర్వ్ (ఏస్) ఇక్కడ లెక్కించబడుతుంది.<br>\n&bull; <b>forced_error</b> &mdash; ఒత్తిడిలో ఉన్నప్పుడు ఓడినవాడు మిస్ చేశాడు (బయటకు, లేదా నెట్‌లోకి): సాగదీయబడ్డ, తొందరపడ్డ, ఇరుక్కుపోయిన, లేదా ప్రత్యర్థి యొక్క వేగం/స్పిన్/లోతును ఎదుర్కొంటూ. వారిని మిస్ చేసేలా చేశారు.<br>\n&bull; <b>unforced_error</b> &mdash; ఓడినవాడు, దాదాపు ఒత్తిడి లేకుండా, తనకు సమయం మరియు స్థానం రెండూ ఉన్న సాధారణ షాట్‌ను మిస్ చేశాడు. వారు దాన్ని వదిలేశారు.<br>\n&bull; <b>service_fault</b> &mdash; పాయింట్ సర్వ్‌పైనే ముగిసింది: నెట్‌లోకి సర్వ్, సర్వీస్ బాక్స్ బయటకు, చట్టవిరుద్ధమైన చర్య/ఫుట్ ఫాల్ట్, లేదా డబుల్ ఫాల్ట్ (టెన్నిస్/పడెల్).<br>\n&bull; <b>let</b> &mdash; నియమాల ప్రకారం ర్యాలీ మళ్ళీ ఆడబడుతుంది (పాయింట్ లేదు): ఉదా. నెట్‌ను తాకి మిగతా విధంగా మంచిగా ఉన్న టెన్నిస్/టేబుల్-టెన్నిస్ సర్వ్, లేదా బయటి జోక్యం.<br>\n&bull; <b>other</b> &mdash; మిగతా ఏదైనా (కవరైన ఫుటేజ్, గాయం/విరమణ, పెనాల్టీ, అడ్డంకి). పొదుపుగా వాడండి.<br>\n&bull; <b>unknown</b> &mdash; డిఫాల్ట్; ఈ ర్యాలీ ఇంకా వర్గీకరించబడలేదు (మీకు వీలైనప్పుడు నిర్దిష్ట కారణాన్ని ఎంచుకోండి).<br>\n<br>\n<b>త్వరిత సందర్భాలు</b><br>\n&bull; బంతి/షటిల్ <b>బయట</b> పడింది (బేస్‌లైన్ దాటి / గీతల వెలుపల): అది కొట్టినవాడి మిస్ &mdash; వారు ఒత్తిడిలో ఉంటే <b>forced</b>, అది సౌకర్యవంతమైన బంతి అయితే <b>unforced</b>. (బయట పడటం అనేది స్వయంచాలకంగా forced కాదు, మరియు ప్రత్యర్థికి ఎప్పటికీ winner కాదు.)<br>\n&bull; ర్యాలీ సమయంలో <b>నెట్‌లోకి</b>: అదే విధంగా &mdash; ఒత్తిడిలో ఉంటే forced, సాధారణమైతే unforced. నెట్‌లోకి వెళ్ళిన <b>సర్వ్</b> అనేది <b>service_fault</b>.<br>\n&bull; <b>నెట్-కార్డ్ తాకి దాటి లోపల పడటం</b>: సజీవంగా మరియు మంచిది &mdash; చేరుకోలేనట్లయితే సాధారణంగా <b>winner</b>, లేకుంటే తర్వాత ఏమి జరుగుతుందో దాన్ని బట్టి నిర్ణయించండి. సర్వ్‌పై ఇది క్రీడను బట్టి మారుతుంది: టెన్నిస్/టేబుల్-టెన్నిస్ = <b>let</b> (మళ్ళీ ఆడటం); బ్యాడ్మింటన్‌లో నెట్‌ను తాకి దాటి లోపల పడిన షటిల్ = ఆట కొనసాగుతుంది (కానీ నెట్‌పై చిక్కుకున్న సర్వ్ షటిల్ = service_fault); పికిల్‌బాల్ (2026) = ఆట కొనసాగుతుంది.<br>\n&bull; <b>forced vs unforced మధ్య సందేహమా?</b> డిఫాల్ట్‌గా <b>unforced</b> ఎంచుకోండి &mdash; మీరు నిర్దిష్ట ఒత్తిడిని చూపగలిగినప్పుడు మాత్రమే forced గా గుర్తించండి.<br>\n<br>\nఅవుట్‌పుట్: వీడియో పక్కన <i>&lt;video&gt;.rallies.csv</i>. పూర్తి గైడ్: రిపోజిటరీలో docs/ENDING_REASONS.md.<br>\nస్థితి ప్యానెల్‌కు తిరిగి వెళ్ళడానికి <b>సహాయం దాచు</b> క్లిక్ చేయండి.",
-  },
-  ["es"] = {
-    ["label.sport"] = "Deporte:",
-    ["btn.saveTarget"] = "Guardar perfil objetivo",
-    ["btn.deleteProfile"] = "Eliminar perfil",
-    ["btn.saveReview"] = "Guardar revisión",
-    ["btn.saveReviewN"] = "Guardar revisión (#{n})",
-    ["label.cameraSection"] = "ID de sección de cámara:",
-    ["label.cameraProfile"] = "ID de perfil de cámara:",
-    ["label.polygon"] = "Zona de juego (x,y 0-1):",
-    ["label.setupValidity"] = "Validez del montaje:",
-    ["label.profiles"] = "Perfiles objetivo (haz clic en uno para cargarlo):",
-    ["label.targetState"] = "¿Había punto en la pista objetivo?",
-    ["label.recentReviews"] = "Revisiones (haz clic en una y luego Eliminar):",
-    ["validity.supported"] = "admitido",
-    ["validity.unsupported"] = "no admitido",
-    ["validity.unclear"] = "poco claro",
-    ["state.rallying"] = "con punto en juego",
-    ["state.not_rallying"] = "sin punto en juego",
-    ["state.unclear"] = "poco claro",
-    ["target.volumeSummary"] = "Zona de juego: {n} esquinas que cubren el {pct}% del cuadro.",
-    ["target.volumeEmpty"] = "No hay ninguna zona de juego registrada.",
-    ["target.volumeInvalid"] = "La zona de juego aún no es utilizable: {why}",
-    ["target.saved"] = "Perfil objetivo '{section}' guardado (zona de juego de {n} puntos, {pct}% del cuadro).",
-    ["target.deleted"] = "Perfil objetivo '{section}' eliminado.",
-    ["target.needSelect"] = "Haz clic primero en un perfil objetivo de la lista.",
-    ["target.needSection"] = "El ID de sección de cámara es obligatorio: identifica la sección estática que describe este perfil.",
-    ["target.needCourt"] = "El ID de pista objetivo es obligatorio: usa el número que la sede pinta en la pista.",
-    ["target.duplicateSection"] = "La sección de cámara '{section}' ya tiene un perfil objetivo: volver a guardar lo reemplaza.",
-    ["target.polygonSyntax"] = "La zona de juego debe ser puntos como '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
-    ["target.polygonTooFewPoints"] = "Una zona de juego necesita al menos 3 puntos (4 para el cuadrilátero habitual).",
-    ["target.polygonRange"] = "Las coordenadas de la zona de juego están NORMALIZADAS: cada x e y debe estar entre 0 y 1, no en píxeles.",
-    ["target.polygonSelfIntersecting"] = "La zona de juego se cruza consigo misma: las esquinas están desordenadas, así que no encierra nada. Vuelve a marcarlas dando la vuelta a la pista.",
-    ["target.needProfile"] = "Guarda primero un perfil objetivo: una revisión responde sobre una sección de cámara.",
-    ["review.saved"] = "Revisión #{n} guardada: {s} → {e} [{state}].",
-    ["review.deleted"] = "Revisión #{n} eliminada. Quedan {count}.",
-    ["review.removed"] = "Se quitó la última revisión #{n}. Quedan {count}.",
-    ["review.nothing"] = "No hay revisiones que quitar.",
-    ["legacy.windowsPresent"] = "Existe un archivo antiguo de ventanas de pistas vecinas para este clip. Es solo material de diagnóstico: no se lee, ni se convierte, ni se importa aquí.",
-    ["nav.target"] = "Objetivo",
-    ["nav.review"] = "Revisión",
-    ["btn.loadProfile"] = "Cargar seleccionado",
-    ["target.loaded"] = "Perfil objetivo '{section}' cargado. Edita los campos y luego Guardar perfil objetivo.",
-    ["target.mode"] = "Perfiles objetivo: {count} guardados. Uno por sección de cámara estática.",
-    ["review.mode"] = "Revisión dispersa: responde si había punto en la pista objetivo. Sin cuota y sin barrido.",
-    ["nav.rallies"] = "Puntos",
-    ["nav.clip"] = "Datos del clip",
-    ["label.venue"] = "ID de sede:",
-    ["label.cameraSetup"] = "ID de cámara:",
-    ["label.courtsVisible"] = "Pistas visibles:",
-    ["label.courtsActive"] = "Pistas en juego:",
-    ["label.courtsPartial"] = "Solo parcialmente visibles:",
-    ["label.targetCourt"] = "ID de pista objetivo:",
-    ["label.matchFormat"] = "Formato del partido:",
-    ["label.captureTime"] = "Hora de grabación (UTC):",
-    ["label.notes"] = "Notas:",
-    ["fmt.unset"] = "(sin definir)",
-    ["fmt.singles"] = "individual",
-    ["fmt.doubles"] = "dobles",
-    ["fmt.mixed"] = "mixto",
-    ["btn.saveClip"] = "Guardar datos del clip",
-    ["clip.saved"] = "Datos del clip guardados: {summary}",
-    ["clip.savedNoFormat"] = "Datos del clip guardados: {summary} — pero la MODALIDAD sigue en (sin definir), así que este clip no registra individuales/dobles. Elige una y vuelve a guardar; déjalo solo si de verdad no puedes saberlo.",
-    ["clip.savedPickerWins"] = "Se guardó la selección de la lista de cámaras; no se guardó el valor de texto libre introducido a la vez. Borra primero la selección para guardar un valor personalizado.",
-    ["clip.loaded"] = "Se cargaron los datos del clip ya registrados para este vídeo.",
-    ["clip.prefilled"] = "Rellenado desde el archivo hermano {source}. Revísalo y guarda; no se escribió nada automáticamente.",
-    ["clip.invalidActive"] = "Las pistas en juego ({active}) no pueden superar las pistas visibles ({visible}): una pista no puede estar en juego sin estar en cuadro.",
-    ["clip.invalidPartial"] = "Las parcialmente visibles ({partial}) no pueden superar las pistas visibles ({visible}).",
-    ["clip.invalidNumber"] = "{field} necesita un número entero de {min} o más, o déjalo EN BLANCO para registrar «sin revisar».",
-    ["clip.captureUnknown"] = "(no legible aquí: se obtiene del contenedor al importar)",
-    ["cov.line"] = "Etiquetado hasta {to}s de {dur}s ({pct}% de extensión)  |  cola sin etiquetar {tail}s  |  hueco mayor {gap}s",
-    ["cov.tail"] = "AVISO: {tail}s al FINAL no tienen etiquetas. Si allí sigue el juego, la pasada está incompleta (la importación se bloquea por encima de {limit}s).",
-    ["cov.span"] = "Nota: las etiquetas abarcan menos del {limit}% del clip: normal con un final inactivo largo, señal de alarma si la pasada se interrumpió.",
-    ["cov.unknown"] = "Duración del clip desconocida: sin lectura de completitud (nunca se adivina).",
-    ["label.start"] = "Inicio (s):",
-    ["label.end"] = "Fin (s):",
-    ["label.next"] = "Próximo rally #:",
-    ["label.shots"] = "Número de golpes:",
-    ["label.reason"] = "Motivo de cierre:",
-    ["label.recent"] = "Rallies recientes (selecciona uno, luego Editar/Eliminar):",
-    ["label.language"] = "Idioma:",
-    ["btn.help"] = "Ayuda",
-    ["btn.hideHelp"] = "Ocultar ayuda",
-    ["btn.back5"] = "Atrás 5s",
-    ["btn.playPause"] = "Reproducir / Pausar",
-    ["btn.fwd5"] = "Adelante 5s",
-    ["btn.markStart"] = "Marcar INICIO",
-    ["btn.markEnd"] = "Marcar FIN",
-    ["btn.reMarkStart"] = "Re-marcar INICIO (#{n})",
-    ["btn.reMarkEnd"] = "Re-marcar FIN (#{n})",
-    ["btn.saveRally"] = "Guardar rally",
-    ["btn.saveRallyN"] = "Guardar rally (#{n})",
-    ["btn.saveChangesN"] = "Guardar cambios (#{n})",
-    ["btn.edit"] = "Editar seleccionado",
-    ["btn.delete"] = "Eliminar seleccionado",
-    ["btn.undo"] = "Deshacer último",
-    ["btn.undoCancelEdit"] = "Deshacer último (cancelar edición)",
-    ["btn.undoClearMark"] = "Deshacer último (borrar marca)",
-    ["btn.undoN"] = "Deshacer último (#{n})",
-    ["btn.refresh"] = "Actualizar",
-    ["reason.unknown"] = "desconocido",
-    ["reason.winner"] = "ganador",
-    ["reason.forced_error"] = "error forzado",
-    ["reason.unforced_error"] = "error no forzado",
-    ["reason.service_fault"] = "falta de servicio",
-    ["reason.let"] = "let",
-    ["reason.other"] = "otro",
-    ["sport.badminton"] = "bádminton",
-    ["sport.tennis"] = "tenis",
-    ["sport.table_tennis"] = "tenis de mesa",
-    ["sport.pickleball"] = "pickleball",
-    ["sport.padel"] = "pádel",
-    ["status.modeEdit"] = "Modo: EDITANDO rally #{n}  (Guardar cambios para confirmar, Deshacer último para cancelar).",
-    ["status.modeNew"] = "Modo: rally nuevo  (Marcar INICIO, Marcar FIN, elegir motivo, Guardar rally).",
-    ["status.lastRow"] = "Última fila (lo que Deshacer elimina): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "Ahora: {clock}  |  Rallies en CSV: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "No hay medio reproduciéndose -- no se puede buscar.",
-    ["seek.noTime"] = "No hay tiempo de reproducción disponible para buscar.",
-    ["seek.done"] = "Buscar {delta}s  ->  {clock}.",
-    ["markStart.noMedia"] = "No hay medio reproduciéndose -- no se puede marcar INICIO.",
-    ["markStart.armed"] = "Tienes un rally SIN GUARDAR (INICIO -> FIN). Haz clic en 'Guardar rally' para conservarlo, o en 'Deshacer último' para borrarlo, antes de marcar un nuevo INICIO. (También puedes editar el campo Inicio a mano.)",
-    ["markStart.set"] = "INICIO fijado @ {clock}. Reproduce hasta el final del rally, luego Marcar FIN.",
-    ["markEnd.noMedia"] = "No hay medio reproduciéndose -- no se puede marcar FIN.",
-    ["markEnd.set"] = "FIN fijado @ {clock}. Elige el motivo de cierre, luego haz clic en Guardar rally.",
-    ["save.needStart"] = "Fija primero un tiempo de INICIO (haz clic en Marcar INICIO).",
-    ["save.needEnd"] = "Fija primero un tiempo de FIN (haz clic en Marcar FIN).",
-    ["save.zeroLen"] = "El FIN debe ser posterior al INICIO (el rally debe ser > 0s).",
-    ["save.writeFailed"] = "ESCRITURA FALLIDA: {err}",
-    ["save.updated"] = "Rally #{n} actualizado: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["save.duplicate"] = "El rally #{n} ya existe -- fija \"Próximo rally #\" en un número libre.",
-    ["save.saved"] = "Rally #{n} guardado: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["edit.armedGuard"] = "Termina el rally actual ('Guardar rally') o bórralo ('Deshacer último') antes de editar otro -- tu INICIO -> FIN sin guardar se perdería.",
-    ["edit.needSelect"] = "Primero elige un rally en la lista Recientes, luego Editar seleccionado.",
-    ["edit.notFound"] = "Rally #{n} no encontrado (prueba Actualizar).",
-    ["edit.editing"] = "Editando rally #{n}. Ajusta Inicio/Fin/motivo, luego Guardar cambios. (Deshacer último cancela.)",
-    ["del.needSelect"] = "Primero elige un rally en la lista Recientes, luego Eliminar seleccionado.",
-    ["del.deleted"] = "Rally #{n} eliminado. Quedan {count}.",
-    ["undo.cancelled"] = "Edición cancelada.",
-    ["undo.cleared"] = "Se borró el INICIO/FIN en progreso (no se escribió nada).",
-    ["undo.nothing"] = "Nada que deshacer.",
-    ["undo.removed"] = "Se eliminó el último rally #{n}. Quedan {count}.",
-    ["play.paused"] = "En pausa. Anota (o ajusta Inicio/Fin), luego Reproducir / Pausar para continuar.",
-    ["play.resumed"] = "Reproducción reanudada.",
-    ["play.started"] = "Reproducción iniciada.",
-    ["play.noMedia"] = "No hay medio cargado para reproducir.",
-    ["sync.editFirst"] = "Termina (Guardar cambios) o cancela (Deshacer último) la edición actual antes de actualizar.",
-    ["sync.noMedia"] = "No hay medio reproduciéndose -- se sigue usando este CSV. Abre el video, luego haz clic en Actualizar.",
-    ["sync.refreshed"] = "Actualizado. {count} rallies cargados para este video.",
-    ["sync.switched"] = "Se cambió al video actual. Se cargaron {count} rallies existentes; el próximo es #{n}.",
-    ["activate.fallback"] = "Aún no se detecta video. Abre/reproduce el video, luego haz clic en Marcar INICIO -- la herramienta cambiará automáticamente al .rallies.csv propio de ese video (y cargará los rallies ya guardados para él). Consejo: abre el video PRIMERO, luego habilita esta extensión.",
-    ["activate.resumed"] = "Video reanudado: se cargaron {count} rallies existentes (el próximo es #{n}). Haz clic en Ayuda para ver la guía.",
-    ["activate.ready"] = "Listo. Elige el Deporte, luego marca los rallies. Haz clic en Ayuda para ver el uso + la guía de motivos de cierre.",
-    ["help.html"] = "<b>Rally Annotator &mdash; cómo usarlo</b><br>\n<b>Reproducción:</b> la fila <b>Atrás 5s / Reproducir / Pausa / Adelante 5s</b> controla el reproductor de VLC desde aquí &mdash; <b>Reproducir / Pausa</b> es un único conmutador (pausa, anota y reanuda sin cambiar a la ventana principal de VLC).<br>\n1. Elige el <b>Deporte</b> (arriba). Permanece fijo entre rallies.<br>\n2. Cuando empiece un rally, haz clic en <b>Marcar INICIO</b> (pausa o avanza fotograma a fotograma primero para mayor precisión &mdash; captura el tiempo de reproducción actual en el campo Inicio).<br>\n3. Cuando termine el rally, haz clic en <b>Marcar FIN</b>. Puedes ajustar con precisión los segundos de Inicio/Fin editando esos campos directamente.<br>\n4. Elige el <b>Motivo de finalización</b> (la casilla entre <b>Marcar FIN</b> y <b>Guardar rally</b>; o déjala en <b>unknown</b>), opcionalmente escribe un <b>Número de golpes</b> (el recuento de golpes/jugadas del rally &mdash; déjalo en blanco para omitirlo) y luego haz clic en <b>Guardar rally</b> &mdash; se escribe una fila CSV junto al vídeo.<br>\n5. El motivo se REINICIA a <b>unknown</b> después de cada guardado (nunca se reutiliza de forma silenciosa), y puedes elegir el mismo motivo en rallies consecutivos.<br>\n6. <b>Rallies recientes</b>: selecciona una fila y luego <b>Editar seleccionado</b> (la vuelve a cargar en los campos) o <b>Eliminar seleccionado</b>. <b>Deshacer último</b> elimina la fila más reciente (el botón indica cuál, p. ej. <i>Deshacer último (#7)</i>), o borra una marca en curso, o cancela una edición.<br>\n7. <b>Reanudar más tarde:</b> las etiquetas se guardan en el CSV junto al vídeo a medida que avanzas. Vuelve a abrir el MISMO vídeo y activa la extensión &mdash; recarga tus rallies existentes y continúa la numeración. Ajusta el campo <b>Siguiente rally #</b> para reanudar la numeración desde cualquier valor (p. ej. reiniciar en 1, o continuar desde 50); avanza automáticamente después de cada guardado. Si cambias de vídeo con este cuadro de diálogo abierto, haz clic en <b>Actualizar</b> para cargar los rallies del vídeo actual. (La posición de reproducción del vídeo no se restaura &mdash; avanza hasta donde lo dejaste.)<br>\n<br>\n<b>Motivos de finalización &mdash; qué significan (elige el que indica POR QUÉ terminó el rally).</b><br>\nTodos los motivos excepto <i>winner</i> se atribuyen al lado que PERDIÓ el rally.<br>\n&bull; <b>winner</b> &mdash; el último golpe cayó DENTRO y no fue devuelto (el rival no pudo alcanzarlo, o solo lo rozó). Un saque limpio sin tocar (ace) cuenta aquí.<br>\n&bull; <b>forced_error</b> &mdash; el perdedor FALLÓ (fuera, o a la red) estando BAJO PRESIÓN: estirado, apurado, trabado, o lidiando con la velocidad/efecto/profundidad del rival. Lo obligaron a fallar.<br>\n&bull; <b>unforced_error</b> &mdash; el perdedor FALLÓ un golpe rutinario que tenía tiempo Y posición para ejecutar, con poca o ninguna presión. Lo regaló.<br>\n&bull; <b>service_fault</b> &mdash; el punto terminó en el SAQUE: saque a la red, fuera del cuadro de servicio, acción ilegal/falta de pie, o doble falta (tenis/pádel).<br>\n&bull; <b>let</b> &mdash; el rally se REPITE según las reglas (sin punto): p. ej. un saque de tenis/tenis de mesa que roza la red y por lo demás es bueno, o una interferencia externa.<br>\n&bull; <b>other</b> &mdash; cualquier otra cosa (imagen obstruida, lesión/retirada, sanción, estorbo). Úsalo con moderación.<br>\n&bull; <b>unknown</b> &mdash; el valor por defecto; este rally aún no se ha clasificado (elige un motivo específico cuando puedas).<br>\n<br>\n<b>Casos rápidos</b><br>\n&bull; La pelota/volante cae <b>FUERA</b> (más allá de la línea de fondo / fuera de las líneas): es el fallo del que golpea &mdash; <b>forced</b> si estaba bajo presión, <b>unforced</b> si era una bola cómoda. (FUERA NO es automáticamente forced, ni nunca un winner para el rival.)<br>\n&bull; <b>A la red</b> durante un rally: lo mismo &mdash; forced si hubo presión, unforced si era rutinario. Un <b>saque</b> a la red es <b>service_fault</b>.<br>\n&bull; <b>Cinta de red que se cuela y cae dentro</b>: en juego y válido &mdash; normalmente un <b>winner</b> si es inalcanzable, si no juzga lo que ocurre después. En el SAQUE varía según el deporte: tenis/tenis de mesa = <b>let</b> (se repite); roce de red en bádminton que pasa por encima y cae dentro = se sigue jugando (pero un volante de saque ATRAPADO en la red = service_fault); pickleball (2026) = se sigue jugando.<br>\n&bull; <b>¿Dudas entre forced y unforced?</b> Por defecto usa <b>unforced</b> &mdash; marca forced solo cuando puedas señalar la presión concreta.<br>\n<br>\nSalida: <i>&lt;video&gt;.rallies.csv</i> junto al vídeo. Guía completa: docs/ENDING_REASONS.md en el repositorio.<br>\nHaz clic en <b>Ocultar ayuda</b> para volver al panel de estado.",
-  },
-  ["da"] = {
-    ["label.sport"] = "Sportsgren:",
-    ["btn.saveTarget"] = "Gem målprofil",
-    ["btn.deleteProfile"] = "Slet profil",
-    ["btn.saveReview"] = "Gem gennemgang",
-    ["btn.saveReviewN"] = "Gem gennemgang (#{n})",
-    ["label.cameraSection"] = "Kamerasektions-ID:",
-    ["label.cameraProfile"] = "Kameraprofil-ID:",
-    ["label.polygon"] = "Spilzone (x,y 0-1):",
-    ["label.setupValidity"] = "Opsætningens gyldighed:",
-    ["label.profiles"] = "Målprofiler (klik på én for at indlæse den):",
-    ["label.targetState"] = "Var der duel på målbanen?",
-    ["label.recentReviews"] = "Gennemgange (klik på én, og derefter Slet):",
-    ["validity.supported"] = "understøttet",
-    ["validity.unsupported"] = "ikke understøttet",
-    ["validity.unclear"] = "uklart",
-    ["state.rallying"] = "duel i gang",
-    ["state.not_rallying"] = "ingen duel",
-    ["state.unclear"] = "uklart",
-    ["target.volumeSummary"] = "Spilzone: {n} hjørner, der dækker {pct}% af billedet.",
-    ["target.volumeEmpty"] = "Ingen spilzone er registreret.",
-    ["target.volumeInvalid"] = "Spilzonen kan ikke bruges endnu — {why}",
-    ["target.saved"] = "Målprofil '{section}' gemt ({n}-punkts spilzone, {pct}% af billedet).",
-    ["target.deleted"] = "Målprofil '{section}' slettet.",
-    ["target.needSelect"] = "Klik først på en målprofil i listen.",
-    ["target.needSection"] = "Kamerasektions-ID er påkrævet - det identificerer den statiske sektion, profilen beskriver.",
-    ["target.needCourt"] = "Målbane-ID er påkrævet - brug det nummer, stedet har malet på banen.",
-    ["target.duplicateSection"] = "Kamerasektionen '{section}' har allerede en målprofil - gemmes den igen, erstattes den.",
-    ["target.polygonSyntax"] = "Spilzonen skal være punkter som '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
-    ["target.polygonTooFewPoints"] = "En spilzone kræver mindst 3 punkter (4 til den sædvanlige firkant).",
-    ["target.polygonRange"] = "Spilzonens koordinater er NORMALISEREDE: hver x og y skal ligge mellem 0 og 1, ikke pixels.",
-    ["target.polygonSelfIntersecting"] = "Spilzonen krydser sig selv — hjørnerne står i forkert rækkefølge, så den omslutter ingenting. Vælg dem igen hele vejen rundt om banen.",
-    ["target.needProfile"] = "Gem først en målprofil - en gennemgang svarer på et spørgsmål om én kamerasektion.",
-    ["review.saved"] = "Gennemgang #{n} gemt: {s} → {e} [{state}].",
-    ["review.deleted"] = "Gennemgang #{n} slettet. {count} tilbage.",
-    ["review.removed"] = "Fjernede sidste gennemgang #{n}. {count} tilbage.",
-    ["review.nothing"] = "Ingen gennemgange at fjerne.",
-    ["legacy.windowsPresent"] = "Der findes en ældre nabobane-vinduesfil for dette klip. Den er kun diagnostisk materiale: den læses, konverteres eller importeres ikke her.",
-    ["nav.target"] = "Mål",
-    ["nav.review"] = "Gennemgang",
-    ["btn.loadProfile"] = "Indlæs valgte",
-    ["target.loaded"] = "Målprofil '{section}' indlæst. Ret felterne, og gem så målprofilen.",
-    ["target.mode"] = "Målprofiler: {count} gemt. Én pr. statisk kamerasektion.",
-    ["review.mode"] = "Spredt gennemgang: svar på, om der var duel på målbanen. Ingen kvote, ingen gennemsøgning.",
-    ["nav.rallies"] = "Dueller",
-    ["nav.clip"] = "Klipinfo",
-    ["label.venue"] = "Steds-ID:",
-    ["label.cameraSetup"] = "Kameraopsætnings-ID:",
-    ["label.courtsVisible"] = "Synlige baner:",
-    ["label.courtsActive"] = "Baner med spil:",
-    ["label.courtsPartial"] = "Kun delvist synlige:",
-    ["label.targetCourt"] = "Målbane-ID:",
-    ["label.matchFormat"] = "Kampformat:",
-    ["label.captureTime"] = "Optagetidspunkt (UTC):",
-    ["label.notes"] = "Noter:",
-    ["fmt.unset"] = "(ikke angivet)",
-    ["fmt.singles"] = "single",
-    ["fmt.doubles"] = "double",
-    ["fmt.mixed"] = "mixed",
-    ["btn.saveClip"] = "Gem klipinfo",
-    ["clip.saved"] = "Klipinfo gemt: {summary}",
-    ["clip.savedNoFormat"] = "Klipinfo gemt: {summary} — men KAMPFORMAT er stadig (ikke angivet), så dette klip registrerer ikke single/double. Vælg ét og gem igen; lad det kun stå, hvis du virkelig ikke kan afgøre det.",
-    ["clip.savedPickerWins"] = "Valget fra kameralisten blev gemt; den samtidige fritekstværdi blev ikke gemt. Ryd først listevalget for at gemme en brugerdefineret værdi.",
-    ["clip.loaded"] = "Indlæste den klipinfo, der allerede er registreret for denne video.",
-    ["clip.prefilled"] = "Forudfyldt fra søsterfilen {source}. Gennemgå og gem; intet blev skrevet automatisk.",
-    ["clip.invalidActive"] = "Baner med spil ({active}) kan ikke overstige synlige baner ({visible}) -- en bane kan ikke være i spil uden at være i billedet.",
-    ["clip.invalidPartial"] = "Delvist synlige ({partial}) kan ikke overstige synlige baner ({visible}).",
-    ["clip.invalidNumber"] = "{field} kræver et helt tal på {min} eller derover -- eller lad feltet stå TOMT for at registrere \"ikke screenet\".",
-    ["clip.captureUnknown"] = "(kan ikke læses her -- hentes fra containeren ved import)",
-    ["cov.line"] = "Mærket til {to}s af {dur}s ({pct}% dækning)  |  umærket slutning {tail}s  |  største hul {gap}s",
-    ["cov.tail"] = "ADVARSEL: {tail}s til SIDST har ingen mærker. Hvis spillet fortsætter der, er gennemgangen ufærdig (import blokerer over {limit}s).",
-    ["cov.span"] = "Bemærk: mærkerne dækker under {limit}% af klippet -- forventeligt ved en lang stille udtoning, et rødt flag ved en afbrudt gennemgang.",
-    ["cov.unknown"] = "Klippets varighed er ukendt -- ingen fuldstændighedsvisning (der gættes aldrig).",
-    ["label.start"] = "Start (s):",
-    ["label.end"] = "Slut (s):",
-    ["label.next"] = "Næste dueloptræk #:",
-    ["label.shots"] = "Antal slag:",
-    ["label.reason"] = "Afslutningsårsag:",
-    ["label.recent"] = "Seneste dueller (vælg én, derefter Rediger/Slet):",
-    ["label.language"] = "Sprog:",
-    ["btn.help"] = "Hjælp",
-    ["btn.hideHelp"] = "Skjul hjælp",
-    ["btn.back5"] = "Tilbage 5s",
-    ["btn.playPause"] = "Afspil / Pause",
-    ["btn.fwd5"] = "Frem 5s",
-    ["btn.markStart"] = "Markér START",
-    ["btn.markEnd"] = "Markér SLUT",
-    ["btn.reMarkStart"] = "Markér START igen (#{n})",
-    ["btn.reMarkEnd"] = "Markér SLUT igen (#{n})",
-    ["btn.saveRally"] = "Gem duel",
-    ["btn.saveRallyN"] = "Gem duel (#{n})",
-    ["btn.saveChangesN"] = "Gem ændringer (#{n})",
-    ["btn.edit"] = "Rediger valgte",
-    ["btn.delete"] = "Slet valgte",
-    ["btn.undo"] = "Fortryd seneste",
-    ["btn.undoCancelEdit"] = "Fortryd seneste (annullér redigering)",
-    ["btn.undoClearMark"] = "Fortryd seneste (ryd markering)",
-    ["btn.undoN"] = "Fortryd seneste (#{n})",
-    ["btn.refresh"] = "Opdater",
-    ["reason.unknown"] = "ukendt",
-    ["reason.winner"] = "vinderbold",
-    ["reason.forced_error"] = "fremtvunget fejl",
-    ["reason.unforced_error"] = "uprovokeret fejl",
-    ["reason.service_fault"] = "servefejl",
-    ["reason.let"] = "omserv",
-    ["reason.other"] = "andet",
-    ["sport.badminton"] = "badminton",
-    ["sport.tennis"] = "tennis",
-    ["sport.table_tennis"] = "bordtennis",
-    ["sport.pickleball"] = "pickleball",
-    ["sport.padel"] = "padel",
-    ["status.modeEdit"] = "Tilstand: REDIGERER duel #{n}  (Gem ændringer for at bekræfte, Fortryd seneste for at annullere).",
-    ["status.modeNew"] = "Tilstand: ny duel  (Markér START, Markér SLUT, vælg årsag, Gem duel).",
-    ["status.lastRow"] = "Sidste række (det Fortryd fjerner): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "Nu: {clock}  |  Dueller i CSV: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "Ingen medier afspilles -- kan ikke søge.",
-    ["seek.noTime"] = "Ingen afspilningstid tilgængelig at søge fra.",
-    ["seek.done"] = "Søg {delta}s  ->  {clock}.",
-    ["markStart.noMedia"] = "Ingen medier afspilles -- kan ikke markere START.",
-    ["markStart.armed"] = "Du har en IKKE-GEMT duel (START -> SLUT). Klik 'Gem duel' for at beholde den, eller 'Fortryd seneste' for at rydde den, før du markerer en ny START. (Du kan også redigere Start-feltet manuelt.)",
-    ["markStart.set"] = "START sat @ {clock}. Afspil til duellens slutning, og markér derefter SLUT.",
-    ["markEnd.noMedia"] = "Ingen medier afspilles -- kan ikke markere SLUT.",
-    ["markEnd.set"] = "SLUT sat @ {clock}. Vælg afslutningsårsagen, og klik derefter på Gem duel.",
-    ["save.needStart"] = "Sæt en START-tid først (klik på Markér START).",
-    ["save.needEnd"] = "Sæt en SLUT-tid først (klik på Markér SLUT).",
-    ["save.zeroLen"] = "SLUT skal være senere end START (duellen skal være > 0s).",
-    ["save.writeFailed"] = "SKRIVNING MISLYKKEDES: {err}",
-    ["save.updated"] = "Opdaterede duel #{n}: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["save.duplicate"] = "Duel #{n} findes allerede -- sæt \"Næste dueloptræk #\" til et ledigt nummer.",
-    ["save.saved"] = "Gemte duel #{n}: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["edit.armedGuard"] = "Afslut den aktuelle duel ('Gem duel') eller ryd den ('Fortryd seneste'), før du redigerer en anden -- din ikke-gemte START -> SLUT ville gå tabt.",
-    ["edit.needSelect"] = "Vælg en duel i listen Seneste først, og klik derefter på Rediger valgte.",
-    ["edit.notFound"] = "Duel #{n} blev ikke fundet (prøv Opdater).",
-    ["edit.editing"] = "Redigerer duel #{n}. Justér Start/Slut/årsag, og klik derefter på Gem ændringer. (Fortryd seneste annullerer.)",
-    ["del.needSelect"] = "Vælg en duel i listen Seneste først, og klik derefter på Slet valgte.",
-    ["del.deleted"] = "Slettede duel #{n}. {count} tilbage.",
-    ["undo.cancelled"] = "Redigering annulleret.",
-    ["undo.cleared"] = "Ryddede den igangværende START/SLUT (intet blev skrevet).",
-    ["undo.nothing"] = "Intet at fortryde.",
-    ["undo.removed"] = "Fjernede seneste duel #{n}. {count} tilbage.",
-    ["play.paused"] = "Sat på pause. Annotér (eller finjustér Start/Slut), og klik derefter på Afspil / Pause for at fortsætte.",
-    ["play.resumed"] = "Afspilning genoptaget.",
-    ["play.started"] = "Afspilning startet.",
-    ["play.noMedia"] = "Ingen medier indlæst til afspilning.",
-    ["sync.editFirst"] = "Afslut (Gem ændringer) eller annullér (Fortryd seneste) den aktuelle redigering, før du opdaterer.",
-    ["sync.noMedia"] = "Ingen medier afspilles -- bruger stadig denne CSV. Åbn videoen, og klik derefter på Opdater.",
-    ["sync.refreshed"] = "Opdateret. {count} dueller indlæst for denne video.",
-    ["sync.switched"] = "Skiftede til den aktuelle video. Indlæste {count} eksisterende dueller; næste er #{n}.",
-    ["activate.fallback"] = "Ingen video registreret endnu. Åbn/afspil videoen, og klik derefter på Markér START -- værktøjet skifter automatisk til den videos egen .rallies.csv (og indlæser eventuelle dueller, der allerede er gemt for den). Tip: åbn videoen FØRST, og aktivér derefter denne udvidelse.",
-    ["activate.resumed"] = "Genoptog denne video: {count} eksisterende dueller indlæst (næste er #{n}). Klik på Hjælp for vejledningen.",
-    ["activate.ready"] = "Klar. Vælg sportsgrenen, og markér derefter dueller. Klik på Hjælp for brug + vejledningen til afslutningsårsager.",
-    ["help.html"] = "<b>Rally Annotator &mdash; sådan bruges det</b><br>\n<b>Afspilning:</b> rækken <b>Tilbage 5s / Afspil / Pause / Frem 5s</b> styrer VLC-afspilleren herfra &mdash; <b>Afspil / Pause</b> er én knap (sæt på pause, annotér, og fortsæt uden at skifte til VLC's hovedvindue).<br>\n1. Vælg <b>Sportsgren</b> (øverst). Den forbliver indstillet på tværs af rallies.<br>\n2. Når et rally begynder, klik <b>Markér START</b> (sæt på pause/spol først for billednøjagtighed &mdash; den fanger den aktuelle afspilningstid ind i Start-feltet).<br>\n3. Når rallyet slutter, klik <b>Markér SLUT</b>. Du kan finjustere Start/Slut-sekunderne ved at redigere disse felter direkte.<br>\n4. Vælg <b>Slutårsag</b> (boksen mellem <b>Markér SLUT</b> og <b>Gem rally</b>; eller lad den stå som <b>unknown</b>), skriv eventuelt et <b>Antal slag</b> (rallyets slag-/strøgtal &mdash; lad stå tomt for at springe over), og klik derefter <b>Gem rally</b> &mdash; én CSV-række skrives ved siden af videoen.<br>\n5. Årsagen NULSTILLES til <b>unknown</b> efter hver gemning (genbruges aldrig stiltiende), og du kan vælge samme årsag på flere rallies i træk.<br>\n6. <b>Seneste rallies</b>: vælg en række, og derefter <b>Redigér valgt</b> (indlæser den tilbage i felterne) eller <b>Slet valgt</b>. <b>Fortryd seneste</b> fjerner den nyeste række (knappen viser hvilken, f.eks. <i>Fortryd seneste (#7)</i>), eller rydder en igangværende markering, eller annullerer en redigering.<br>\n7. <b>Fortsæt senere:</b> labels gemmes i CSV-filen ved siden af videoen, mens du arbejder. Genåbn den SAMME video og aktivér udvidelsen &mdash; den genindlæser dine eksisterende rallies og fortsætter nummereringen. Indstil feltet <b>Næste rally #</b> for at genoptage nummereringen fra en hvilken som helst værdi (f.eks. genstart ved 1, eller fortsæt fra 50); det rykker automatisk frem efter hver gemning. Hvis du skifter video med denne dialog åben, klik <b>Opdatér</b> for at indlæse den aktuelle videos rallies. (Videoens afspilningsposition gendannes ikke &mdash; spol til der, hvor du stoppede.)<br>\n<br>\n<b>Slutårsager &mdash; hvad de betyder (vælg den, der siger HVORFOR rallyet sluttede).</b><br>\nAlle årsager undtagen <i>winner</i> tilskrives den side, der TABTE rallyet.<br>\n&bull; <b>winner</b> &mdash; det sidste slag landede INDE og blev ikke returneret (modstanderen kunne ikke nå det, eller pillede kun ved det). En ren urørt serv (es) tæller her.<br>\n&bull; <b>forced_error</b> &mdash; taberen MISSEDE (ude, eller i nettet) mens UNDER PRES: strakt, forhastet, klemt, eller i kamp med modstanderens fart/skru/dybde. De blev tvunget til at misse.<br>\n&bull; <b>unforced_error</b> &mdash; taberen MISSEDE et rutineslag, de havde både tid OG position til at ramme, med lidt eller intet pres. De forærede det væk.<br>\n&bull; <b>service_fault</b> &mdash; pointet sluttede på SERVEN: serv i nettet, ude af servefeltet, ulovlig bevægelse/fodfejl, eller en dobbeltfejl (tennis/padel).<br>\n&bull; <b>let</b> &mdash; rallyet SPILLES OM efter reglerne (intet point): f.eks. en tennis-/bordtennisserv, der strejfer nettet og ellers er god, eller udefrakommende forstyrrelse.<br>\n&bull; <b>other</b> &mdash; alt andet (skjult optagelse, skade/udgåen, straf, hindring). Brug sparsomt.<br>\n&bull; <b>unknown</b> &mdash; standardvalget; dette rally er endnu ikke klassificeret (vælg en specifik årsag, når du kan).<br>\n<br>\n<b>Hurtige eksempler</b><br>\n&bull; Bold/fjerbold lander <b>UDE</b> (forbi baglinjen / uden for linjerne): det er slagspillerens miss &mdash; <b>forced</b> hvis de var under pres, <b>unforced</b> hvis det var en behagelig bold. (UDE er IKKE automatisk forced, og aldrig en winner for modstanderen.)<br>\n&bull; <b>I nettet</b> under et rally: det samme &mdash; forced hvis presset, unforced hvis rutine. En <b>serv</b> i nettet er <b>service_fault</b>.<br>\n&bull; <b>Netkant, der trimler over og lander inde</b>: levende og god &mdash; normalt en <b>winner</b> hvis den ikke kan nås, ellers vurdér hvad der sker derefter. På SERVEN varierer det efter sportsgren: tennis/bordtennis = <b>let</b> (omspil); badminton-nettouch, der passerer over og lander inde = spil videre (men en servefjerbold FANGET på nettet = service_fault); pickleball (2026) = spil videre.<br>\n&bull; <b>I tvivl om forced vs unforced?</b> Vælg som standard <b>unforced</b> &mdash; markér kun forced, når du kan udpege det specifikke pres.<br>\n<br>\nOutput: <i>&lt;video&gt;.rallies.csv</i> ved siden af videoen. Fuld vejledning: docs/ENDING_REASONS.md i repoet.<br>\nKlik <b>Skjul hjælp</b> for at vende tilbage til statuspanelet.",
-  },
-  ["id"] = {
-    ["label.sport"] = "Olahraga:",
-    ["btn.saveTarget"] = "Simpan profil target",
-    ["btn.deleteProfile"] = "Hapus profil",
-    ["btn.saveReview"] = "Simpan tinjauan",
-    ["btn.saveReviewN"] = "Simpan tinjauan (#{n})",
-    ["label.cameraSection"] = "ID bagian kamera:",
-    ["label.cameraProfile"] = "ID profil kamera:",
-    ["label.polygon"] = "Area main (x,y 0-1):",
-    ["label.setupValidity"] = "Validitas penataan:",
-    ["label.profiles"] = "Profil target (klik satu untuk memuatnya):",
-    ["label.targetState"] = "Apakah lapangan target sedang reli?",
-    ["label.recentReviews"] = "Tinjauan (klik satu, lalu Hapus):",
-    ["validity.supported"] = "didukung",
-    ["validity.unsupported"] = "tidak didukung",
-    ["validity.unclear"] = "tidak jelas",
-    ["state.rallying"] = "sedang reli",
-    ["state.not_rallying"] = "tidak reli",
-    ["state.unclear"] = "tidak jelas",
-    ["target.volumeSummary"] = "Area main: {n} sudut, menutupi {pct}% dari bingkai.",
-    ["target.volumeEmpty"] = "Belum ada area main yang direkam.",
-    ["target.volumeInvalid"] = "Area main belum bisa dipakai — {why}",
-    ["target.saved"] = "Profil target '{section}' tersimpan (area main {n} titik, {pct}% dari bingkai).",
-    ["target.deleted"] = "Profil target '{section}' dihapus.",
-    ["target.needSelect"] = "Klik dulu satu profil target di daftar.",
-    ["target.needSection"] = "ID bagian kamera wajib diisi - ini menandai bagian statis yang dijelaskan profil ini.",
-    ["target.needCourt"] = "ID lapangan target wajib diisi - pakai nomor yang ditulis lokasi di lapangan.",
-    ["target.duplicateSection"] = "Bagian kamera '{section}' sudah punya profil target - menyimpan lagi akan menggantinya.",
-    ["target.polygonSyntax"] = "Area main harus berupa titik seperti '0.21,0.55 0.78,0.55 0.94,0.98 0.06,0.98'.",
-    ["target.polygonTooFewPoints"] = "Area main perlu minimal 3 titik (4 untuk segi empat biasa).",
-    ["target.polygonRange"] = "Koordinat area main DINORMALISASI: setiap x dan y harus antara 0 dan 1, bukan piksel.",
-    ["target.polygonSelfIntersecting"] = "Area main memotong dirinya sendiri — urutan sudutnya salah, jadi tidak melingkupi apa pun. Pilih ulang mengelilingi lapangan.",
-    ["target.needProfile"] = "Simpan dulu profil target - tinjauan menjawab pertanyaan tentang satu bagian kamera.",
-    ["review.saved"] = "Tinjauan #{n} tersimpan: {s} → {e} [{state}].",
-    ["review.deleted"] = "Tinjauan #{n} dihapus. Sisa {count}.",
-    ["review.removed"] = "Tinjauan terakhir #{n} dihapus. Sisa {count}.",
-    ["review.nothing"] = "Tidak ada tinjauan untuk dihapus.",
-    ["legacy.windowsPresent"] = "Ada berkas jendela lapangan sebelah versi lama untuk klip ini. Itu hanya bahan diagnostik: tidak dibaca, tidak dikonversi, dan tidak diimpor di sini.",
-    ["nav.target"] = "Target",
-    ["nav.review"] = "Tinjau",
-    ["btn.loadProfile"] = "Muat yang dipilih",
-    ["target.loaded"] = "Profil target '{section}' dimuat. Sunting isiannya, lalu Simpan profil target.",
-    ["target.mode"] = "Profil target: {count} tersimpan. Satu per bagian kamera statis.",
-    ["review.mode"] = "Tinjauan jarang: jawab apakah lapangan target sedang reli. Tanpa kuota, tanpa penyisiran.",
-    ["nav.rallies"] = "Reli",
-    ["nav.clip"] = "Info klip",
-    ["label.venue"] = "ID lokasi:",
-    ["label.cameraSetup"] = "ID penataan kamera:",
-    ["label.courtsVisible"] = "Lapangan terlihat:",
-    ["label.courtsActive"] = "Lapangan yang dimainkan:",
-    ["label.courtsPartial"] = "Hanya terlihat sebagian:",
-    ["label.targetCourt"] = "ID lapangan target:",
-    ["label.matchFormat"] = "Format pertandingan:",
-    ["label.captureTime"] = "Waktu perekaman (UTC):",
-    ["label.notes"] = "Catatan:",
-    ["fmt.unset"] = "(belum diisi)",
-    ["fmt.singles"] = "tunggal",
-    ["fmt.doubles"] = "ganda",
-    ["fmt.mixed"] = "campuran",
-    ["btn.saveClip"] = "Simpan info klip",
-    ["clip.saved"] = "Info klip tersimpan: {summary}",
-    ["clip.savedNoFormat"] = "Info klip tersimpan: {summary} — tetapi FORMAT PERTANDINGAN masih (belum diatur), sehingga klip ini tidak mencatat tunggal/ganda. Pilih satu lalu simpan lagi; biarkan kosong hanya jika Anda benar-benar tidak bisa memastikan.",
-    ["clip.savedPickerWins"] = "Pilihan dari daftar kamera disimpan; nilai kamera teks bebas yang diisi bersamaan tidak disimpan. Kosongkan pilihan daftar terlebih dahulu untuk menyimpan nilai khusus.",
-    ["clip.loaded"] = "Memuat info klip yang sudah tercatat untuk video ini.",
-    ["clip.prefilled"] = "Diisi awal dari file saudara {source}. Tinjau lalu simpan; tidak ada yang ditulis otomatis.",
-    ["clip.invalidActive"] = "Lapangan yang dimainkan ({active}) tidak boleh melebihi lapangan terlihat ({visible}) -- sebuah lapangan tidak bisa dimainkan tanpa berada dalam bingkai.",
-    ["clip.invalidPartial"] = "Yang terlihat sebagian ({partial}) tidak boleh melebihi lapangan terlihat ({visible}).",
-    ["clip.invalidNumber"] = "{field} memerlukan bilangan bulat {min} atau lebih -- atau biarkan KOSONG untuk mencatat 'belum disaring'.",
-    ["clip.captureUnknown"] = "(tidak terbaca di sini -- diambil dari kontainer saat impor)",
-    ["cov.line"] = "Berlabel sampai {to}d dari {dur}d ({pct}% rentang)  |  ekor tanpa label {tail}d  |  jeda terbesar {gap}d",
-    ["cov.tail"] = "PERINGATAN: {tail}d di AKHIR tidak berlabel. Jika permainan masih berlanjut di sana, pelabelan belum selesai (impor diblokir di atas {limit}d).",
-    ["cov.span"] = "Catatan: label mencakup kurang dari {limit}% klip -- wajar untuk penutup yang lama sepi, tanda bahaya untuk pelabelan yang terputus.",
-    ["cov.unknown"] = "Durasi klip tidak diketahui -- tanpa pembacaan kelengkapan (tidak pernah menebak).",
-    ["label.start"] = "Mulai (d):",
-    ["label.end"] = "Akhir (d):",
-    ["label.next"] = "Reli berikutnya #:",
-    ["label.shots"] = "Jumlah pukulan:",
-    ["label.reason"] = "Alasan berakhir:",
-    ["label.recent"] = "Reli terbaru (pilih satu, lalu Edit/Hapus):",
-    ["label.language"] = "Bahasa:",
-    ["btn.help"] = "Bantuan",
-    ["btn.hideHelp"] = "Sembunyikan bantuan",
-    ["btn.back5"] = "Mundur 5d",
-    ["btn.playPause"] = "Putar / Jeda",
-    ["btn.fwd5"] = "Maju 5d",
-    ["btn.markStart"] = "Tandai MULAI",
-    ["btn.markEnd"] = "Tandai AKHIR",
-    ["btn.reMarkStart"] = "Tandai ulang MULAI (#{n})",
-    ["btn.reMarkEnd"] = "Tandai ulang AKHIR (#{n})",
-    ["btn.saveRally"] = "Simpan Reli",
-    ["btn.saveRallyN"] = "Simpan Reli (#{n})",
-    ["btn.saveChangesN"] = "Simpan perubahan (#{n})",
-    ["btn.edit"] = "Edit yang dipilih",
-    ["btn.delete"] = "Hapus yang dipilih",
-    ["btn.undo"] = "Urungkan terakhir",
-    ["btn.undoCancelEdit"] = "Urungkan terakhir (batalkan edit)",
-    ["btn.undoClearMark"] = "Urungkan terakhir (hapus tanda)",
-    ["btn.undoN"] = "Urungkan terakhir (#{n})",
-    ["btn.refresh"] = "Segarkan",
-    ["reason.unknown"] = "tidak diketahui",
-    ["reason.winner"] = "poin langsung",
-    ["reason.forced_error"] = "kesalahan terpaksa",
-    ["reason.unforced_error"] = "kesalahan sendiri",
-    ["reason.service_fault"] = "kesalahan servis",
-    ["reason.let"] = "let",
-    ["reason.other"] = "lainnya",
-    ["sport.badminton"] = "bulu tangkis",
-    ["sport.tennis"] = "tenis",
-    ["sport.table_tennis"] = "tenis meja",
-    ["sport.pickleball"] = "pickleball",
-    ["sport.padel"] = "padel",
-    ["status.modeEdit"] = "Mode: MENGEDIT reli #{n}  (Simpan perubahan untuk menyimpan, Urungkan terakhir untuk membatalkan).",
-    ["status.modeNew"] = "Mode: reli baru  (Tandai MULAI, Tandai AKHIR, pilih alasan, Simpan Reli).",
-    ["status.lastRow"] = "Baris terakhir (yang dihapus oleh Urungkan): #{n}  {start} -> {end}  [{reason}]",
-    ["status.footer"] = "Sekarang: {clock}  |  Reli dalam CSV: {count}",
-    ["status.csvPath"] = "CSV: {path}",
-    ["seek.noMedia"] = "Tidak ada media yang diputar -- tidak bisa mencari posisi.",
-    ["seek.noTime"] = "Tidak ada waktu pemutaran sebagai titik awal pencarian.",
-    ["seek.done"] = "Cari {delta}d  ->  {clock}.",
-    ["markStart.noMedia"] = "Tidak ada media yang diputar -- tidak bisa menandai MULAI.",
-    ["markStart.armed"] = "Anda memiliki reli yang BELUM TERSIMPAN (MULAI -> AKHIR). Klik 'Simpan Reli' untuk menyimpannya, atau 'Urungkan terakhir' untuk menghapusnya, sebelum menandai MULAI baru. (Anda juga bisa mengubah kolom Mulai secara manual.)",
-    ["markStart.set"] = "MULAI ditetapkan @ {clock}. Putar hingga akhir reli, lalu Tandai AKHIR.",
-    ["markEnd.noMedia"] = "Tidak ada media yang diputar -- tidak bisa menandai AKHIR.",
-    ["markEnd.set"] = "AKHIR ditetapkan @ {clock}. Pilih alasan berakhir, lalu klik Simpan Reli.",
-    ["save.needStart"] = "Tetapkan waktu MULAI terlebih dahulu (klik Tandai MULAI).",
-    ["save.needEnd"] = "Tetapkan waktu AKHIR terlebih dahulu (klik Tandai AKHIR).",
-    ["save.zeroLen"] = "AKHIR harus lebih lambat dari MULAI (reli harus > 0d).",
-    ["save.writeFailed"] = "GAGAL MENULIS: {err}",
-    ["save.updated"] = "Reli #{n} diperbarui: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["save.duplicate"] = "Reli #{n} sudah ada -- atur \"Reli berikutnya #\" ke nomor yang kosong.",
-    ["save.saved"] = "Reli #{n} tersimpan: {start} -> {end}  [{reason}, {sport}{shots}].",
-    ["edit.armedGuard"] = "Selesaikan reli saat ini ('Simpan Reli') atau hapus ('Urungkan terakhir') sebelum mengedit yang lain -- MULAI -> AKHIR Anda yang belum tersimpan akan hilang.",
-    ["edit.needSelect"] = "Pilih sebuah reli di daftar Terbaru terlebih dahulu, lalu Edit yang dipilih.",
-    ["edit.notFound"] = "Reli #{n} tidak ditemukan (coba Segarkan).",
-    ["edit.editing"] = "Mengedit reli #{n}. Sesuaikan Mulai/Akhir/alasan, lalu Simpan perubahan. (Urungkan terakhir untuk membatalkan.)",
-    ["del.needSelect"] = "Pilih sebuah reli di daftar Terbaru terlebih dahulu, lalu Hapus yang dipilih.",
-    ["del.deleted"] = "Reli #{n} dihapus. {count} tersisa.",
-    ["undo.cancelled"] = "Edit dibatalkan.",
-    ["undo.cleared"] = "MULAI/AKHIR yang sedang berlangsung telah dihapus (tidak ada yang ditulis).",
-    ["undo.nothing"] = "Tidak ada yang bisa diurungkan.",
-    ["undo.removed"] = "Reli terakhir #{n} dihapus. {count} tersisa.",
-    ["play.paused"] = "Dijeda. Beri anotasi (atau sesuaikan Mulai/Akhir), lalu Putar / Jeda untuk melanjutkan.",
-    ["play.resumed"] = "Pemutaran dilanjutkan.",
-    ["play.started"] = "Pemutaran dimulai.",
-    ["play.noMedia"] = "Tidak ada media yang dimuat untuk diputar.",
-    ["sync.editFirst"] = "Selesaikan (Simpan perubahan) atau batalkan (Urungkan terakhir) edit saat ini sebelum menyegarkan.",
-    ["sync.noMedia"] = "Tidak ada media yang diputar -- tetap menggunakan CSV ini. Buka videonya, lalu klik Segarkan.",
-    ["sync.refreshed"] = "Disegarkan. {count} reli dimuat untuk video ini.",
-    ["sync.switched"] = "Beralih ke video saat ini. Memuat {count} reli yang ada; berikutnya adalah #{n}.",
-    ["activate.fallback"] = "Belum ada video terdeteksi. Buka/putar video, lalu klik Tandai MULAI -- alat akan otomatis beralih ke berkas .rallies.csv milik video tersebut (dan memuat reli yang sudah tersimpan untuknya). Tip: buka video DULU, lalu aktifkan ekstensi ini.",
-    ["activate.resumed"] = "Melanjutkan video ini: {count} reli yang ada dimuat (berikutnya adalah #{n}). Klik Bantuan untuk panduan.",
-    ["activate.ready"] = "Siap. Pilih Olahraga, lalu tandai reli. Klik Bantuan untuk cara pakai + panduan alasan berakhir.",
-    ["help.html"] = "<b>Rally Annotator &mdash; cara penggunaan</b><br>\n<b>Pemutaran:</b> baris <b>Mundur 5d / Putar / Jeda / Maju 5d</b> mengendalikan pemutar VLC dari sini &mdash; <b>Putar / Jeda</b> adalah satu sakelar (jeda, beri anotasi, lalu lanjutkan tanpa beralih ke jendela utama VLC).<br>\n1. Pilih <b>Olahraga</b> (di atas). Pengaturan ini tetap berlaku di seluruh reli.<br>\n2. Saat sebuah reli dimulai, klik <b>Tandai MULAI</b> (jeda/geser dulu untuk akurasi per-bingkai &mdash; ini mengambil cuplikan waktu pemutaran saat ini ke kolom Mulai).<br>\n3. Saat reli berakhir, klik <b>Tandai SELESAI</b>. Anda dapat menyetel halus detik Mulai/Selesai dengan menyunting kolom-kolom tersebut secara langsung.<br>\n4. Pilih <b>Alasan berakhir</b> (kotak di antara <b>Tandai SELESAI</b> dan <b>Simpan Reli</b>; atau biarkan sebagai <b>unknown</b>), opsional ketikkan <b>Jumlah pukulan</b> (jumlah pukulan/ayunan dalam reli &mdash; kosongkan untuk melewati), lalu klik <b>Simpan Reli</b> &mdash; satu baris CSV ditulis di samping video.<br>\n5. Alasan akan DIATUR ULANG menjadi <b>unknown</b> setelah setiap penyimpanan (tidak pernah dipakai ulang secara diam-diam), dan Anda dapat memilih alasan yang sama pada reli-reli berturut-turut.<br>\n6. <b>Reli terbaru</b>: pilih sebuah baris, lalu <b>Sunting yang dipilih</b> (memuatnya kembali ke kolom-kolom) atau <b>Hapus yang dipilih</b>. <b>Batalkan terakhir</b> menghapus baris yang paling baru (tombol menunjukkan yang mana, mis. <i>Batalkan terakhir (#7)</i>), atau menghapus tanda yang sedang berjalan, atau membatalkan suntingan.<br>\n7. <b>Melanjutkan nanti:</b> label disimpan ke CSV di samping video seiring kerja Anda. Buka kembali video yang SAMA dan aktifkan ekstensi &mdash; ia akan memuat ulang reli yang sudah ada dan melanjutkan penomoran. Atur kolom <b>Reli berikutnya #</b> untuk melanjutkan penomoran dari nilai mana pun (mis. mulai ulang dari 1, atau lanjutkan dari 50); ia akan otomatis maju setelah setiap penyimpanan. Jika Anda berganti video dengan dialog ini terbuka, klik <b>Segarkan</b> untuk memuat reli dari video saat ini. (Posisi pemutaran video tidak dipulihkan &mdash; geser ke tempat Anda berhenti.)<br>\n<br>\n<b>Alasan berakhir &mdash; apa artinya (pilih yang menyatakan MENGAPA reli berakhir).</b><br>\nSemua alasan kecuali <i>winner</i> dibebankan kepada pihak yang KALAH dalam reli.<br>\n&bull; <b>winner</b> &mdash; pukulan terakhir mendarat MASUK dan tidak dikembalikan (lawan tidak mampu menjangkaunya, atau hanya melambai padanya). Servis bersih yang tak tersentuh (ace) termasuk di sini.<br>\n&bull; <b>forced_error</b> &mdash; pihak yang kalah MELESET (keluar, atau ke net) saat DALAM TEKANAN: terentang, terburu-buru, terjepit, atau kesulitan menangani tempo/spin/kedalaman lawan. Mereka dipaksa untuk meleset.<br>\n&bull; <b>unforced_error</b> &mdash; pihak yang kalah MELESET pada pukulan rutin yang mereka punya waktu DAN posisi untuk melakukannya, dengan sedikit atau tanpa tekanan. Mereka memberikannya cuma-cuma.<br>\n&bull; <b>service_fault</b> &mdash; poin berakhir pada SERVIS: servis ke net, keluar dari kotak servis, gerakan ilegal/foot fault, atau servis ganda gagal (tenis/padel).<br>\n&bull; <b>let</b> &mdash; reli DIULANG sesuai aturan (tanpa poin): mis. servis tenis/tenis meja yang menyentuh net tetapi sebaliknya sah, atau gangguan dari luar.<br>\n&bull; <b>other</b> &mdash; apa pun selain itu (rekaman terhalang, cedera/mundur, penalti, halangan). Gunakan secukupnya.<br>\n&bull; <b>unknown</b> &mdash; nilai bawaan; reli ini belum diklasifikasikan (pilih alasan spesifik bila Anda bisa).<br>\n<br>\n<b>Kasus singkat</b><br>\n&bull; Bola/kok mendarat <b>KELUAR</b> (melewati garis belakang / di luar garis): itu adalah lesetnya pemukul &mdash; <b>forced</b> jika mereka dalam tekanan, <b>unforced</b> jika itu bola yang nyaman. (KELUAR TIDAK otomatis forced, dan tidak pernah menjadi winner bagi lawan.)<br>\n&bull; <b>Ke net</b> selama reli: sama saja &mdash; forced jika ditekan, unforced jika rutin. <b>Servis</b> ke net adalah <b>service_fault</b>.<br>\n&bull; <b>Sentuhan net yang menggelinding melewatinya dan mendarat masuk</b>: tetap hidup dan sah &mdash; biasanya <b>winner</b> jika tak terjangkau, jika tidak nilailah apa yang terjadi berikutnya. Pada SERVIS hal ini bervariasi menurut olahraga: tenis/tenis meja = <b>let</b> (ulang); sentuhan net pada bulu tangkis yang melewatinya dan mendarat masuk = lanjut bermain (tetapi kok servis yang TERSANGKUT di net = service_fault); pickleball (2026) = lanjut bermain.<br>\n&bull; <b>Ragu antara forced dan unforced?</b> Standarkan ke <b>unforced</b> &mdash; tandai forced hanya bila Anda dapat menunjuk tekanan yang spesifik.<br>\n<br>\nKeluaran: <i>&lt;video&gt;.rallies.csv</i> di samping video. Panduan lengkap: docs/ENDING_REASONS.md di repositori.<br>\nKlik <b>Sembunyikan bantuan</b> untuk kembali ke panel status.",
+    ["activate.ready"] = "Ready. Set and save the video Sport in Clip info, then mark rallies. Click Help for usage + the ending-reason guide.",
+    ["help.html"] = "<b>Rally Annotator &mdash; how to use</b><br>\n<b>Playback:</b> the <b>Back 5s / Play / Pause / Fwd 5s</b> row drives the VLC player from here &mdash; <b>Play / Pause</b> is one toggle (pause, annotate, and resume without switching to the main VLC window).<br>\n1. Open <b>Clip info</b>, choose the video <b>Sport</b>, and click <b>Save clip info</b>. Sport is one setting for the whole video.<br>\n2. When a rally begins, click <b>Mark START</b> (pause/scrub first for frame accuracy &mdash; it snapshots the current playback time into the Start field).<br>\n3. When the rally ends, click <b>Mark END</b>. You may fine-tune the Start/End seconds by editing those fields directly.<br>\n4. Choose the <b>Ending reason</b> (the box between <b>Mark END</b> and <b>Save Rally</b>; or leave it as <b>unknown</b>), optionally type a <b>Number of shots</b> (the rally's shot/stroke count &mdash; leave blank to skip), then click <b>Save Rally</b> &mdash; one CSV row is written next to the video.<br>\n5. The reason RESETS to <b>unknown</b> after every save (never silently reused), and you can pick the same reason on consecutive rallies.<br>\n6. <b>Recent rallies</b>: select a row, then <b>Edit selected</b> (loads it back into the fields) or <b>Delete selected</b>. <b>Undo last</b> removes the most recent row (the button shows which, e.g. <i>Undo last (#7)</i>), or clears an in-progress mark, or cancels an edit.<br>\n7. <b>Resuming later:</b> labels are saved to the CSV next to the video as you go. Re-open the SAME video and enable the extension &mdash; it reloads your existing rallies and continues numbering. Set the <b>Next rally #</b> field to resume numbering from any value (e.g. restart at 1, or continue from 50); it auto-advances after each save. If you switch videos with this dialog open, click <b>Refresh</b> to load the current video's rallies. (The video's playback position is not restored &mdash; scrub to where you stopped.)<br>\n<br>\n<b>Ending reasons &mdash; what they mean (pick the one that says WHY the rally ended).</b><br>\nAll reasons except <i>winner</i> are charged to the side that LOST the rally.<br>\n&bull; <b>winner</b> &mdash; the last shot landed IN and was not returned (opponent couldn't reach it, or only waved at it). A clean untouched serve (ace) counts here.<br>\n&bull; <b>forced_error</b> &mdash; the loser MISSED (out, or into the net) while UNDER PRESSURE: stretched, rushed, jammed, or handling the opponent's pace/spin/depth. They were made to miss.<br>\n&bull; <b>unforced_error</b> &mdash; the loser MISSED a routine shot they had time AND position to make, with little or no pressure. They gave it away.<br>\n&bull; <b>service_fault</b> &mdash; the point ended on the SERVE: serve into the net, out of the service box, illegal action/foot fault, or a double fault (tennis/padel).<br>\n&bull; <b>let</b> &mdash; the rally is REPLAYED under the rules (no point): e.g. a tennis/table-tennis serve that clips the net and is otherwise good, or outside interference.<br>\n&bull; <b>other</b> &mdash; anything else (occluded footage, injury/retirement, penalty, hindrance). Use sparingly.<br>\n&bull; <b>unknown</b> &mdash; the default; this rally hasn't been classified yet (pick a specific reason when you can).<br>\n<br>\n<b>Quick cases</b><br>\n&bull; Ball/shuttle lands <b>OUT</b> (past the baseline / outside the lines): it is the hitter's miss &mdash; <b>forced</b> if they were under pressure, <b>unforced</b> if it was a comfortable ball. (OUT is NOT automatically forced, and never a winner for the opponent.)<br>\n&bull; <b>Into the net</b> during a rally: same &mdash; forced if pressured, unforced if routine. A <b>serve</b> into the net is <b>service_fault</b>.<br>\n&bull; <b>Net-cord that dribbles over and lands in</b>: live and good &mdash; usually a <b>winner</b> if unreachable, else judge what happens next. On the SERVE it varies by sport: tennis/table-tennis = <b>let</b> (replay); badminton net-tick that passes over and lands in = play on (but a serve shuttle CAUGHT on the net = service_fault); pickleball (2026) = play on.<br>\n&bull; <b>Unsure forced vs unforced?</b> Default to <b>unforced</b> &mdash; only mark forced when you can point to the specific pressure.<br>\n<br>\nOutput: <i>&lt;video&gt;.rallies.csv</i> next to the video. Full guide: docs/ENDING_REASONS.md in the repo.<br>\nClick <b>Hide help</b> to return to the status panel.",
   },
 }
 
-local LOCALES = { "en", "kn", "hi", "te", "es", "da", "id" }
-local LOCALE_LABELS = { en = "English", kn = "ಕನ್ನಡ", hi = "हिन्दी", te = "తెలుగు",
-                        es = "Español", da = "Dansk", id = "Bahasa Indonesia" }
-local LANG = "en"
-
--- t(key, vars): current locale -> en -> raw key, with {var} interpolation. (gsub/ipairs
--- live in function bodies, never at top level, so the descriptor() scan sandbox is fine.)
+-- t(key, vars): English catalog -> raw key, with {var} interpolation. gsub stays in the
+-- function body so the descriptor() scan sandbox never evaluates unavailable base globals.
 local function t(key, vars)
-  local tbl = STRINGS[LANG] or STRINGS.en
-  local s = (tbl and tbl[key]) or (STRINGS.en and STRINGS.en[key]) or key
+  local s = (STRINGS.en and STRINGS.en[key]) or key
   if vars then
     s = s:gsub("{(%w+)}", function(k)
       local v = vars[k]
@@ -1356,30 +423,6 @@ local function t(key, vars)
     end)
   end
   return s
-end
-
-local function lang_index(code)
-  for i, c in ipairs(LOCALES) do if c == code then return i end end
-  return 1
-end
-
--- Persist the chosen language in a tiny config file (extensions have no settings API).
-local function lang_config_path()
-  local home = os.getenv("USERPROFILE") or os.getenv("HOME") or "."
-  local sep = home:find("\\") and "\\" or "/"
-  if home:sub(-1) ~= sep then home = home .. sep end
-  return home .. ".rally_annotator_lang"
-end
-local function load_lang()
-  local f = io.open(lang_config_path(), "r")
-  if not f then return end
-  local code = f:read("*l"); f:close()
-  if code then code = code:gsub("%s+", "") end
-  if code and STRINGS[code] then LANG = code end
-end
-local function save_lang()
-  local f = io.open(lang_config_path(), "w")
-  if f then f:write(LANG .. "\n"); f:close() end
 end
 
 --------------------------------------------------------------------------------
@@ -1398,8 +441,7 @@ local JESC = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f',
                ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
 
 -- Escape per RFC 8259: the two mandatory escapes plus every control byte. Bytes >= 0x80
--- pass through verbatim -- valid UTF-8 is legal JSON, and re-encoding it would mangle a
--- Kannada venue name.
+-- pass through verbatim -- valid UTF-8 is legal JSON, and venue names may contain it.
 local function jstr(s)
   s = tostring(s):gsub('[%z\1-\31"\\]', function(c)
     return JESC[c] or string.format('\\u%04x', string.byte(c))
@@ -1573,7 +615,8 @@ end
 local d                 -- the single dialog (one per extension)
 local w_status          -- status label widget (HTML/rich-text); also hosts help
 local w_reason          -- ending_reason dropdown widget
-local w_sport           -- sport dropdown widget
+local w_clip_sport      -- one per-video sport dropdown on the Clip info screen
+local w_video_sport     -- read-only video sport on the rally screen
 local w_start           -- start-time text input (editable seconds)
 local w_end             -- end-time text input (editable seconds)
 local w_list            -- recent-rallies list widget
@@ -1585,7 +628,6 @@ local w_next            -- "Next rally #" text input (lets you resume numbering 
 local w_shots           -- "Number of shots" text input (optional shots_count per rally)
 local w_help_btn        -- the Help button (relabeled "Hide help" when open)
 local w_help            -- the help panel widget; nil when hidden (toggled via del_widget)
-local w_lang            -- language-selector dropdown (en/kn/hi/te/es/da/id)
 
 local w_venue, w_target_court, w_camera_picker, w_camera  -- Clip info screen inputs
 local w_visible, w_active, w_partial                      -- Clip info screen inputs
@@ -1595,7 +637,7 @@ local w_validity, w_profile_list                          -- Target screen dropd
 local w_rv_start, w_rv_end, w_rv_notes                    -- Review screen inputs
 local w_rv_state, w_rv_section, w_rv_list, w_rv_save      -- Review screen dropdowns/list/button
 
-local rows = {}         -- in-memory rally rows: { n, s, e, reason, sport, [shots], [extra] }
+local rows = {}         -- rally rows; `sport` is a denormalized projection of clip.sport
 local mode = "new"      -- "new" (marking a fresh rally) or "edit" (editing a row)
 local edit_index = nil  -- index into rows when mode == "edit"
 local out_path          -- resolved CSV path (set on activate; re-resolved by Refresh)
@@ -1603,7 +645,7 @@ local out_path_is_fallback = false  -- true when out_path is the home-dir fallba
                                     -- was resolvable when we last set it); see adopt_current_video_csv
 
 -- Which screen the dialog is showing. The whole grid is rebuilt on a switch, reusing the
--- proven change_language() path -- one screen's widgets never coexist with another's.
+-- screen-rebuild path -- one screen's widgets never coexist with another's.
 local screen = "rally"          -- "rally" | "clip" | "windows"
 local help_row = 17             -- grid row the help panel occupies (per-screen; see build_*)
 
@@ -1616,7 +658,7 @@ local clip = {}                 -- venue_id, camera_setup_id, court_count, activ
 local clip_path                 -- <video-stem>.clipmeta.json
 -- Clip-info values the operator has entered but NOT yet saved, or nil when no edit is in
 -- progress. Same job `form` does for the rally screen. Without it every dialog rebuild
--- (screen switch, language switch, same-video Refresh) silently reset the whole screen -- and
+-- (screen switch or same-video Refresh) silently reset the whole screen -- and
 -- an unset dropdown repaints as "(not set)", which looks like a deliberate answer rather than
 -- a cleared box, so a lost match_format left no trace until the sidecar came back null.
 local clip_form = nil
@@ -1634,10 +676,10 @@ local reviews = {}              -- { n, s, e, state, section, source, notes }
 local review_path               -- <video-stem>.target-review.csv
 local legacy_windows_present = false   -- a withdrawn-design windows.csv is sitting there
 
--- Rally form values survive a dialog rebuild (screen or language switch). Without this,
+-- Rally form values survive a dialog rebuild (such as a screen switch). Without this,
 -- switching screens mid-rally would silently discard an unsaved START -> END -- exactly the
 -- data loss the v1.6.4 armed-guard exists to prevent.
-local form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = SPORTS[1] }
+local form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT }
 local rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
 
 -- Forward declarations: the button callbacks below are defined BEFORE the dialog builders
@@ -1793,11 +835,62 @@ local function load_rows()
   f:close()
 end
 
+local function canonical_sport(value)
+  for _, sport in ipairs(SPORTS) do
+    if value == sport then return sport end
+  end
+  return nil
+end
+
+-- `sport` remains repeated in the CSV for the established interchange schema, but it is no
+-- longer an independently editable rally property. A unanimous legacy CSV can seed the video
+-- value when no sidecar exists; mixed or non-canonical rows require an explicit Clip info save.
+local function unanimous_row_sport()
+  local found = nil
+  for _, row in ipairs(rows) do
+    local sport = canonical_sport(row.sport)
+    if not sport or (found and found ~= sport) then return nil end
+    found = sport
+  end
+  return found
+end
+
+local function adopt_row_sport_if_missing()
+  if canonical_sport(clip.sport) then return end
+  clip.sport = unanimous_row_sport()
+end
+
+local function video_sport()
+  local declared = canonical_sport(clip.sport)
+  if declared then return declared end
+  local legacy = unanimous_row_sport()
+  if legacy then return legacy end
+  -- The no-video home fallback predates per-clip metadata and is retained only so enabling the
+  -- extension before playback remains harmless. Once a real video is adopted this default is
+  -- discarded and its sport must come from that video's Clip info or unanimous legacy rows.
+  if out_path_is_fallback then return SPORTS[1] end
+  return nil
+end
+
+local function refresh_video_sport()
+  if not w_video_sport then return end
+  local sport = video_sport()
+  w_video_sport:set_text(sport and t("sport." .. sport) or t("fmt.unset"))
+end
+
+local function sport_mismatch_count(sport)
+  local count = 0
+  for _, row in ipairs(rows) do
+    if row.sport ~= sport then count = count + 1 end
+  end
+  return count
+end
+
 -- Rewrite the whole CSV from `rows` (header once). We write a temp file and swap
 -- it into place so the live CSV is never lost if a step fails: rename is atomic on
 -- POSIX (and succeeds for a brand-new file on Windows); when Windows can't rename
 -- over an existing file we stash the original as .bak and roll back on error.
-local function save_all()
+local function save_all(skip_clipmeta_refresh)
   local tmp = out_path .. ".tmp"
   local f, err = io.open(tmp, "w")
   if not f then return false, ("cannot open CSV for write: " .. tostring(err)) end
@@ -1811,7 +904,9 @@ local function save_all()
   f:close()
   -- Atomic on POSIX; also succeeds on Windows when out_path doesn't exist yet.
   if os.rename(tmp, out_path) then
-    if refresh_clipmeta_completeness then refresh_clipmeta_completeness() end
+    if not skip_clipmeta_refresh and refresh_clipmeta_completeness then
+      refresh_clipmeta_completeness()
+    end
     return true
   end
   -- Windows overwrite path: keep a backup so the original is never lost.
@@ -1824,7 +919,9 @@ local function save_all()
     return false, ("cannot replace CSV: " .. tostring(rerr))
   end
   os.remove(bak)
-  if refresh_clipmeta_completeness then refresh_clipmeta_completeness() end
+  if not skip_clipmeta_refresh and refresh_clipmeta_completeness then
+    refresh_clipmeta_completeness()
+  end
   return true
 end
 
@@ -2039,14 +1136,10 @@ local function target_court_from_doc(doc)
 end
 
 local function apply_declarative_clipmeta(doc, include_capture_time)
-  for _, k in ipairs({ "venue_id", "camera_setup_id", "match_format", "notes", "sport" }) do
+  for _, k in ipairs({ "venue_id", "camera_setup_id", "match_format", "notes" }) do
     if type(doc[k]) == "string" and doc[k] ~= "" then clip[k] = doc[k] end
   end
-  if clip.sport then
-    for _, sport in ipairs(SPORTS) do
-      if sport == clip.sport then form.sport = sport end
-    end
-  end
+  clip.sport = canonical_sport(doc.sport)
   if include_capture_time and type(doc.capture_time_utc) == "string"
       and doc.capture_time_utc ~= "" then
     clip.capture_time_utc = doc.capture_time_utc
@@ -2188,9 +1281,17 @@ local function save_clipmeta_file()
   f:write(jenc(doc) .. "\n")
   f:close()
   if os.rename(tmp, clip_path) then return true end
-  os.remove(clip_path)                      -- Windows cannot rename over an existing file
+  -- Windows cannot rename over an existing file. Preserve the old sidecar until the new one
+  -- is installed, matching the CSV writer's rollback contract.
+  local bak = clip_path .. ".bak"
+  os.remove(bak)
+  local stashed = os.rename(clip_path, bak)
   local ok, rerr = os.rename(tmp, clip_path)
-  if not ok then return false, tostring(rerr) end
+  if not ok then
+    if stashed then os.rename(bak, clip_path) end
+    return false, tostring(rerr)
+  end
+  os.remove(bak)
   return true
 end
 
@@ -2391,7 +1492,7 @@ local function rebuild_reason_default()
   if not d or screen ~= "rally" then return end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 7, 1, 1)
-  w_reason:add_value(t("reason." .. REASON_DEFAULT), 0)  -- "unknown" default (id 0); label localized
+  w_reason:add_value(t("reason." .. REASON_DEFAULT), 0)  -- "unknown" default (id 0)
   for i, v in ipairs(REASONS) do w_reason:add_value(t("reason." .. v), i) end
 end
 
@@ -2400,21 +1501,25 @@ local function rebuild_reason_selected(sel)
   if not sel or sel == "" then sel = REASON_DEFAULT end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 7, 1, 1)
-  w_reason:add_value(t("reason." .. sel), REASON_ID[sel] or 0)   -- selected first (label localized)
+  w_reason:add_value(t("reason." .. sel), REASON_ID[sel] or 0)   -- selected first
   if sel ~= REASON_DEFAULT then w_reason:add_value(t("reason." .. REASON_DEFAULT), 0) end
   for i, v in ipairs(REASONS) do
     if v ~= sel then w_reason:add_value(t("reason." .. v), i) end
   end
 end
 
-local function rebuild_sport_selected(sel)
-  if not w_sport then return end
-  if not sel or sel == "" then sel = SPORTS[1] end
-  w_sport:clear()
-  local id = SPORT_ID[sel] or 99
-  w_sport:add_value(t("sport." .. sel), id)         -- first => shown selected (label localized)
+local function rebuild_clip_sport_selected(sel)
+  if not w_clip_sport then return end
+  sel = canonical_sport(sel)
+  w_clip_sport:clear()
+  if sel then
+    w_clip_sport:add_value(t("sport." .. sel), SPORT_ID[sel])
+    w_clip_sport:add_value(t("fmt.unset"), 0)
+  else
+    w_clip_sport:add_value(t("fmt.unset"), 0)
+  end
   for i, v in ipairs(SPORTS) do
-    if v ~= sel then w_sport:add_value(t("sport." .. v), i) end
+    if v ~= sel then w_clip_sport:add_value(t("sport." .. v), i) end
   end
 end
 
@@ -2590,9 +1695,9 @@ local function sync_to_current_video()
     -- operator input and re-stage the stale widgets over it.
     capture_clip_form()
     load_rows()                  -- re-read in case the file changed on disk
-    load_clipmeta(); load_reviews(); detect_legacy_windows()
+    load_clipmeta(); adopt_row_sport_if_missing(); load_reviews(); detect_legacy_windows()
     refresh_next_field()
-    refresh_list(); refresh_buttons()
+    refresh_list(); refresh_buttons(); refresh_video_sport()
     -- The Clip info / Target / Review screens paint from widgets, not from state, so a
     -- reload alone would leave them showing pre-reload text. Rebuild those screens.
     if screen ~= "rally" then rebuild_after_sync(false) end
@@ -2601,10 +1706,11 @@ local function sync_to_current_video()
   end
   out_path = new_path            -- switched videos -> repoint + resume that file
   load_rows()
-  load_clipmeta(); load_reviews(); detect_legacy_windows()   -- every track shares the stem
+  load_clipmeta(); adopt_row_sport_if_missing(); load_reviews(); detect_legacy_windows()
   reset_form()
   refresh_next_field()
   refresh_list()
+  refresh_video_sport()
   refresh_buttons()
   -- Switching video must not carry the previous clip's fields across. Without this the
   -- Clip info boxes still held video A's venue/court counts while `clip_path` already
@@ -2629,11 +1735,12 @@ local function adopt_current_video_csv()
   if p == out_path then return end       -- already pointing there (defensive)
   out_path = p
   load_rows()                            -- pick up rallies already saved for this video
-  load_clipmeta(); load_reviews(); detect_legacy_windows()   -- and its clip info / reviews too
+  load_clipmeta(); adopt_row_sport_if_missing(); load_reviews(); detect_legacy_windows()
   clip_form = nil                        -- a real clip now, possibly with recorded metadata of its
                                          -- own: staged fallback edits must not shadow what it says
   refresh_next_field()
   refresh_list()
+  refresh_video_sport()
 end
 
 -- Seek the player by delta_s seconds (relative), clamped at 0 (time is microseconds in 3.x/4.x).
@@ -2681,12 +1788,15 @@ function save_rally()
     set_status(t("save.zeroLen"))
     return
   end
-  -- Map the selected dropdown IDs back to CANONICAL english values (the displayed labels
-  -- are localized, but the CSV must stay canonical). id 0 = unknown; 1..N index REASONS/SPORTS.
+  -- The reason belongs to this rally. Sport does not: Clip info owns one canonical value for
+  -- the whole video, repeated into each CSV row only for interchange compatibility.
   local rid = w_reason:get_value()
   local reason = (rid == nil or rid == 0) and REASON_DEFAULT or (REASONS[rid] or REASON_DEFAULT)
-  local sid = w_sport:get_value()
-  local sport = (sid ~= nil and SPORTS[sid]) or SPORTS[1]
+  local sport = video_sport()
+  if not sport then set_status(t("save.needVideoSport")); return end
+  if sport_mismatch_count(sport) > 0 then
+    set_status(t("save.mixedVideoSport")); return
+  end
   local shots = get_shots()                -- optional; nil when blank
   local shots_note = (shots ~= nil) and string.format(", %d shots", shots) or ""
 
@@ -2732,7 +1842,6 @@ function edit_selected()
   w_end:set_text(string.format("%.3f", r.e))
   if w_shots then w_shots:set_text(r.shots ~= nil and tostring(r.shots) or "") end
   rebuild_reason_selected(r.reason)
-  rebuild_sport_selected(r.sport)
   refresh_buttons()
   set_status(t("edit.editing", { n = r.n }))
 end
@@ -2813,6 +1922,9 @@ local function camera_setup_from_widgets()
 end
 
 function save_clip_info()
+  local sport_id = w_clip_sport and w_clip_sport:get_value() or 0
+  local sport = (sport_id ~= nil and sport_id ~= 0) and SPORTS[sport_id] or nil
+  if not canonical_sport(sport) then set_status(t("save.needVideoSport")); return end
   local visible, ok1 = opt_count(w_visible, 1)
   if not ok1 then
     set_status(t("clip.invalidNumber", { field = t("label.courtsVisible"), min = 1 })); return
@@ -2834,6 +1946,9 @@ function save_clip_info()
     set_status(t("clip.invalidPartial", { partial = partial, visible = visible })); return
   end
 
+  local old_clip = {}
+  for key, value in pairs(clip) do old_clip[key] = value end
+
   local fid = w_format and w_format:get_value() or 0
   local camera_picker_id = w_camera_picker and w_camera_picker:get_value() or 0
   local camera_custom = opt_text(w_camera)
@@ -2846,10 +1961,42 @@ function save_clip_info()
   clip.court_count, clip.active_court_count, clip.partially_visible_court_count =
     visible, active, partial
   clip.capture_time_utc = container_capture_time()   -- container only; never the path
-  clip.sport = form.sport
+  clip.sport = sport
+
+  -- One explicit Clip info choice owns the video. The CSV keeps its historical sport column,
+  -- but every existing row is normalized to this value in the same user action so mixed-video
+  -- metadata cannot survive a resume or an edit. Roll back memory if the safe CSV swap fails.
+  local old_sports, normalized = {}, 0
+  for i, row in ipairs(rows) do
+    old_sports[i] = row.sport
+    if row.sport ~= sport then row.sport = sport; normalized = normalized + 1 end
+  end
+  if normalized > 0 then
+    -- Defer the automatic sidecar refresh until the explicit sidecar write below. Otherwise
+    -- a failed sidecar write could leave the normalized CSV paired with stale video metadata.
+    local okr, rerr = save_all(true)
+    if not okr then
+      for i, old in ipairs(old_sports) do rows[i].sport = old end
+      clip = old_clip
+      set_status(t("save.writeFailed", { err = tostring(rerr) }))
+      return
+    end
+  end
 
   local okw, err = save_clipmeta_file()
-  if not okw then set_status(t("save.writeFailed", { err = tostring(err) })); return end
+  if not okw then
+    clip = old_clip
+    local rollback_err = nil
+    if normalized > 0 then
+      for i, old in ipairs(old_sports) do rows[i].sport = old end
+      local rolled_back, rerr = save_all(true)
+      if not rolled_back then rollback_err = rerr end
+    end
+    local detail = tostring(err)
+    if rollback_err then detail = detail .. "; CSV rollback failed: " .. tostring(rollback_err) end
+    set_status(t("save.writeFailed", { err = detail }))
+    return
+  end
   clip_form = nil                        -- committed; `clip` is the source of truth again
   clipmeta_exists = true
   clip_prefill_source = nil
@@ -2863,6 +2010,11 @@ function save_clip_info()
   -- singles+doubles minimum from nulls, and finding out then costs a re-annotation round trip.
   local saved_status = t(clip.match_format and "clip.saved" or "clip.savedNoFormat",
                          { summary = summary })
+  if normalized > 0 then
+    saved_status = saved_status .. " " .. t("clip.sportNormalized", {
+      count = normalized, sport = t("sport." .. sport),
+    })
+  end
   if camera_picker_wins then saved_status = saved_status .. " " .. t("clip.savedPickerWins") end
   set_status(saved_status)
 end
@@ -3055,9 +2207,9 @@ end
 --------------------------------------------------------------------------------
 -- Dialog construction
 --------------------------------------------------------------------------------
--- Snapshot the editable widgets into module state before a rebuild. Screen and language
--- switches both destroy the whole grid; without this an in-progress START -> END would be
--- silently discarded -- the very loss the v1.6.4 armed guard exists to prevent.
+-- Snapshot the editable widgets into module state before a screen rebuild. Without this an
+-- in-progress START -> END would be silently discarded -- the very loss the v1.6.4 armed guard
+-- exists to prevent.
 function capture_form()
   if w_start then form.start = w_start:get_text() or "" end
   if w_end then form.stop = w_end:get_text() or "" end
@@ -3066,10 +2218,6 @@ function capture_form()
   if w_reason then
     local rid = w_reason:get_value()
     form.reason = (rid == nil or rid == 0) and REASON_DEFAULT or (REASONS[rid] or REASON_DEFAULT)
-  end
-  if w_sport then
-    local sid = w_sport:get_value()
-    form.sport = (sid ~= nil and SPORTS[sid]) or form.sport
   end
   if w_rv_start then rv_form.start = w_rv_start:get_text() or "" end
   if w_rv_end then rv_form.stop = w_rv_end:get_text() or "" end
@@ -3096,7 +2244,9 @@ end
 function capture_clip_form()
   if not w_venue then return end            -- clip screen not built; leave any staged form alone
   local fid = w_format and w_format:get_value() or 0
+  local sport_id = w_clip_sport and w_clip_sport:get_value() or 0
   local staged = {
+    sport = (sport_id ~= nil and sport_id ~= 0) and SPORTS[sport_id] or nil,
     venue_id = w_venue:get_text() or "",
     target_court_id = w_target_court and w_target_court:get_text() or "",
     camera_setup_id = camera_setup_from_widgets() or "",
@@ -3108,7 +2258,7 @@ function capture_clip_form()
   }
   local function shown(v) return v == nil and "" or tostring(v) end
   local dirty = false
-  for _, k in ipairs({ "venue_id", "target_court_id", "camera_setup_id",
+  for _, k in ipairs({ "sport", "venue_id", "target_court_id", "camera_setup_id",
                        "court_count", "active_court_count",
                        "partially_visible_court_count", "match_format", "notes" }) do
     if shown(staged[k]) ~= shown(clip[k]) then dirty = true; break end
@@ -3155,20 +2305,10 @@ local function build_nav()
   d:add_button(cap("nav.clip",    "clip"),  show_clip,    3, 1, 2, 1)
 end
 
-local function build_language_row(row)
-  d:add_label(t("label.language"), 1, row, 1, 1)
-  w_lang = d:add_dropdown(2, row, 2, 1)
-  w_lang:add_value(LOCALE_LABELS[LANG], lang_index(LANG))   -- current first => shown selected
-  for i, code in ipairs(LOCALES) do
-    if code ~= LANG then w_lang:add_value(LOCALE_LABELS[code], i) end
-  end
-  d:add_button("✓", change_language, 4, row, 1, 1)
-end
-
 local function build_rally_screen()
   d:add_label(t("label.sport"), 1, 2, 1, 1)
-  w_sport = d:add_dropdown(2, 2, 2, 1)
-  rebuild_sport_selected(form.sport)           -- badminton unless the operator changed it
+  local sport = video_sport()
+  w_video_sport = d:add_label(sport and t("sport." .. sport) or t("fmt.unset"), 2, 2, 2, 1)
   w_help_btn = d:add_button(t("btn.help"), show_help, 4, 2, 1, 1)
 
   -- Playback controls -- one row of 3: Back 5s | Play / Pause (toggle) | Fwd 5s.
@@ -3204,8 +2344,7 @@ local function build_rally_screen()
   w_undo = d:add_button(t("btn.undo"), undo_last, 3, 15, 1, 1)
   d:add_button(t("btn.refresh"), refresh_now,     4, 15, 1, 1)
 
-  build_language_row(16)
-  help_row = 17
+  help_row = 16
   refresh_next_field()
   if form.next ~= "" and w_next then w_next:set_text(form.next) end
   refresh_list()
@@ -3217,8 +2356,8 @@ end
 -- sports-data-collector treats differently from a recorded negative.
 local function build_clip_screen()
   local function txt(v) return v ~= nil and tostring(v) or "" end
-  -- Paint from the in-progress capture when there is one, so a screen switch, a language switch
-  -- or a same-video Refresh returns the operator's unsaved input instead of resetting the screen.
+  -- Paint from the in-progress capture when there is one, so a screen switch or same-video
+  -- Refresh returns the operator's unsaved input instead of resetting the screen.
   local src = clip_form or clip
   d:add_label(t("label.venue"), 1, 2, 1, 1)
   w_venue = d:add_text_input(txt(src.venue_id), 2, 2, 1, 1)
@@ -3248,6 +2387,9 @@ local function build_clip_screen()
 
   d:add_label(t("label.courtsPartial"), 1, 5, 1, 1)
   w_partial = d:add_text_input(txt(src.partially_visible_court_count), 2, 5, 1, 1)
+  d:add_label(t("label.sport"), 3, 5, 1, 1)
+  w_clip_sport = d:add_dropdown(4, 5, 1, 1)
+  rebuild_clip_sport_selected(src.sport or video_sport())
 
   -- "(not set)" is added FIRST so it shows selected, i.e. the default writes null.
   d:add_label(t("label.matchFormat"), 1, 6, 1, 1)
@@ -3278,8 +2420,7 @@ local function build_clip_screen()
   d:add_button(t("btn.refresh"), refresh_now, 4, 8, 1, 1)
 
   w_status = d:add_html("", 1, 9, 4, 2)
-  build_language_row(11)
-  help_row = 12
+  help_row = 11
 end
 
 -- Target profile: one per static camera section. Fields prefill from the selected profile so
@@ -3322,8 +2463,7 @@ local function build_target_screen()
   d:add_label(t("label.profiles"), 1, 9, 4, 1)
   w_profile_list = d:add_list(1, 10, 4, 3)
 
-  build_language_row(13)
-  help_row = 14
+  help_row = 13
   target_refresh()
 end
 
@@ -3369,8 +2509,7 @@ local function build_review_screen()
   d:add_button(t("btn.undo"),    undo_review,   2, 14, 1, 1)
   d:add_button(t("btn.refresh"), refresh_now,   4, 14, 1, 1)
 
-  build_language_row(15)
-  help_row = 16
+  help_row = 15
   target_refresh()
 end
 
@@ -3378,7 +2517,8 @@ function create_dialog()
   d = vlc.dialog("Rally Annotator v" .. VERSION)
   -- Every handle from the previous grid is stale after a rebuild; nil them so the shared
   -- refreshers no-op for widgets the current screen does not have.
-  w_status, w_reason, w_sport, w_start, w_end, w_list, w_save = nil, nil, nil, nil, nil, nil, nil
+  w_status, w_reason, w_clip_sport, w_video_sport, w_start, w_end, w_list, w_save =
+    nil, nil, nil, nil, nil, nil, nil, nil
   w_mark_start, w_mark_end, w_undo, w_next, w_shots, w_help = nil, nil, nil, nil, nil, nil
   w_venue, w_target_court, w_camera_picker, w_camera, w_visible, w_active, w_partial =
     nil, nil, nil, nil, nil, nil, nil
@@ -3413,7 +2553,7 @@ end
 -- video we just navigated away from.
 function rebuild_after_sync(switched_video)
   if switched_video then
-    form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = form.sport }
+    form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT }
     rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
     clip_form = nil        -- A's staged clip info belongs to A, and must never reach B's sidecar
     selected_section = nil
@@ -3437,24 +2577,6 @@ function show_clip()    switch_screen("clip") end
 function show_target()  switch_screen("target") end
 function show_review()  switch_screen("review") end
 
--- Apply the language picker: read it, persist it, and rebuild the dialog in the new
--- language. Defined after create_dialog so it can call it (the dialog is recreated, like a
--- reason/sport rebuild but for the whole grid); module state (rows/mode/out_path) persists.
-function change_language()
-  if not w_lang then return end
-  local id = w_lang:get_value()
-  local code = LOCALES[id]
-  if not code or not STRINGS[code] or code == LANG then return end
-  capture_form(); capture_clip_form()   -- a language switch must not cost an unsaved mark or clip edit
-  LANG = code
-  save_lang()
-  if d then d:delete(); d = nil end
-  w_reason = nil
-  w_help = nil
-  create_dialog()
-end
-
---------------------------------------------------------------------------------
 -- Lifecycle
 --------------------------------------------------------------------------------
 function activate()
@@ -3462,11 +2584,10 @@ function activate()
   -- where REASON_ID/SPORT_ID are declared -- the descriptor scan sandbox lacks ipairs).
   for i, v in ipairs(REASONS) do REASON_ID[v] = i end
   for i, v in ipairs(SPORTS) do SPORT_ID[v] = i end
-  load_lang()             -- restore the saved language before building the dialog
   mode = "new"
   edit_index = nil
   screen = "rally"
-  form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT, sport = SPORTS[1] }
+  form = { start = "", stop = "", shots = "", next = "", reason = REASON_DEFAULT }
   rv_form = { start = "", stop = "", notes = "", state = TARGET_STATES[1] }
   clip_form = nil
   selected_section = nil
@@ -3476,10 +2597,11 @@ function activate()
   out_path_is_fallback = (current_media_path() == nil)   -- no video yet -> adopt its CSV lazily on first Mark
   load_rows()             -- continue an existing CSV (numbering + recent list)
   load_clipmeta()         -- capture metadata + target profiles, if recorded
+  adopt_row_sport_if_missing()
   load_reviews()
   detect_legacy_windows() -- a withdrawn-design windows.csv is flagged, never read
-  -- A missing sidecar gets one skippable first-open prompt. Navigation remains
-  -- available and rally saving never depends on whether the operator fills it in.
+  -- A missing sidecar gets one first-open prompt. Court metadata remains optional, but the
+  -- operator must save one video sport there before the first rally can be committed.
   if not out_path_is_fallback and not clipmeta_exists then screen = "clip" end
   create_dialog()
 end

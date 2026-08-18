@@ -1,14 +1,14 @@
 // In-page annotation panel — the browser analogue of the VLC dialog. Rendered into an
 // OPEN Shadow DOM so the host page's CSS can't bleed in (and vice-versa) while still
 // being reachable by automation/devtools ("closed" is not a real security boundary).
-// Every user-facing string goes through the i18n shim t() (keys-not-prose); reason/sport
-// VALUES stay canonical (written to the CSV) — only their display labels are translated.
+// Every user-facing string goes through the English message catalog (keys-not-prose);
+// reason/sport VALUES stay canonical when written to CSV.
 
-import { Annotator, SPORTS, REASON_OPTIONS, type Msg } from "../state/annotator";
+import { Annotator, SPORTS, REASON_OPTIONS, canonicalSport, type Msg } from "../state/annotator";
 import type { DirectVideoHandler } from "../video/directVideo";
 import type { VideoIdentity } from "../persist/store";
 import { VERSION } from "../version";
-import { t, getLocale, setLocale, SUPPORTED_LOCALES, LOCALE_LABELS, type Locale } from "../i18n";
+import { t } from "../i18n";
 import {
   CAMERA_SETUP_IDS, MATCH_FORMATS, SPAN_WARN, TAIL_WARN_S, completeness, emptyClipMeta, optText,
   parseCount, serializeClipMeta, validateClipMeta, type ClipMeta,
@@ -27,7 +27,6 @@ export interface PanelDeps {
   downloadReviews?: (csv: string) => void;
   persistClip?: (clip: ClipMeta) => void;
   persistReviews?: (rows: ReviewRow[]) => void;
-  onLocaleChange?: (locale: Locale) => void; // optional: persist the choice (content script wires this)
 }
 
 export interface PanelHandle {
@@ -61,8 +60,7 @@ function tMsg(m: Msg): string {
 
 const STYLE = `
 :host { all: initial; }
-* { box-sizing: border-box; font-family: system-ui, "Noto Sans", "Noto Sans Devanagari",
-  "Noto Sans Kannada", "Noto Sans Telugu", "Nirmala UI", sans-serif; }
+* { box-sizing: border-box; font-family: system-ui, sans-serif; }
 .card {
   position: fixed; top: 16px; right: 16px; width: 340px; z-index: 2147483647;
   background: #1e1f22; color: #e6e6e6; border: 1px solid #444; border-radius: 8px;
@@ -140,19 +138,11 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   const body = h("div", { class: "body" });
   card.append(body);
 
-  // ---- language ----
-  const langLabel = h("label");
-  const langSel = h("select", { name: "language" }) as HTMLSelectElement;
-  for (const l of SUPPORTED_LOCALES) langSel.append(h("option", { value: l, textContent: LOCALE_LABELS[l] }));
-  langSel.value = getLocale();
-  body.append(h("div", { class: "row" }, langLabel, langSel));
-
   // ---- sport ----
   const sportLabel = h("label");
-  const sportSel = h("select", { name: "sport" }) as HTMLSelectElement;
-  for (const s of SPORTS) sportSel.append(h("option", { value: s }));
-  sportSel.value = a.sport;
-  body.append(h("div", { class: "row" }, sportLabel, sportSel));
+  const sportValue = h("span", { class: "mini" });
+  sportValue.dataset.videoSport = "true";
+  body.append(h("div", { class: "row" }, sportLabel, sportValue));
 
   // ---- playback ----
   const backBtn = h("button");
@@ -226,6 +216,11 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   // First-open intake: a video without saved clip metadata opens this optional section once
   // when the panel is mounted. It remains collapsible and never gates the rally controls above.
   clipBox.style.display = deps.clip ? "none" : "flex";
+  const clipSportLabel = h("label");
+  const clipSportSel = h("select", { name: "clip-sport" }) as HTMLSelectElement;
+  clipSportSel.append(h("option", { value: "" }));
+  for (const sport of SPORTS) clipSportSel.append(h("option", { value: sport }));
+  clipBox.append(h("div", { class: "row" }, clipSportLabel, clipSportSel));
   const clipFields: Record<string, HTMLInputElement> = {};
   const clipLabels: Record<string, HTMLLabelElement> = {};
   for (const f of ["venue", "targetCourt", "cameraSetup", "courtsVisible", "courtsActive",
@@ -263,7 +258,9 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     ...deps.clip,
     target_profiles: [...(deps.clip?.target_profiles ?? [])],
   };
-  if (clip.sport && SPORTS.some((sport) => sport === clip.sport)) a.sport = clip.sport;
+  const declaredSport = canonicalSport(clip.sport);
+  clip.sport = declaredSport;
+  if (declaredSport) a.sport = declaredSport;
   let clipSidecarSaved = deps.clip != null;
 
   function setStatus(m: Msg) {
@@ -271,13 +268,13 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     render();
   }
 
-  // Language-only text (static labels, option labels, placeholders, fixed buttons, help).
-  // Re-applied on mount and whenever the locale changes.
-  function applyI18n() {
-    titleEl.textContent = `🏸 ${t("panel.title")} v${VERSION}`;
-    langLabel.textContent = t("label.language");
+  // Static English labels, option labels, placeholders, fixed buttons, and help.
+  function applyText() {
+    titleEl.textContent = `${t("panel.title")} v${VERSION}`;
     sportLabel.textContent = t("label.sport");
-    for (const o of Array.from(sportSel.options)) o.textContent = t("sport." + o.value);
+    clipSportLabel.textContent = t("label.sport");
+    clipSportSel.options[0].textContent = t("fmt.unset");
+    for (const o of Array.from(clipSportSel.options).slice(1)) o.textContent = t("sport." + o.value);
     backBtn.textContent = t("btn.back5");
     playBtn.textContent = t("btn.playPause");
     fwdBtn.textContent = t("btn.fwd5");
@@ -343,8 +340,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     nextIn.value = a.nextField;
     shotsIn.value = a.shotsField;
     reasonSel.value = a.reason;
-    sportSel.value = a.sport;
-    langSel.value = getLocale();
+    sportValue.textContent = a.sport ? t("sport." + a.sport) : t("fmt.unset");
     // state-dependent labels
     markStartBtn.textContent = tMsg(a.markStartLabel());
     markEndBtn.textContent = tMsg(a.markEndLabel());
@@ -406,16 +402,6 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   reasonSel.addEventListener("change", () => {
     a.reason = reasonSel.value;
   });
-  sportSel.addEventListener("change", () => {
-    a.sport = sportSel.value;
-  });
-  langSel.addEventListener("change", () => {
-    setLocale(langSel.value as Locale);
-    deps.onLocaleChange?.(getLocale());
-    applyI18n();
-    render();
-  });
-
   backBtn.addEventListener("click", () =>
     setStatus({ key: video.seekBy(-5) ? "status.seekBack" : "status.noVideoSeek" })
   );
@@ -465,6 +451,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
 
   // ---- clip info ----
   function loadClipFields() {
+    clipSportSel.value = clip.sport ?? a.sport ?? "";
     clipFields.venue.value = clip.venue_id ?? "";
     clipFields.targetCourt.value = clip.target_court_id ?? "";
     clipFields.cameraSetup.value = clip.camera_setup_id ?? "";
@@ -493,6 +480,12 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   }
 
   saveClipBtn.addEventListener("click", () => {
+    const selectedSport = canonicalSport(clipSportSel.value);
+    if (selectedSport == null) {
+      setStatus({ key: "status.needVideoSport" });
+      return;
+    }
+    const previousClip = { ...clip };
     const counts: Array<[string, string, number]> = [
       ["courtsVisible", "label.courtsVisible", 1],
       ["courtsActive", "label.courtsActive", 1],
@@ -515,19 +508,27 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     clip.active_court_count = parsed.courtsActive;
     clip.partially_visible_court_count = parsed.courtsPartial;
     clip.match_format = fmtSel.value === "" ? null : fmtSel.value;
-    clip.sport = a.sport;
+    clip.sport = selectedSport;
 
     const issue = validateClipMeta(clip);
     if (issue) {
       setStatus(issue);
       return;
     }
+    const sportResult = a.setVideoSport(selectedSport);
+    if (!sportResult.ok) {
+      Object.assign(clip, previousClip);
+      setStatus(sportResult);
+      return;
+    }
     clipSidecarSaved = true;
     writeClipSidecar();
     setStatus({
-      key: "clip.saved",
+      key: sportResult.normalized > 0 ? "clip.savedNormalized" : "clip.saved",
       params: {
         summary: `${clip.court_count ?? "?"}/${clip.active_court_count ?? "?"} courts`,
+        count: sportResult.normalized,
+        sport: selectedSport,
       },
     });
   });
@@ -584,7 +585,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   document.addEventListener("fullscreenchange", onFs);
 
   document.body.append(host);
-  applyI18n();
+  applyText();
   render();
 
   const api: PanelHandle = {

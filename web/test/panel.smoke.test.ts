@@ -41,7 +41,10 @@ describe("panel (jsdom, DOM-driven)", () => {
   it("renders the full control set", () => {
     mount();
     const r = shadow();
-    expect(r.querySelector("select[name=sport]")).toBeTruthy();
+    expect(r.querySelector(".hdr .t")?.textContent).toBe("Rally Annotator v0.1.0");
+    expect(r.querySelector("select[name=sport]")).toBeNull();
+    expect(r.querySelector("[data-video-sport]")?.textContent).toBe("badminton");
+    expect(r.querySelector("select[name=clip-sport]")).toBeTruthy();
     expect(r.querySelector("select[name=reason]")).toBeTruthy();
     expect(r.querySelector('input[placeholder="start s"]')).toBeTruthy();
     expect(r.querySelector('input[placeholder="end s"]')).toBeTruthy();
@@ -185,6 +188,28 @@ describe("rally annotation without a target profile", () => {
     panel!.destroy();
   });
 
+  it("requires only the per-video sport, not optional court metadata", () => {
+    const a = new Annotator({ sport: null });
+    let csv = "";
+    panel = mountPanel({
+      annotator: a, video: new DirectVideoHandler(), identity: { key: "url:t", title: "T" },
+      download: (c) => (csv = c),
+    });
+    const r = shadow();
+    setField(r.querySelector('input[placeholder="start s"]'), "1.0");
+    setField(r.querySelector('input[placeholder="end s"]'), "2.0");
+    btn(r, "Save Rally").click();
+    expect(statusText(r)).toContain("Choose and save the video sport");
+    expect(a.rows).toHaveLength(0);
+
+    setField(r.querySelector("select[name=clip-sport]"), "table_tennis");
+    btn(r, "Save clip info").click();
+    btn(r, "Save Rally").click();
+    expect(a.rows[0].sport).toBe("table_tennis");
+    expect(csv).toContain("1,1.000,2.000,unknown,table_tennis,");
+    panel!.destroy();
+  });
+
   it("loads an existing labelled clip that has no optional target profile", () => {
     const a = new Annotator({ rows: [{ n: 1, s: 1, e: 2, reason: "winner", sport: "badminton", shots: null, extra: null }] });
     panel = mountPanel({
@@ -319,7 +344,57 @@ describe("clip info section", () => {
     const r = shadow();
     expect((r.querySelector(".sect") as HTMLElement).style.display).toBe("none");
     expect((r.querySelector("input[name=clip-courtsVisible]") as HTMLInputElement).value).toBe("4");
-    expect((r.querySelector("select[name=sport]") as HTMLSelectElement).value).toBe("tennis");
+    expect(r.querySelector("[data-video-sport]")?.textContent).toBe("tennis");
+    expect((r.querySelector("select[name=clip-sport]") as HTMLSelectElement).value).toBe("tennis");
+    panel!.destroy();
+  });
+
+  it("saving the video sport normalizes every existing rally row", () => {
+    const rows = [
+      { n: 1, s: 1, e: 2, reason: "winner", sport: "badminton", shots: null, extra: null },
+      { n: 2, s: 3, e: 4, reason: "let", sport: "table_tennis", shots: null, extra: null },
+    ];
+    const a = new Annotator({ rows, sport: "badminton" });
+    let saved: ClipMeta | undefined;
+    panel = mountPanel({
+      annotator: a,
+      video: new DirectVideoHandler(),
+      identity: { key: "url:t", title: "T" },
+      download: () => {},
+      persistClip: (clip) => (saved = { ...clip }),
+    });
+    const r = shadow();
+    setField(r.querySelector("select[name=clip-sport]"), "pickleball");
+    btn(r, "Save clip info").click();
+    expect(a.rows.map((row) => row.sport)).toEqual(["pickleball", "pickleball"]);
+    expect(saved?.sport).toBe("pickleball");
+    expect(r.querySelector("[data-video-sport]")?.textContent).toBe("pickleball");
+    expect(statusText(r)).toContain("Normalized 2 existing rally row");
+    panel!.destroy();
+  });
+
+  it("does not save clip info when rally-row sport normalization fails", () => {
+    const rows = [
+      { n: 1, s: 1, e: 2, reason: "winner", sport: "badminton", shots: null, extra: null },
+    ];
+    const a = new Annotator({ rows, sport: "badminton", persist: () => ({ ok: false, err: "disk full" }) });
+    let saved: ClipMeta | undefined;
+    panel = mountPanel({
+      annotator: a,
+      video: new DirectVideoHandler(),
+      identity: { key: "url:t", title: "T" },
+      download: () => {},
+      clip: { ...emptyClipMeta(), sport: "badminton" },
+      persistClip: (clip) => (saved = { ...clip }),
+    });
+    const r = shadow();
+    setField(r.querySelector("select[name=clip-sport]"), "pickleball");
+    btn(r, "Save clip info").click();
+    expect(statusText(r)).toContain("disk full");
+    expect(a.sport).toBe("badminton");
+    expect(a.rows[0].sport).toBe("badminton");
+    expect(r.querySelector("[data-video-sport]")?.textContent).toBe("badminton");
+    expect(saved).toBeUndefined();
     panel!.destroy();
   });
 
@@ -333,7 +408,7 @@ describe("clip info section", () => {
       video,
       identity: { key: "url:t", title: "T" },
       download: () => {},
-      clip: { ...emptyClipMeta(), target_court_id: "3" },
+      clip: { ...emptyClipMeta(), sport: "badminton", target_court_id: "3" },
       downloadClipMeta: (j) => json.push(j),
     });
     const r = shadow();

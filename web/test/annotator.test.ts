@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Annotator } from "../src/state/annotator";
+import { Annotator, unanimousRowSport } from "../src/state/annotator";
 import { parseRows, serializeRows, HEADER } from "../src/state/csv";
 
 // Build an Annotator with a capturing persist (records the serialized CSV each write).
@@ -37,7 +37,7 @@ describe("numbering", () => {
   });
 });
 
-describe("two-step commit + non-sticky reason/shots, sticky sport", () => {
+describe("two-step commit + non-sticky reason/shots, video-level sport", () => {
   it("marks then saves; nothing is written until Save", () => {
     const { a, store } = make();
     expect(a.markStart(8.8).ok).toBe(true);
@@ -57,7 +57,7 @@ describe("two-step commit + non-sticky reason/shots, sticky sport", () => {
     expect(store.csv).toContain("1,8.800,11.500,winner,badminton,9");
   });
 
-  it("resets reason and shots after save, keeps sport, advances next #", () => {
+  it("resets reason and shots after save, keeps the video sport, advances next #", () => {
     const { a } = make();
     a.sport = "tennis";
     a.markStart(1);
@@ -67,7 +67,7 @@ describe("two-step commit + non-sticky reason/shots, sticky sport", () => {
     a.saveRally();
     expect(a.reason).toBe("unknown"); // non-sticky
     expect(a.shotsField).toBe(""); // non-sticky
-    expect(a.sport).toBe("tennis"); // sticky
+    expect(a.sport).toBe("tennis"); // one setting for the video
     expect(a.startField).toBe("");
     expect(a.endField).toBe("");
     expect(a.nextField).toBe("2");
@@ -89,6 +89,73 @@ describe("two-step commit + non-sticky reason/shots, sticky sport", () => {
     a.shotsField = "-3";
     a.saveRally();
     expect(a.rows[0].shots).toBe(null);
+  });
+});
+
+describe("video-level sport", () => {
+  it("requires a declared sport for a real new video", () => {
+    const a = new Annotator({ sport: null });
+    a.markStart(1);
+    a.markEnd(2);
+    const res = a.saveRally();
+    expect(res).toMatchObject({ ok: false, key: "status.needVideoSport" });
+    expect(a.rows).toHaveLength(0);
+  });
+
+  it("derives a unanimous legacy CSV sport when no sidecar declaration is supplied", () => {
+    const { a } = make("1,1,2,winner,table_tennis,\n2,3,4,let,table_tennis,\n");
+    expect(a.sport).toBe("table_tennis");
+  });
+
+  it("does not guess a video sport from mixed legacy rows", () => {
+    const rows = parseRows(HEADER + "1,1,2,winner,badminton,\n2,3,4,let,pickleball,\n");
+    expect(unanimousRowSport(rows)).toBeNull();
+    const a = new Annotator({ rows, sport: unanimousRowSport(rows) });
+    expect(a.sport).toBeNull();
+  });
+
+  it("refuses to append while existing rows disagree with the declared video sport", () => {
+    const a = new Annotator({
+      rows: parseRows(HEADER + "1,1,2,winner,badminton,\n"),
+      sport: "pickleball",
+    });
+    a.markStart(3);
+    a.markEnd(4);
+    const res = a.saveRally();
+    expect(res).toMatchObject({ ok: false, key: "status.mixedVideoSport" });
+    expect(a.rows).toHaveLength(1);
+  });
+
+  it("normalizes every existing row when Clip info changes the video sport", () => {
+    const store = { writes: 0, csv: "" };
+    const a = new Annotator({
+      rows: parseRows(HEADER + "1,1,2,winner,badminton,\n2,3,4,let,table_tennis,\n"),
+      sport: "badminton",
+      persist: (rows) => {
+        store.writes++;
+        store.csv = serializeRows(rows);
+        return { ok: true };
+      },
+    });
+    const res = a.setVideoSport("pickleball");
+    expect(res).toMatchObject({ ok: true, normalized: 2 });
+    expect(a.sport).toBe("pickleball");
+    expect(a.rows.map((row) => row.sport)).toEqual(["pickleball", "pickleball"]);
+    expect(store.writes).toBe(1);
+    expect(store.csv).not.toContain("badminton");
+    expect(store.csv).not.toContain("table_tennis");
+  });
+
+  it("rolls back the video and row sports when normalization cannot persist", () => {
+    const a = new Annotator({
+      rows: parseRows(HEADER + "1,1,2,winner,badminton,\n"),
+      sport: "badminton",
+      persist: () => ({ ok: false, err: "disk full" }),
+    });
+    const res = a.setVideoSport("tennis");
+    expect(res).toMatchObject({ ok: false, key: "status.writeFailed", normalized: 0 });
+    expect(a.sport).toBe("badminton");
+    expect(a.rows[0].sport).toBe("badminton");
   });
 });
 

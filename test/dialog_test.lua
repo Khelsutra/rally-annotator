@@ -114,7 +114,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "2.3.0")
+eq("descriptor version", descriptor().version, "2.3.1")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -230,21 +230,13 @@ ok("reason dropdown present",    find('dropdown',3,7) ~= nil)
 ok("Number of shots input present", find('text_input',4,5) ~= nil)
 
 --------------------------------------------------------------------------------
--- i18n: every locale defines EXACTLY the en key set (catches a missing/extra/typo'd key).
--- STRINGS is exposed as a global precisely so this parity gate can run headless.
+-- The tool is English-only: exactly one message catalog and no language picker.
 --------------------------------------------------------------------------------
 do
   ok("STRINGS table is exposed", type(STRINGS) == "table" and type(STRINGS.en) == "table")
-  local enKeys, nEn = {}, 0
-  for k in pairs(STRINGS.en) do enKeys[k] = true; nEn = nEn + 1 end
-  for _, code in ipairs({ "kn", "hi", "te", "es", "da", "id" }) do
-    local n, missing, extra = 0, nil, nil
-    for k in pairs(STRINGS[code] or {}) do n = n + 1; if not enKeys[k] then extra = k end end
-    for k in pairs(enKeys) do if not (STRINGS[code] or {})[k] then missing = k end end
-    eq("i18n " .. code .. ": key count matches en (" .. nEn .. ")", n, nEn)
-    ok("i18n " .. code .. ": no missing key vs en (" .. tostring(missing) .. ")", missing == nil)
-    ok("i18n " .. code .. ": no extra key vs en (" .. tostring(extra) .. ")", extra == nil)
-  end
+  local catalog_count = 0
+  for _ in pairs(STRINGS) do catalog_count = catalog_count + 1 end
+  eq("only the English catalog ships", catalog_count, 1)
 end
 
 --------------------------------------------------------------------------------
@@ -362,8 +354,8 @@ do
   os.remove(CSV); os.remove(VIDEO_CSV)
   local vf = io.open(VIDEO_CSV, "w")            -- a prior session already saved 2 rallies here
   vf:write("rally_number,start_time,end_time,ending_reason,sport,shots_count\n")
-  vf:write("1,1.000,2.000,winner,badminton,\n")
-  vf:write("2,3.000,4.000,let,badminton,\n")
+  vf:write("1,1.000,2.000,winner,table_tennis,\n")
+  vf:write("2,3.000,4.000,let,table_tennis,\n")
   vf:close()
 
   MEDIA_URI = nil; PB.state = "stopped"          -- enable with NO video loaded -> home fallback
@@ -378,6 +370,7 @@ do
   MEDIA_URI = "file://" .. TMPb .. sep .. "clip.mp4"; PB.state = "playing"; PB.time_us = 10 * 1000000
   mark_start()                                   -- video provably playing -> adopt clip.rallies.csv
   eq("Mark START adopts the video's 2 existing rallies", nVals(), 2)
+  eq("lazy video adoption repaints the read-only sport", live('label', 2, 2).text, "table tennis")
   live('text_input', 4, 4):set_text("11")        -- End (s); Start was set to 10.000 by mark_start
   save_rally()
   local hv = io.open(VIDEO_CSV, "r"); local vcsv = hv and hv:read("*a") or ""; if hv then hv:close() end
@@ -446,26 +439,17 @@ do
 end
 
 --------------------------------------------------------------------------------
--- Language switch: picking a locale + change_language() rebuilds the dialog localized;
--- switching back restores English. (The CSV stays canonical regardless -- the save path
--- maps the selected dropdown id back to the canonical value, exercised above.)
+-- English-only UI has no language selector or language-change callback.
 --------------------------------------------------------------------------------
 do
-  local LANGCFG = (TMP:sub(-1) == sep and TMP or TMP .. sep) .. ".rally_annotator_lang"
-  os.remove(LANGCFG); os.remove(CSV)
+  os.remove(CSV)
   MEDIA_URI = nil; PB.state = "stopped"
   activate()
   local function lbl(c, r) for _, w in ipairs(DIALOG.widgets) do if w.kind=='label' and w.col==c and w.row==r and not w.deleted then return w end end end
-  local function langDrop() for _, w in ipairs(DIALOG.widgets) do if w.kind=='dropdown' and w.col==2 and w.row==16 and not w.deleted then return w end end end
-  eq("sport label English before switch", lbl(1,2) and lbl(1,2).text, "Sport:")
-  ok("language dropdown present at (2,16)", langDrop() ~= nil)
-  langDrop().sel_id = 2            -- kn = LOCALES[2]
-  change_language()
-  ok("sport label localized (non-English) after switch to kn", lbl(1,2) ~= nil and lbl(1,2).text ~= "Sport:")
-  langDrop().sel_id = 1            -- en = LOCALES[1]
-  change_language()
-  eq("sport label English again after switch back", lbl(1,2) and lbl(1,2).text, "Sport:")
-  os.remove(LANGCFG); os.remove(CSV)
+  eq("sport label is English", lbl(1,2) and lbl(1,2).text, "Sport:")
+  ok("language change callback is absent", _G.change_language == nil)
+  ok("no language dropdown occupies the old row", find('dropdown', 2, 16) == nil)
+  os.remove(CSV)
 end
 
 --------------------------------------------------------------------------------
@@ -490,6 +474,12 @@ local function read_file(p)
 end
 local function write_file(p, body)
   local f = assert(io.open(p, "w")); f:write(body); f:close()
+end
+local function pick_clip_sport(name)
+  local sport = wd('dropdown', 4, 5)
+  for _, value in ipairs(sport.values) do
+    if value.text == name then sport.sel_id = value.id; sport.sel_text = value.text; return end
+  end
 end
 
 local TMPb = (TMP:sub(-1) == sep) and TMP:sub(1, -2) or TMP
@@ -613,8 +603,8 @@ do
 end
 
 --------------------------------------------------------------------------------
--- A real clip with no sidecar opens the optional intake once. Skipping it and saving rallies
--- remains valid, and does not create a sidecar as a side effect.
+-- A real clip with no sidecar opens Clip info once. Court facts are skippable, but the one
+-- per-video sport must be saved before any rally can be committed.
 --------------------------------------------------------------------------------
 do
   local stem = TMPb .. sep .. "fresh-intake"
@@ -625,11 +615,67 @@ do
   activate()
   eq("fresh real clip first-opens Clip info", wbtn("Clip info").text:sub(1, 3), "\226\150\184")
   ok("fresh prompt has target court intake", wd('text_input', 4, 2) ~= nil)
+  eq("fresh real clip sport starts unset", wd('dropdown', 4, 5).sel_text, "(not set)")
   show_rallies()
   wd('text_input', 2, 4):set_text("1"); wd('text_input', 4, 4):set_text("2")
   save_rally()
-  ok("rally save works after skipping clip intake", (read_file(csv_path) or ""):find("\n1,", 1, true) ~= nil)
-  ok("skipping intake does not create a clipmeta sidecar", read_file(meta_path) == nil)
+  ok("rally save is refused until video sport is declared", read_file(csv_path) == nil)
+  show_clip(); pick_clip_sport("table tennis"); save_clip_info(); show_rallies(); save_rally()
+  ok("rally save works after declaring the video sport",
+     (read_file(csv_path) or ""):find(",table_tennis,", 1, true) ~= nil)
+  ok("declaring sport creates the clipmeta sidecar",
+     (read_file(meta_path) or ""):find('"sport": "table_tennis"', 1, true) ~= nil)
+  os.remove(csv_path); os.remove(meta_path)
+  MEDIA_URI = nil; MEDIA_DURATION = nil; activate()
+end
+
+--------------------------------------------------------------------------------
+-- Sport is one video-level fact. A mixed legacy CSV is fail-closed until Clip info makes an
+-- explicit choice, which rewrites every row. If the sidecar write fails, the CSV normalization
+-- is rolled back so the two files never claim different sports.
+--------------------------------------------------------------------------------
+do
+  local stem = TMPb .. sep .. "mixed-sport"
+  local csv_path, meta_path = stem .. ".rallies.csv", stem .. ".clipmeta.json"
+  local original_csv = table.concat({
+    "rally_number,start_time,end_time,ending_reason,sport,shots_count",
+    "1,1.000,2.000,winner,badminton,",
+    "2,3.000,4.000,let,pickleball,",
+    "",
+  }, "\n")
+  write_file(csv_path, original_csv)
+  write_file(meta_path, '{"clipmeta_version":3,"sport":"pickleball"}\n')
+  MEDIA_URI = "file://" .. stem .. ".mp4"; MEDIA_DURATION = 100; PB.state = "playing"
+  activate(); show_rallies()
+  wd('text_input', 2, 4):set_text("5"); wd('text_input', 4, 4):set_text("6")
+  save_rally()
+  eq("mixed rally sports block new rally writes", read_file(csv_path), original_csv)
+
+  show_clip(); pick_clip_sport("table tennis")
+  local real_open = io.open
+  io.open = function(path, mode)
+    if path == meta_path .. ".tmp" and mode == "w" then
+      return nil, "injected sidecar write failure"
+    end
+    return real_open(path, mode)
+  end
+  save_clip_info()
+  io.open = real_open
+  eq("failed sidecar write rolls CSV normalization back", read_file(csv_path), original_csv)
+  ok("failed sidecar write preserves the previous sidecar sport",
+     (read_file(meta_path) or ""):find('"sport":"pickleball"', 1, true) ~= nil)
+
+  save_clip_info()
+  local normalized_csv = read_file(csv_path) or ""
+  ok("Clip info normalizes every existing row to one video sport",
+     normalized_csv:find("\n1,1.000,2.000,winner,table_tennis,\n", 1, true) ~= nil and
+     normalized_csv:find("\n2,3.000,4.000,let,table_tennis,\n", 1, true) ~= nil)
+  ok("normalized clipmeta carries the same video sport",
+     (read_file(meta_path) or ""):find('"sport": "table_tennis"', 1, true) ~= nil)
+  show_rallies(); save_rally()
+  ok("rally writes resume after sport normalization",
+     (read_file(csv_path) or ""):find("\n3,5.000,6.000,unknown,table_tennis,\n", 1, true) ~= nil)
+
   os.remove(csv_path); os.remove(meta_path)
   MEDIA_URI = nil; MEDIA_DURATION = nil; activate()
 end
@@ -708,18 +754,21 @@ do
   write_file(meta_path, '{"clipmeta_version":1,"target_court_id":"court-v1"}\n')
   activate(); show_clip()
   eq("v1 top-level target loads", wd('text_input', 4, 2):get_text(), "court-v1")
+  pick_clip_sport("badminton")
   save_clip_info()
   ok("v1 save upgrades to v3", (read_file(meta_path) or ""):find('"clipmeta_version": 3', 1, true) ~= nil)
 
   write_file(meta_path, '{"clipmeta_version":2,"target_profiles":[{"target_court_id":"court-v2"},{"target_court_id":"court-v2"}]}\n')
   activate(); show_clip()
   eq("v2 agreeing profiles restore target", wd('text_input', 4, 2):get_text(), "court-v2")
+  pick_clip_sport("badminton")
   save_clip_info()
   ok("v2 consensus persists top-level in v3", (read_file(meta_path) or ""):find('"target_court_id": "court%-v2"') ~= nil)
 
   write_file(meta_path, '{"clipmeta_version":2,"target_profiles":[{"target_court_id":"court-a"},{"target_court_id":"court-b"}]}\n')
   activate(); show_clip()
   eq("v2 conflicting profiles do not guess target", wd('text_input', 4, 2):get_text(), "")
+  pick_clip_sport("badminton")
   save_clip_info()
   ok("v2 conflict upgrades with null target", (read_file(meta_path) or ""):find('"target_court_id": null', 1, true) ~= nil)
   os.remove(meta_path); MEDIA_URI = nil; activate()
@@ -735,6 +784,7 @@ do
   os.remove(csv_path); os.remove(meta_path)
   MEDIA_URI = "file://" .. stem .. ".mp4"; MEDIA_DURATION = 100; PB.state = "playing"
   activate()
+  pick_clip_sport("badminton")
   save_clip_info()
   ok("empty clip sidecar starts without guessed completeness",
      (read_file(meta_path) or ""):find('"label_completeness": null', 1, true) ~= nil)
@@ -945,7 +995,7 @@ do
       end
     end
   end
-  eq("no localized string anywhere still offers a withdrawn neighborhood label",
+  eq("no English message still offers a withdrawn neighborhood label",
      #offenders == 0 and "none" or table.concat(offenders, ", "), "none")
 end
 
@@ -965,6 +1015,7 @@ do
   -- video A: screened as 2 visible / 1 active, target court "3"
   MEDIA_URI = "file://" .. A .. ".mp4"; PB.state = "playing"; PB.time_us = 0
   activate(); show_clip()
+  pick_clip_sport("badminton")
   wd('text_input', 2, 2):set_text("Boxhill")
   wd('text_input', 2, 4):set_text("2"); wd('text_input', 4, 4):set_text("1")
   save_clip_info()
@@ -979,6 +1030,7 @@ do
 
   -- and a Save now must not carry A's values into B's sidecar
   wd('text_input', 2, 4):set_text("4"); wd('text_input', 4, 4):set_text("3")
+  pick_clip_sport("pickleball")
   save_clip_info()
   local jb = read_file(B .. ".clipmeta.json") or ""
   ok("video B sidecar written", #jb > 0)
@@ -1005,7 +1057,7 @@ end
 -- Regression for three 2.1.0 sidecars that came back "match_format": null after the operator
 -- had picked a format. The dropdown itself was never broken (a 2.1.0 clip does carry
 -- "doubles"): capture_form() covered the rally and review screens but not the clip screen, so
--- any rebuild -- nav switch, language switch, or the Refresh button sitting one cell from Save
+-- any rebuild -- nav switch or the Refresh button sitting one cell from Save
 -- -- silently repainted the whole screen from `clip`. A cleared TEXT box is visibly empty and
 -- gets retyped; a cleared DROPDOWN repaints as "(not set)", which reads as a deliberate answer.
 -- That asymmetry is why camera_setup_id survived on the same clip whose match_format did not.
@@ -1040,29 +1092,13 @@ do
   ok("format picked BEFORE a nav switch is still saved", j:find('"match_format": "doubles"', 1, true) ~= nil)
   ok("a rebuilt-then-saved clip is not null", j:find('"match_format": null', 1, true) == nil)
 
-  -- 2. A LANGUAGE switch must not eat it either (it rebuilds through the same path).
-  local LANGCFG = (TMP:sub(-1) == sep and TMP or TMP .. sep) .. ".rally_annotator_lang"
-  os.remove(CLIPMETA); os.remove(LANGCFG)
-  activate(); show_clip()
-  wd('text_input', 2, 4):set_text("2")
-  pick_format("singles")
-  local langDrop = wd('dropdown', 2, 11)                       -- clip screen's language row
-  ok("clip screen carries the language row", langDrop ~= nil)
-  langDrop.sel_id = 2; change_language()                       -- -> kn, whole grid rebuilt
-  save_clip_info()
-  local jl = read_file(CLIPMETA) or ""
-  ok("format survives a language switch", jl:find('"match_format": "singles"', 1, true) ~= nil)
-  ok("the sidecar stays canonical English regardless of UI language",
-     jl:find('"match_format": "singles"', 1, true) ~= nil)
-  langDrop = wd('dropdown', 2, 11); langDrop.sel_id = 1; change_language()   -- back to en
-  os.remove(LANGCFG)
-
-  -- 3. The REFRESH button is the likeliest trigger -- it sits on the clip screen itself, one
+  -- 2. The REFRESH button is the likeliest trigger -- it sits on the clip screen itself, one
   --    cell from Save. Same video => re-read the sidecar, but keep the in-progress edit.
   local STEM = TMPb .. sep .. "clipfmt_refresh"
   os.remove(STEM .. ".clipmeta.json"); os.remove(STEM .. ".rallies.csv")
   MEDIA_URI = "file://" .. STEM .. ".mp4"; PB.state = "playing"
   activate(); show_clip()
+  pick_clip_sport("badminton")
   wd('text_input', 2, 4):set_text("3"); wd('text_input', 4, 4):set_text("2")
   wd('text_input', 4, 2):set_text("court-refresh")
   pick_format("mixed")
@@ -1081,6 +1117,7 @@ do
   --     with nothing to restore it. This is the sequence the review reproduced.
   os.remove(STEM .. ".clipmeta.json")
   activate(); show_clip()
+  pick_clip_sport("badminton")
   wd('text_input', 2, 4):set_text("2")
   pick_format("doubles")
   show_rallies()                                     -- clip widgets are gone from here on
@@ -1099,6 +1136,7 @@ do
   --        genuinely dirty form is worth protecting from the rebuild.
   os.remove(STEM .. ".clipmeta.json")
   activate(); show_clip()
+  pick_clip_sport("badminton")
   wd('text_input', 2, 4):set_text("2")
   pick_format("doubles")
   save_clip_info()                                   -- committed: form is now CLEAN
@@ -1136,6 +1174,7 @@ do
   refresh_now()
   eq("a video switch drops the previous clip's unsaved format", fmt_shown(), "(not set)")
   wd('text_input', 2, 4):set_text("1")
+  pick_clip_sport("tennis")
   save_clip_info()
   local jo = read_file(OTHER .. ".clipmeta.json") or ""
   ok("video B did not inherit A's unsaved format", jo:find('"match_format": null', 1, true) ~= nil)
