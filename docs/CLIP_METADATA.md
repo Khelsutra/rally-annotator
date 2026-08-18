@@ -7,7 +7,7 @@ is free: the operator is already watching the video.
 ```json
 {
   "clipmeta_version": 3,
-  "generator": "rally-annotator-vlc/2.2.0",
+  "generator": "rally-annotator-vlc/2.3.1",
   "clip_name": "GX010150",
   "sport": "badminton",
   "venue_id": "Boxhill",
@@ -55,7 +55,7 @@ Reconstructing these facts later, from sampled frames, was tried and failed:
 | `clipmeta_version` | int | — | Always present. **`3`** today; v1/v2 files are read and upgraded on their next save (see [Migration](#migration-from-clipmeta_version-1-or-2)). Readers must reject a version they don't know. |
 | `generator` | string | — | `rally-annotator-<frontend>/<version>`, e.g. `rally-annotator-web/0.2.0`. |
 | `clip_name` | string | `null` | Video stem (VLC) or the page's video title (web). Provenance only — never a source of dates. |
-| `sport` | enum | `null` | Same vocabulary as the rally CSV: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. |
+| `sport` | enum | legacy files only | Authoritative sport for the whole video: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. A new save requires it; every rally CSV row must agree. |
 | `venue_id` | string | `null` | Stable identifier for the **physical facility**. |
 | `target_court_id` | string | `null` | The venue's stable identifier for the prominent court whose rallies are being labelled. Declarative metadata only; never a rally-saving gate. |
 | `camera_setup_id` | string | `null` | Stable identifier for the camera **placement/framing**. Two materially different setups at one venue count as distinct. An absent value is never assumed to differ from anything. |
@@ -272,7 +272,10 @@ The annotator refuses to write a sidecar that violates any of these, and says wh
 2. `partially_visible_court_count` ≤ `court_count`.
 3. `court_count` ≥ 1, `active_court_count` ≥ 1, `partially_visible_court_count` ≥ 0, all integers.
 4. `match_format` ∈ {`singles`, `doubles`, `mixed`} or `null`.
-5. `sport` ∈ the rally CSV's sport vocabulary or `null`.
+5. A newly saved `sport` is one value from the rally CSV vocabulary. Legacy readers may encounter
+   `null`; the annotator requires an explicit choice before its next sidecar or rally save.
+6. Every existing rally row's repeated `sport` projection agrees with the chosen video sport. Saving
+   Clip info normalizes legacy disagreements in one operation.
 
 ## Mapping into `sports-data-collector`
 
@@ -332,8 +335,9 @@ python -m src.cli.curate import-local --sport badminton \
 
 ## First-open intake and sibling prefill
 
-When a real clip has no sidecar, Clip info opens as a one-time, skippable prompt. Navigation back to
-Rallies is always available and all rally actions work without completing the form.
+When a real clip has no sidecar, Clip info opens as a one-time prompt. Navigation back to Rallies is
+always available and marking can begin, but the first rally save is refused until the operator saves
+one video sport. Every other Clip-info field remains optional.
 
 For local VLC clips, the first valid sibling `.clipmeta.json` in the same directory (lexical
 filename order) seeds the whole declarative form: sport, venue, target court, camera setup, court

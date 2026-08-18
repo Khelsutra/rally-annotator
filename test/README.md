@@ -49,6 +49,10 @@ Why 5.1 specifically: it's the interpreter VLC 3.x embeds, so the test's syntax/
   caption/options) plus the window title are serialized and diffed against a committed golden,
   `dialog_layout.snapshot` (see below).
 - **Dialog construction** — every control (playback, Mark START/END, Save, reason dropdown, Number of shots input) is wired to its callback / present at its grid cell.
+- **Per-video sport** — rally editing has no sport selector; a fresh real clip must declare sport in
+  **Clip info**, legacy unanimous rows seed it, mixed rows block rally writes, and a Clip info save
+  normalizes every historical CSV row to the one video sport.
+- **English-only UI** — exactly one English message catalog ships and no language selector exists.
 - **Help toggle** — the dedicated help panel is added/removed on each click and the button label flips.
 - **Reason field** — defaults to `unknown`, resets after every save, supports the same reason on consecutive rallies, and a no-pick save records `unknown`.
 - **Shots field** — the optional `shots_count` is written when entered, left blank when not, clears after each save, and is reloaded by **Edit selected** (and the edit rewrites it).
@@ -68,11 +72,12 @@ captures the **widget tree the extension hands to VLC** — the same thing VLC t
 against a committed golden:
 
 ```
-title :: Rally Annotator v1.6
- 1. label      @(1,1) 1x1 :: Sport:
- 2. dropdown   @(2,1) 2x1 :: [badminton, tennis, table_tennis, pickleball, padel]
+title :: Rally Annotator v2.3.1
+ 1. label      @(1,1) 1x1 :: ▸ Rallies
+ 2. label      @(2,2) 1x1 :: Sport:
+ 3. label      @(3,2) 2x1 :: badminton
  ...
-18. dropdown   @(3,6) 1x1 :: [unknown, winner, forced_error, unforced_error, service_fault, let, other]
+15. dropdown   @(3,7) 1x1 :: [unknown, winner, forced_error, unforced_error, service_fault, let, other]
 ```
 
 Each line is a control's `kind @(column,row) WxH :: caption` (dropdowns list their options; the dynamic status/help

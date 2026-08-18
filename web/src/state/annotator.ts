@@ -1,11 +1,9 @@
 // Annotator state machine — a faithful, provider-agnostic port of the pure logic
 // in vlc/rally_annotator.lua (the button callbacks + helpers, minus VLC widget I/O).
 //
-// Localizable by design: operations and button labels return message KEYS + params
-// (a `Msg`), never prose — the UI translates them via the i18n shim, so the state
-// machine stays pure and i18n-free (keys-not-prose; see docs/LOCALIZATION.md). The
-// reason/sport values it stores are canonical English (written verbatim to the CSV);
-// only their DISPLAY labels are translated, by the UI.
+// Operations return English message-catalog keys + params (a `Msg`), never prose, so the
+// state machine stays independent of UI copy. Reason/sport values are canonical English
+// and are written verbatim to the CSV.
 
 import { RallyRow, serializeRows } from "./csv";
 
@@ -16,6 +14,23 @@ export const SPORTS = [
   "pickleball",
   "padel",
 ] as const;
+export type Sport = (typeof SPORTS)[number];
+
+export function canonicalSport(value: unknown): Sport | null {
+  return typeof value === "string" && (SPORTS as readonly string[]).includes(value)
+    ? (value as Sport)
+    : null;
+}
+
+export function unanimousRowSport(rows: RallyRow[]): Sport | null {
+  let found: Sport | null = null;
+  for (const row of rows) {
+    const sport = canonicalSport(row.sport);
+    if (sport == null || (found != null && sport !== found)) return null;
+    found = sport;
+  }
+  return found;
+}
 
 export const REASON_DEFAULT = "unknown";
 export const REASONS = [
@@ -48,9 +63,8 @@ function fieldNum(text: string): number | null {
   return Number.isNaN(v) ? null : v;
 }
 
-// A translatable message: a catalog key + optional interpolation params. The UI renders
-// it with the i18n shim. `reason`/`sport` params hold canonical values; the UI maps them
-// to translated labels at render time (the CSV always keeps the canonical value).
+// An English catalog message: a key + optional interpolation params. `reason`/`sport`
+// params hold canonical values and the CSV keeps those canonical values.
 export interface Msg {
   key: string;
   params?: Record<string, string | number>;
@@ -62,6 +76,9 @@ export interface OpResult extends Msg {
 export interface AnnotatorOpts {
   rows?: RallyRow[];
   persist?: PersistFn;
+  // Omitted preserves legacy/test behavior by deriving unanimous rows (then badminton).
+  // Explicit null means a real new video has no declared sport and must choose one in Clip info.
+  sport?: string | null;
 }
 
 export class Annotator {
@@ -75,13 +92,16 @@ export class Annotator {
   shotsField = "";
   nextField = "";
   reason: string = REASON_DEFAULT; // non-sticky
-  sport: string = SPORTS[0]; // sticky
+  sport: Sport | null;
 
   private persist: PersistFn;
 
   constructor(opts: AnnotatorOpts = {}) {
     this.persist = opts.persist ?? okPersist;
     this.rows = opts.rows ?? [];
+    this.sport = opts.sport === undefined
+      ? (unanimousRowSport(this.rows) ?? SPORTS[0])
+      : canonicalSport(opts.sport);
     this.refreshNextField();
   }
 
@@ -171,7 +191,7 @@ export class Annotator {
     return { key: "btn.undo" };
   }
 
-  // ---- form reset: reason + shots are NON-STICKY; sport & nextField untouched ----
+  // ---- form reset: reason + shots are NON-STICKY; video sport & nextField untouched ----
   resetForm(): void {
     this.mode = "new";
     this.editIndex = null;
@@ -209,7 +229,11 @@ export class Annotator {
     if (e <= s) return { ok: false, key: "status.zeroLength" };
 
     const reason = this.reason || REASON_DEFAULT;
-    const sport = this.sport || SPORTS[0];
+    const sport = this.sport;
+    if (sport == null) return { ok: false, key: "status.needVideoSport" };
+    if (this.rows.some((row) => row.sport !== sport)) {
+      return { ok: false, key: "status.mixedVideoSport" };
+    }
     const shotsNum = this.getShots();
     const shots = shotsNum != null ? String(shotsNum) : null;
 
@@ -258,8 +282,43 @@ export class Annotator {
     this.endField = r.e.toFixed(3);
     this.shotsField = r.shots != null ? r.shots : "";
     this.reason = r.reason || REASON_DEFAULT;
-    this.sport = r.sport || this.sport;
     return { ok: true, key: "status.editing", params: { n: r.n } };
+  }
+
+  // Clip info owns sport for the whole video. The CSV retains its historical column, but every
+  // existing row is normalized in this same explicit save action so it cannot drift per rally.
+  setVideoSport(value: string): OpResult & { normalized: number } {
+    const sport = canonicalSport(value);
+    if (sport == null) return { ok: false, key: "status.needVideoSport", normalized: 0 };
+    const previousSport = this.sport;
+    const previousRows = this.rows.map((row) => row.sport);
+    let normalized = 0;
+    this.sport = sport;
+    for (const row of this.rows) {
+      if (row.sport !== sport) {
+        row.sport = sport;
+        normalized++;
+      }
+    }
+    if (normalized > 0) {
+      const res = this.persist(this.rows);
+      if (!res.ok) {
+        this.sport = previousSport;
+        this.rows.forEach((row, index) => { row.sport = previousRows[index]; });
+        return {
+          ok: false,
+          key: "status.writeFailed",
+          params: { err: String(res.err) },
+          normalized: 0,
+        };
+      }
+    }
+    return {
+      ok: true,
+      key: "clip.sportNormalized",
+      params: { count: normalized, sport },
+      normalized,
+    };
   }
 
   deleteSelected(n: number | null): OpResult {

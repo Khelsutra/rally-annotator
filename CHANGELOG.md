@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.3.1 — 2026-08-18
+- **Sport is a video attribute, not a rally control.** Both front-ends now choose sport only in
+  **Clip info**, display it read-only on the rally screen, and project the same canonical value into
+  every CSV row for compatibility. A fresh video cannot save rallies until its sport is declared;
+  mixed legacy rows or a CSV/sidecar disagreement are refused until one explicit Clip-info save
+  normalizes all existing rows.
+- **English-only UI.** Removed every translated catalog, both language selectors, stored locale
+  preferences, script-specific font setup, and per-locale test legs. The single English message
+  catalog and key-presence gates remain.
+
 ## v2.3.0 — 2026-08-02
 - **VLC 4.x Lua playback API support.** Playback time, seek, and current-item helpers now use
   `vlc.player.*` when present (VLC 4) and fall back to `vlc.object.input` / `vlc.var` / `vlc.input`

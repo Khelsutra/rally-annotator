@@ -15,7 +15,7 @@ rally_number,start_time,end_time,ending_reason,sport,shots_count
 | `start_time` | float | rally start, **decimal seconds** from the video start |
 | `end_time` | float | rally end, decimal seconds (always `> start_time`) |
 | `ending_reason` | enum | `unknown` (default) / `winner` / `forced_error` / `unforced_error` / `service_fault` / `let` / `other` — see the decision guide in [ENDING_REASONS.md](ENDING_REASONS.md) |
-| `sport` | enum | `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel` |
+| `sport` | enum | Denormalized projection of the video's single Clip-info sport: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. Every row for one video must agree. |
 | `shots_count` | int | **optional** — number of shots/strokes in the rally. **Blank** when not entered (as in row 3 above); added in v1.6. Older CSVs without this column still load. |
 
 Notes:
@@ -41,7 +41,9 @@ python -m backend.tools.rally_slicer --video match.mp4 --labels match.rallies.cs
 python -m src.cli.curate import-local --sport badminton --video-path match.mp4 --annotations-path match.rallies.csv
 ```
 
-The `sport` column is self-documenting; tools that take a `--sport` flag can ignore it.
+The `sport` column remains for interchange compatibility, but it is not a per-rally annotation.
+`<clip>.clipmeta.json` is authoritative and the annotator normalizes all existing rows when that
+video-level choice is saved. Ingest should reject a mixed CSV or a CSV/sidecar disagreement.
 
 ## The other two tracks
 

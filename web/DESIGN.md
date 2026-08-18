@@ -125,13 +125,12 @@ there is no Developer ID direct-install. They require a Mac + `xcrun safari-web-
 **Consequence.** Safari cannot be built or E2E-tested on Windows or default CI runners; it is documented,
 not implemented.
 
-### LD-12 — Localization (i18n) mirrors Khelsutra
-**Decision.** The panel UI is localized into Khelsutra's locales **+ Telugu** (`en, kn, hi, es, da, id,
-te`) via a dependency-free `t()` shim over a shared `common.json` catalog, mirroring Khelsutra's i18n
-foundation (keys-not-prose, ICU-lite, always-fall-back-to-`en`, key-parity + no-bare-strings CI gates,
-OFL Noto fonts, AI-draft → native-review). The reason/sport **values** and CSV header stay canonical
-English (LD-3 byte-compatibility is preserved across all languages). Full design + locked decisions:
-[../docs/LOCALIZATION.md](../docs/LOCALIZATION.md).
+### LD-12 — English-only message catalog
+**Decision (supersedes the former multilingual design).** The panel is English-only. It retains a
+dependency-free `t()` shim and one English `common.json` so UI code stays keys-not-prose and missing
+keys remain testable, but it has no locale negotiation, selector, stored preference, translated
+catalogs, or script-specific font setup. Reason/sport **values** and the CSV header remain canonical
+data identifiers. See [../docs/LOCALIZATION.md](../docs/LOCALIZATION.md).
 
 ### LD-13 — Per-clip metadata is separate; target/review data is compatibility-only
 **Decision.** Capture metadata goes to `<clip>.clipmeta.json`; the rally CSV is unchanged and still
@@ -171,19 +170,23 @@ with ffprobe at import and that value is authoritative.
 **Consequence.** On the web there is no container to read, so `capture_time_utc` is always `null`
 there and the field renders as an explanation rather than an input.
 
-### LD-16 — Clipmeta v3 intake is optional and completeness stays live
+### LD-16 — Clipmeta v3 has one required semantic field; completeness stays live
 
 **Decision.** `clipmeta_version: 3` restores the top-level `target_court_id`. A missing sidecar
-first-opens Clip info as a skippable prompt, and the camera setup input suggests
+first-opens Clip info. The operator must choose the video's one sport before the first rally can be
+committed; all court/capture fields remain optional. The camera setup input suggests
 `court-left-corner`, `court-right-corner`, `court-center`, and `court-side-middle` while still
 accepting free text. After an explicit Clip info save, every successful rally mutation downloads a
 fresh sidecar with recomputed `label_completeness`.
-**Why.** These are cheap one-time facts while the operator can see the clip, but they must not
-become a prerequisite for the primary labeling task. Completeness is derived state and a snapshot
-from the middle of a pass must not look current.
-**Consequence.** Rally work neither creates a sidecar before the operator saves one nor fails when
-an optional metadata download fails. A browser page cannot enumerate sibling files in the user's
-local video directory; same-folder prefill is therefore implemented only by the VLC frontend.
+**Why.** Sport defines the label semantics and is a property of the video, not an independently
+editable rally field. The other fields are cheap one-time facts but must not become prerequisites
+for labeling. Completeness is derived state and a snapshot from the middle of a pass must not look
+current.
+**Consequence.** The rally screen shows sport read-only. A Clip info save normalizes every existing
+CSV row to the selected video sport; mixed rows fail closed until then. Rally work neither creates a
+sidecar before the operator saves one nor fails when an optional metadata download fails. A browser
+page cannot enumerate sibling files in the user's local video directory; same-folder prefill is
+therefore implemented only by the VLC frontend.
 
 ## Deferred / north star (not locked — tracked work)
 
