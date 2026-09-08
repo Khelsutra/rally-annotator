@@ -1,15 +1,20 @@
---[[ rally_annotator.lua  --  VLC Lua EXTENSION (v2.3.1)
+--[[ rally_annotator.lua  --  VLC Lua EXTENSION (v2.4.0)
 
   Rally Annotator for NET-SEPARATED RACQUET SPORTS
   (badminton · tennis · table tennis · pickleball · padel)
 
-  While watching a match in VLC, mark each rally's START / END and the point-stop
-  reason, and append one CSV row per rally. Pause/scrub freely, then click — the
+  While watching a match in VLC, mark each rally's START / END, positive shot count,
+  and point-ending result, then append one CSV row per rally. Pause/scrub freely, then click — the
   callback snapshots the exact playback time. Output is a plain CSV that ingests
   directly into common rally-segmentation tooling.
 
   Output CSV columns (times in decimal SECONDS):
       rally_number,start_time,end_time,ending_reason,sport,shots_count
+
+  WHAT'S NEW IN v2.4.0
+    - New and updated golden rows require shots_count >= 1 and exactly one of
+      service_fault, unforced_error, or winner.
+    - Legacy rows load verbatim and are visibly marked until explicitly repaired.
 
   WHAT'S NEW IN v2.3.1
     - Sport is selected once in Clip info and shown read-only on the rally screen.
@@ -159,7 +164,7 @@
 --------------------------------------------------------------------------------
 -- Extension registration
 --------------------------------------------------------------------------------
-local VERSION = "2.3.1"
+local VERSION = "2.4.0"
 
 function descriptor()
   return {
@@ -171,14 +176,14 @@ function descriptor()
     version     = VERSION,
     author      = "Avi Dullu",
     url         = "https://github.com/Khelsutra/rally-annotator",
-    shortdesc   = "Mark rally start/end + a point-ending reason to a CSV (net-separated racquet sports)",
+    shortdesc   = "Mark rally boundaries, shot count and a point-ending result to CSV",
     description =
-        "Mark each rally's START and END while you watch, tag WHY the point ended "
-     .. "(unknown / winner / forced_error / unforced_error / service_fault / let / other), and append "
+        "Mark each rally's START and END while you watch, count racket/paddle contacts, tag the point result "
+     .. "(service_fault / unforced_error / winner), and append "
      .. "one CSV row per rally next to the video "
      .. "(rally_number,start_time,end_time,ending_reason,sport,shots_count; decimal seconds). "
      .. "Built-in Play/Pause + seek so you never leave the window; "
-     .. "two-step Save (Mark END, then Save Rally) with a non-sticky reason (defaults to unknown); "
+     .. "two-step Save (Mark END, then Save Rally) with required non-sticky shots and reason; "
      .. "editable times; edit or delete recent rallies; resumable numbering. "
      .. "For badminton/tennis/table-tennis/pickleball/padel. "
      .. "Click the HELP button inside the dialog for usage + an ending-reason decision guide.",
@@ -189,12 +194,11 @@ end
 --------------------------------------------------------------------------------
 -- Config / constants
 --------------------------------------------------------------------------------
--- Net-separated racquet sports share a forced/unforced-error point-stop taxonomy.
--- "unknown" is the default/reset value: a real, savable reason meaning "not yet
--- classified" (so a forgotten pick records 'unknown', never the previous rally's reason).
-local REASON_DEFAULT = "unknown"
+-- Golden rows use a small last-contact/result taxonomy. The empty default is a
+-- non-savable placeholder so a reason can never carry over from the previous rally.
+local REASON_DEFAULT = ""
 local REASONS = {
-  "winner", "forced_error", "unforced_error", "service_fault", "let", "other"
+  "service_fault", "unforced_error", "winner"
 }
 local SPORTS = {
   "badminton", "tennis", "table_tennis", "pickleball", "padel"
@@ -330,8 +334,8 @@ STRINGS = {
     ["label.start"] = "Start (s):",
     ["label.end"] = "End (s):",
     ["label.next"] = "Next rally #:",
-    ["label.shots"] = "Number of shots:",
-    ["label.reason"] = "Ending reason:",
+    ["label.shots"] = "Number of shots (required):",
+    ["label.reason"] = "Ending reason (required):",
     ["label.recent"] = "Recent rallies (select one, then Edit/Delete):",
     ["btn.help"] = "Help",
     ["btn.hideHelp"] = "Hide help",
@@ -352,6 +356,9 @@ STRINGS = {
     ["btn.undoClearMark"] = "Undo last (clear mark)",
     ["btn.undoN"] = "Undo last (#{n})",
     ["btn.refresh"] = "Refresh",
+    ["reason.choose"] = "choose ending reason...",
+    ["reason.missing"] = "missing",
+    ["reason.legacyValue"] = "{value} (legacy - review required)",
     ["reason.unknown"] = "unknown",
     ["reason.winner"] = "winner",
     ["reason.forced_error"] = "forced error",
@@ -364,8 +371,8 @@ STRINGS = {
     ["sport.table_tennis"] = "table tennis",
     ["sport.pickleball"] = "pickleball",
     ["sport.padel"] = "padel",
-    ["status.modeEdit"] = "Mode: EDITING rally #{n}  (Save changes to commit, Undo last to cancel).",
-    ["status.modeNew"] = "Mode: new rally  (Mark START, Mark END, choose reason, Save Rally).",
+    ["status.modeEdit"] = "Mode: EDITING rally #{n}  (positive shots and a current reason are required).",
+    ["status.modeNew"] = "Mode: new rally  (Mark START, Mark END, shots, reason, Save Rally).",
     ["status.lastRow"] = "Last row (what Undo removes): #{n}  {start} -> {end}  [{reason}]",
     ["status.footer"] = "Now: {clock}  |  Rallies in CSV: {count}",
     ["status.csvPath"] = "CSV: {path}",
@@ -376,12 +383,16 @@ STRINGS = {
     ["markStart.armed"] = "You have an UNSAVED rally (START -> END). Click 'Save Rally' to keep it, or 'Undo last' to clear it, before marking a new START. (You can also edit the Start field by hand.)",
     ["markStart.set"] = "START set @ {clock}. Play to the rally's end, then Mark END.",
     ["markEnd.noMedia"] = "No media playing -- cannot mark END.",
-    ["markEnd.set"] = "END set @ {clock}. Choose the Ending reason, then click Save Rally.",
+    ["markEnd.set"] = "END set @ {clock}. Enter the shot count and choose the ending reason, then Save Rally.",
     ["save.needStart"] = "Set a START time first (click Mark START).",
     ["save.needVideoSport"] = "Choose and save the video sport in Clip info before saving rallies.",
     ["save.mixedVideoSport"] = "Existing rally rows disagree with the video sport. Open Clip info and save the correct sport to normalize them.",
     ["save.needEnd"] = "Set an END time first (click Mark END).",
     ["save.zeroLen"] = "END must be later than START (rally must be > 0s).",
+    ["save.needReason"] = "Choose service fault, unforced error, or winner before saving.",
+    ["save.needShots"] = "Enter shots as a whole number of 1 or more before saving.",
+    ["golden.repair"] = "GOLDEN FILE INCOMPLETE: {count} row(s) need repair.",
+    ["golden.row"] = "NEEDS REVIEW",
     ["save.writeFailed"] = "WRITE FAILED: {err}",
     ["save.updated"] = "Updated rally #{n}: {start} -> {end}  [{reason}, {sport}{shots}].",
     ["save.duplicate"] = "Rally #{n} already exists -- set \"Next rally #\" to a free number.",
@@ -407,7 +418,7 @@ STRINGS = {
     ["activate.fallback"] = "No video detected yet. Open/play the video, then click Mark START -- the tool will switch to that video's own .rallies.csv automatically (and load any rallies already saved for it). Tip: open the video FIRST, then enable this extension.",
     ["activate.resumed"] = "Resumed this video: {count} existing rallies loaded (next is #{n}). Click Help for the guide.",
     ["activate.ready"] = "Ready. Set and save the video Sport in Clip info, then mark rallies. Click Help for usage + the ending-reason guide.",
-    ["help.html"] = "<b>Rally Annotator &mdash; how to use</b><br>\n<b>Playback:</b> the <b>Back 5s / Play / Pause / Fwd 5s</b> row drives the VLC player from here &mdash; <b>Play / Pause</b> is one toggle (pause, annotate, and resume without switching to the main VLC window).<br>\n1. Open <b>Clip info</b>, choose the video <b>Sport</b>, and click <b>Save clip info</b>. Sport is one setting for the whole video.<br>\n2. When a rally begins, click <b>Mark START</b> (pause/scrub first for frame accuracy &mdash; it snapshots the current playback time into the Start field).<br>\n3. When the rally ends, click <b>Mark END</b>. You may fine-tune the Start/End seconds by editing those fields directly.<br>\n4. Choose the <b>Ending reason</b> (the box between <b>Mark END</b> and <b>Save Rally</b>; or leave it as <b>unknown</b>), optionally type a <b>Number of shots</b> (the rally's shot/stroke count &mdash; leave blank to skip), then click <b>Save Rally</b> &mdash; one CSV row is written next to the video.<br>\n5. The reason RESETS to <b>unknown</b> after every save (never silently reused), and you can pick the same reason on consecutive rallies.<br>\n6. <b>Recent rallies</b>: select a row, then <b>Edit selected</b> (loads it back into the fields) or <b>Delete selected</b>. <b>Undo last</b> removes the most recent row (the button shows which, e.g. <i>Undo last (#7)</i>), or clears an in-progress mark, or cancels an edit.<br>\n7. <b>Resuming later:</b> labels are saved to the CSV next to the video as you go. Re-open the SAME video and enable the extension &mdash; it reloads your existing rallies and continues numbering. Set the <b>Next rally #</b> field to resume numbering from any value (e.g. restart at 1, or continue from 50); it auto-advances after each save. If you switch videos with this dialog open, click <b>Refresh</b> to load the current video's rallies. (The video's playback position is not restored &mdash; scrub to where you stopped.)<br>\n<br>\n<b>Ending reasons &mdash; what they mean (pick the one that says WHY the rally ended).</b><br>\nAll reasons except <i>winner</i> are charged to the side that LOST the rally.<br>\n&bull; <b>winner</b> &mdash; the last shot landed IN and was not returned (opponent couldn't reach it, or only waved at it). A clean untouched serve (ace) counts here.<br>\n&bull; <b>forced_error</b> &mdash; the loser MISSED (out, or into the net) while UNDER PRESSURE: stretched, rushed, jammed, or handling the opponent's pace/spin/depth. They were made to miss.<br>\n&bull; <b>unforced_error</b> &mdash; the loser MISSED a routine shot they had time AND position to make, with little or no pressure. They gave it away.<br>\n&bull; <b>service_fault</b> &mdash; the point ended on the SERVE: serve into the net, out of the service box, illegal action/foot fault, or a double fault (tennis/padel).<br>\n&bull; <b>let</b> &mdash; the rally is REPLAYED under the rules (no point): e.g. a tennis/table-tennis serve that clips the net and is otherwise good, or outside interference.<br>\n&bull; <b>other</b> &mdash; anything else (occluded footage, injury/retirement, penalty, hindrance). Use sparingly.<br>\n&bull; <b>unknown</b> &mdash; the default; this rally hasn't been classified yet (pick a specific reason when you can).<br>\n<br>\n<b>Quick cases</b><br>\n&bull; Ball/shuttle lands <b>OUT</b> (past the baseline / outside the lines): it is the hitter's miss &mdash; <b>forced</b> if they were under pressure, <b>unforced</b> if it was a comfortable ball. (OUT is NOT automatically forced, and never a winner for the opponent.)<br>\n&bull; <b>Into the net</b> during a rally: same &mdash; forced if pressured, unforced if routine. A <b>serve</b> into the net is <b>service_fault</b>.<br>\n&bull; <b>Net-cord that dribbles over and lands in</b>: live and good &mdash; usually a <b>winner</b> if unreachable, else judge what happens next. On the SERVE it varies by sport: tennis/table-tennis = <b>let</b> (replay); badminton net-tick that passes over and lands in = play on (but a serve shuttle CAUGHT on the net = service_fault); pickleball (2026) = play on.<br>\n&bull; <b>Unsure forced vs unforced?</b> Default to <b>unforced</b> &mdash; only mark forced when you can point to the specific pressure.<br>\n<br>\nOutput: <i>&lt;video&gt;.rallies.csv</i> next to the video. Full guide: docs/ENDING_REASONS.md in the repo.<br>\nClick <b>Hide help</b> to return to the status panel.",
+    ["help.html"] = "<b>Rally Annotator &mdash; golden-label flow</b><br>\n<b>Playback:</b> Back 5s / Play / Pause / Fwd 5s control VLC from this dialog.<br>\n1. Save the video <b>Sport</b> in Clip info.<br>\n2. Mark START and END at the rally boundaries.<br>\n3. Enter <b>Number of shots</b> as a whole number of 1 or more, counting racket/paddle contacts including the serve.<br>\n4. Choose one required result:<br>\n&bull; <b>service fault</b> &mdash; the faulty or illegal serve itself ends the point.<br>\n&bull; <b>unforced error</b> &mdash; the point-losing side made the last contact, so the other side gains the point.<br>\n&bull; <b>winner</b> &mdash; the point-winning side made the last contact and the defending side made no contact with the final shot.<br>\n5. Save Rally. Shots and reason clear after every save so neither can carry into the next rally.<br>\n6. Existing CSV rows still load unchanged. A row with missing/non-positive shots or an old reason is marked <b>NEEDS REVIEW</b>; edit it explicitly. The CSV is complete golden data only when no repair warning remains.<br>\n<br>\nA true no-point let stays in source history and is excluded downstream rather than relabelled here. Full contract: docs/ENDING_REASONS.md.",
   },
 }
 
@@ -625,7 +636,7 @@ local w_mark_start      -- "Mark START" button (relabeled "Re-mark START (#N)" w
 local w_mark_end        -- "Mark END" button (relabeled "Re-mark END (#N)" while editing)
 local w_undo            -- "Undo last" button (relabeled to show which row it removes)
 local w_next            -- "Next rally #" text input (lets you resume numbering anywhere)
-local w_shots           -- "Number of shots" text input (optional shots_count per rally)
+local w_shots           -- required positive shots_count per rally
 local w_help_btn        -- the Help button (relabeled "Hide help" when open)
 local w_help            -- the help panel widget; nil when hidden (toggled via del_widget)
 
@@ -800,7 +811,7 @@ end
 
 -- Load all rally rows from the CSV into `rows` (header + blank lines skipped).
 -- Forgiving parser: any leading-integer line is a rally row. Column 6 is the
--- optional shots_count (blank/missing in older CSVs); any columns beyond it are
+-- legacy shots_count may be blank/missing; any columns beyond it are
 -- preserved verbatim so we never drop richer metadata on rewrite.
 local function load_rows()
   rows = {}
@@ -819,7 +830,8 @@ local function load_rows()
           n      = math.floor(n),
           s      = tonumber(parts[2]) or 0,
           e      = tonumber(parts[3]) or 0,
-          reason = (parts[4] ~= nil and parts[4] ~= "") and parts[4] or "other",
+          -- Preserve a blank legacy reason exactly; repair must be an explicit choice.
+          reason = parts[4] or "",
           sport  = parts[5] or "",
           shots  = shots,
         }
@@ -1402,12 +1414,43 @@ local function get_field_num(w)
   return tonumber(t)
 end
 
--- The "Number of shots" field as a non-negative integer, or nil if blank or not a
--- valid count. Optional metadata: a blank/garbage value just records no shots_count.
+-- The "Number of shots" field as a positive integer, or nil when it is not a
+-- valid golden count. Never round a decimal or silently repair a typed value.
 local function get_shots()
   local v = get_field_num(w_shots)
-  if not v or v < 0 then return nil end
-  return math.floor(v)
+  if not v or v < 1 or v ~= math.floor(v) then return nil end
+  return v
+end
+
+local function canonical_reason(value)
+  for _, reason in ipairs(REASONS) do
+    if value == reason then return reason end
+  end
+  return nil
+end
+
+local function valid_row_shots(value)
+  local n = tonumber(value)
+  return n ~= nil and n >= 1 and n == math.floor(n)
+end
+
+local function row_needs_golden_repair(row)
+  return not canonical_reason(row.reason) or not valid_row_shots(row.shots)
+end
+
+local function golden_repair_count()
+  local count = 0
+  for _, row in ipairs(rows) do
+    if row_needs_golden_repair(row) then count = count + 1 end
+  end
+  return count
+end
+
+local function reason_display(value)
+  if value == nil or value == "" then return t("reason.missing") end
+  local key = "reason." .. value
+  local shown = t(key)
+  return shown == key and value or shown
 end
 
 -- True when a fresh rally is fully marked (both START and END) but NOT yet saved --
@@ -1492,19 +1535,25 @@ local function rebuild_reason_default()
   if not d or screen ~= "rally" then return end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 7, 1, 1)
-  w_reason:add_value(t("reason." .. REASON_DEFAULT), 0)  -- "unknown" default (id 0)
+  w_reason:add_value(t("reason.choose"), 0)  -- required, non-savable placeholder
   for i, v in ipairs(REASONS) do w_reason:add_value(t("reason." .. v), i) end
 end
 
 local function rebuild_reason_selected(sel)
   if not d or screen ~= "rally" then return end
-  if not sel or sel == "" then sel = REASON_DEFAULT end
   if w_reason then d:del_widget(w_reason) end
   w_reason = d:add_dropdown(3, 7, 1, 1)
-  w_reason:add_value(t("reason." .. sel), REASON_ID[sel] or 0)   -- selected first
-  if sel ~= REASON_DEFAULT then w_reason:add_value(t("reason." .. REASON_DEFAULT), 0) end
+  local current = canonical_reason(sel)
+  if current then
+    w_reason:add_value(reason_display(current), REASON_ID[current])
+    w_reason:add_value(t("reason.choose"), 0)
+  elseif sel and sel ~= "" then
+    w_reason:add_value(t("reason.legacyValue", { value = reason_display(sel) }), 0)
+  else
+    w_reason:add_value(t("reason.choose"), 0)
+  end
   for i, v in ipairs(REASONS) do
-    if v ~= sel then w_reason:add_value(t("reason." .. v), i) end
+    if v ~= current then w_reason:add_value(reason_display(v), i) end
   end
 end
 
@@ -1532,8 +1581,9 @@ local function refresh_list()
   w_list:clear()
   for _, r in ipairs(rows) do
     local label = string.format("#%d   %s -> %s   [%s, %s]", r.n, fmt_clock(r.s), fmt_clock(r.e),
-      t("reason." .. r.reason), t("sport." .. r.sport))
+      reason_display(r.reason), t("sport." .. r.sport))
     if r.shots ~= nil then label = label .. string.format("   %s shots", tostring(r.shots)) end
+    if row_needs_golden_repair(r) then label = label .. "   " .. t("golden.row") end
     w_list:add_value(label, r.n)
   end
   if d then d:update() end
@@ -1648,11 +1698,14 @@ local function set_status(msg)
     if #rows > 0 then
       local lr = rows[#rows]
       last_line = esc(t("status.lastRow", { n = lr.n, start = fmt_clock(lr.s),
-        ["end"] = fmt_clock(lr.e), reason = t("reason." .. lr.reason) })) .. "<br>"
+        ["end"] = fmt_clock(lr.e), reason = reason_display(lr.reason) })) .. "<br>"
     end
+    local repair = golden_repair_count()
+    local repair_line = ""
+    if repair > 0 then repair_line = "<b>" .. esc(t("golden.repair", { count = repair })) .. "</b><br>" end
     body = esc(mode_line) .. "<br>" .. last_line
       .. esc(t("status.footer", { clock = fmt_clock(now_seconds()), count = #rows })) .. "<br>"
-      .. coverage_lines() .. esc(t("status.csvPath", { path = out_path }))
+      .. repair_line .. coverage_lines() .. esc(t("status.csvPath", { path = out_path }))
   end
   w_status:set_text(esc(msg) .. "<br>" .. body)
   if d then d:update() end
@@ -1791,14 +1844,16 @@ function save_rally()
   -- The reason belongs to this rally. Sport does not: Clip info owns one canonical value for
   -- the whole video, repeated into each CSV row only for interchange compatibility.
   local rid = w_reason:get_value()
-  local reason = (rid == nil or rid == 0) and REASON_DEFAULT or (REASONS[rid] or REASON_DEFAULT)
+  local reason = (rid == nil or rid == 0) and REASON_DEFAULT or REASONS[rid]
+  if not canonical_reason(reason) then set_status(t("save.needReason")); return end
+  local shots = get_shots()
+  if not shots then set_status(t("save.needShots")); return end
   local sport = video_sport()
   if not sport then set_status(t("save.needVideoSport")); return end
   if sport_mismatch_count(sport) > 0 then
     set_status(t("save.mixedVideoSport")); return
   end
-  local shots = get_shots()                -- optional; nil when blank
-  local shots_note = (shots ~= nil) and string.format(", %d shots", shots) or ""
+  local shots_note = string.format(", %d shots", shots)
 
   local msg
   if mode == "edit" and edit_index and rows[edit_index] then
@@ -2217,7 +2272,14 @@ function capture_form()
   if w_next then form.next = w_next:get_text() or "" end
   if w_reason then
     local rid = w_reason:get_value()
-    form.reason = (rid == nil or rid == 0) and REASON_DEFAULT or (REASONS[rid] or REASON_DEFAULT)
+    if rid ~= nil and rid ~= 0 and REASONS[rid] then
+      form.reason = REASONS[rid]
+    elseif mode == "edit" and edit_index and rows[edit_index]
+        and not canonical_reason(rows[edit_index].reason) then
+      form.reason = rows[edit_index].reason
+    else
+      form.reason = REASON_DEFAULT
+    end
   end
   if w_rv_start then rv_form.start = w_rv_start:get_text() or "" end
   if w_rv_end then rv_form.stop = w_rv_end:get_text() or "" end
@@ -2323,7 +2385,7 @@ local function build_rally_screen()
 
   d:add_label(t("label.next"), 1, 5, 1, 1)
   w_next = d:add_text_input("", 2, 5, 1, 1)
-  d:add_label(t("label.shots"), 3, 5, 1, 1)   -- optional; blank => shots_count left empty
+  d:add_label(t("label.shots"), 3, 5, 1, 1)   -- required positive integer
   w_shots = d:add_text_input(form.shots, 4, 5, 1, 1)
 
   d:add_label(t("label.reason"), 3, 6, 1, 1)   -- labels the reason dropdown directly below it

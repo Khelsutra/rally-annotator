@@ -16,6 +16,11 @@ function make(rowsCsv = "") {
   return { a, store };
 }
 
+function complete(a: Annotator, reason = "winner", shots = "1") {
+  a.reason = reason;
+  a.shotsField = shots;
+}
+
 describe("numbering", () => {
   it("continues from max existing rally_number", () => {
     const { a } = make("1,1.0,2.0,winner,badminton,\n5,3.0,4.0,let,tennis,\n");
@@ -62,10 +67,10 @@ describe("two-step commit + non-sticky reason/shots, video-level sport", () => {
     a.sport = "tennis";
     a.markStart(1);
     a.markEnd(2);
-    a.reason = "let";
+    a.reason = "unforced_error";
     a.shotsField = "7";
     a.saveRally();
-    expect(a.reason).toBe("unknown"); // non-sticky
+    expect(a.reason).toBe(""); // required non-sticky placeholder
     expect(a.shotsField).toBe(""); // non-sticky
     expect(a.sport).toBe("tennis"); // one setting for the video
     expect(a.startField).toBe("");
@@ -73,22 +78,36 @@ describe("two-step commit + non-sticky reason/shots, video-level sport", () => {
     expect(a.nextField).toBe("2");
   });
 
-  it("treats shots=0 as a valid count (not blank)", () => {
+  it("rejects zero, blank, negative and fractional shot counts", () => {
     const { a } = make();
     a.markStart(1);
     a.markEnd(2);
-    a.shotsField = " 0 ";
-    a.saveRally();
-    expect(a.rows[0].shots).toBe("0");
+    a.reason = "winner";
+    for (const value of ["0", "", "-3", "1.5", "words"]) {
+      a.shotsField = value;
+      expect(a.saveRally()).toMatchObject({ ok: false, key: "status.needShots" });
+    }
+    expect(a.rows).toHaveLength(0);
   });
 
-  it("blank/negative shots record no count", () => {
+  it("requires one of the three current ending reasons", () => {
     const { a } = make();
     a.markStart(1);
     a.markEnd(2);
-    a.shotsField = "-3";
-    a.saveRally();
-    expect(a.rows[0].shots).toBe(null);
+    a.shotsField = "1";
+    for (const reason of ["", "unknown", "let", "forced_error", "other", "custom"]) {
+      a.reason = reason;
+      expect(a.saveRally()).toMatchObject({ ok: false, key: "status.needReason" });
+    }
+    for (const reason of ["service_fault", "unforced_error", "winner"]) {
+      a.reason = reason;
+      expect(a.saveRally().ok).toBe(true);
+      if (reason !== "winner") {
+        a.markStart(1);
+        a.markEnd(2);
+        a.shotsField = "1";
+      }
+    }
   });
 });
 
@@ -97,6 +116,7 @@ describe("video-level sport", () => {
     const a = new Annotator({ sport: null });
     a.markStart(1);
     a.markEnd(2);
+    complete(a);
     const res = a.saveRally();
     expect(res).toMatchObject({ ok: false, key: "status.needVideoSport" });
     expect(a.rows).toHaveLength(0);
@@ -121,6 +141,7 @@ describe("video-level sport", () => {
     });
     a.markStart(3);
     a.markEnd(4);
+    complete(a);
     const res = a.saveRally();
     expect(res).toMatchObject({ ok: false, key: "status.mixedVideoSport" });
     expect(a.rows).toHaveLength(1);
@@ -164,6 +185,7 @@ describe("validation", () => {
     const { a } = make();
     a.markStart(10);
     a.markEnd(5);
+    complete(a);
     a.saveRally();
     expect(a.rows[0]).toMatchObject({ s: 5, e: 10 });
   });
@@ -182,6 +204,7 @@ describe("validation", () => {
     a.nextField = "2";
     a.markStart(3);
     a.markEnd(4);
+    complete(a);
     const res = a.saveRally();
     expect(res.ok).toBe(false);
     expect(res.key).toBe("status.duplicate");
@@ -259,10 +282,10 @@ describe("edit mode", () => {
     expect(a.shotsField).toBe("9");
     expect(a.reason).toBe("winner");
     a.endField = "5.000";
-    a.reason = "let";
+    a.reason = "unforced_error";
     const res = a.saveRally();
     expect(res.ok).toBe(true);
-    expect(a.rows[0]).toMatchObject({ n: 3, e: 5, reason: "let" });
+    expect(a.rows[0]).toMatchObject({ n: 3, e: 5, reason: "unforced_error" });
     expect(a.mode).toBe("new"); // back to new after committing the edit
   });
 });
@@ -299,6 +322,7 @@ describe("write-failure rollback", () => {
     const a = failing();
     a.markStart(1);
     a.markEnd(2);
+    complete(a);
     const res = a.saveRally();
     expect(res.ok).toBe(false);
     expect(res.key).toBe("status.writeFailed");
@@ -306,9 +330,10 @@ describe("write-failure rollback", () => {
   });
 
   it("restores the row when an edit fails to write", () => {
-    const a = failing("1,1.000,2.000,winner,badminton,\n");
+    const a = failing("1,1.000,2.000,winner,badminton,1\n");
     a.editSelected(1);
     a.endField = "9.000";
+    complete(a);
     expect(a.saveRally().ok).toBe(false);
     expect(a.rows[0].e).toBe(2); // unchanged
   });
@@ -323,5 +348,32 @@ describe("write-failure rollback", () => {
     const a = failing("1,1,2,winner,badminton,\n");
     expect(a.undoLast().ok).toBe(false);
     expect(a.rows).toHaveLength(1);
+  });
+});
+
+describe("legacy repair and golden export", () => {
+  it("preserves legacy values, identifies every repair row and blocks export", () => {
+    const { a } = make(
+      "1,1,2,forced_error,badminton,7\n" +
+      "2,3,4,,badminton,\n" +
+      "3,5,6,winner,badminton,9\n"
+    );
+    expect(a.rows[0].reason).toBe("forced_error");
+    expect(a.rows[1]).toMatchObject({ reason: "", shots: null });
+    expect(a.goldenRepairRows()).toEqual([1, 2]);
+    expect(() => a.toCSV()).toThrow(/repair rally rows: 1, 2/);
+  });
+
+  it("requires both fields while repairing a legacy row, then exports once clean", () => {
+    const { a } = make("1,1,2,let,badminton,\n");
+    a.editSelected(1);
+    expect(a.reason).toBe("let");
+    expect(a.saveRally()).toMatchObject({ ok: false, key: "status.needReason" });
+    a.reason = "winner";
+    expect(a.saveRally()).toMatchObject({ ok: false, key: "status.needShots" });
+    a.shotsField = "1";
+    expect(a.saveRally().ok).toBe(true);
+    expect(a.goldenRepairRows()).toEqual([]);
+    expect(a.toCSV()).toContain("1,1.000,2.000,winner,badminton,1");
   });
 });

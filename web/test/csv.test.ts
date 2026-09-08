@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRows, serializeRows, HEADER } from "../src/state/csv";
+import { parseRows, serializeGoldenRows, serializeRows, HEADER } from "../src/state/csv";
 
 // The exact example from docs/CSV_FORMAT.md (header + 3 rows, trailing newline).
 const SAMPLE =
@@ -30,8 +30,8 @@ describe("csv serialize/parse (byte-compatible with vlc/rally_annotator.lua)", (
     expect(serializeRows(parseRows(csv))).toBe(csv);
   });
 
-  it("loads a missing/blank reason as 'other' (the load-time default)", () => {
-    expect(parseRows("7,1.0,2.0,,padel,\n")[0].reason).toBe("other");
+  it("preserves a missing/blank legacy reason for explicit repair", () => {
+    expect(parseRows("7,1.0,2.0,,padel,\n")[0].reason).toBe("");
   });
 
   it("serializes blank shots as a trailing empty field, value as the token", () => {
@@ -47,5 +47,17 @@ describe("csv serialize/parse (byte-compatible with vlc/rally_annotator.lua)", (
     expect(
       serializeRows([{ n: 1, s: 8.8, e: 11.5, reason: "winner", sport: "badminton", shots: null, extra: null }])
     ).toBe(HEADER + "1,8.800,11.500,winner,badminton,\n");
+  });
+
+  it("blocks golden export until all counts and reasons satisfy the current contract", () => {
+    const legacy = parseRows(SAMPLE);
+    expect(() => serializeGoldenRows(legacy)).toThrow(/repair rally rows: 3/);
+    expect(
+      serializeGoldenRows([
+        { n: 1, s: 1, e: 2, reason: "service_fault", sport: "badminton", shots: "1", extra: null },
+        { n: 2, s: 3, e: 4, reason: "unforced_error", sport: "badminton", shots: "2", extra: null },
+        { n: 3, s: 5, e: 6, reason: "winner", sport: "badminton", shots: "3", extra: null },
+      ])
+    ).toContain("3,5.000,6.000,winner,badminton,3");
   });
 });

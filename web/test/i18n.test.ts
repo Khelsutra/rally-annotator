@@ -36,7 +36,8 @@ describe("catalog integrity", () => {
     const en = new Set(EN_KEYS);
     const used = [
       "status.noMediaStart", "status.unsavedGuard", "status.startSet", "status.noMediaEnd",
-      "status.endSet", "status.needStart", "status.needEnd", "status.zeroLength", "status.writeFailed",
+      "status.endSet", "status.needStart", "status.needEnd", "status.zeroLength", "status.needReason",
+      "status.needShots", "status.exportBlocked", "status.writeFailed",
       "status.needVideoSport", "status.mixedVideoSport", "clip.sportNormalized",
       "status.updated", "status.duplicate", "status.saved", "status.needSelectEdit", "status.notFound",
       "status.editGuard", "status.editing", "status.needSelectDelete", "status.deleted",

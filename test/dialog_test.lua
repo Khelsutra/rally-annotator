@@ -114,7 +114,7 @@ local function ok(name, cond) eq(name, cond and true or false, true) end
 --------------------------------------------------------------------------------
 dofile(EXT)
 ok("descriptor() returns a title", descriptor().title ~= nil)
-eq("descriptor version", descriptor().version, "2.3.1")
+eq("descriptor version", descriptor().version, "2.4.0")
 -- the title carries the version so VLC's "Active Extensions" list (which shows the
 -- title verbatim) displays it next to the plugin name -- and stays in sync, no drift.
 eq("descriptor title carries the version", descriptor().title, "Rally Annotator v" .. descriptor().version)
@@ -199,7 +199,8 @@ end
 local function buttonWithCb(cb) for _,w in ipairs(DIALOG.widgets) do if w.kind=='button' and w.cb==cb and not w.deleted then return w end end end
 local function pickReason(name)
   local w = find('dropdown', 3, 7)
-  for _, v in ipairs(w.values) do if v.text==name then w.sel_id=v.id; w.sel_text=v.text; return end end
+  local display = name:gsub('_', ' ')
+  for _, v in ipairs(w.values) do if v.text==name or v.text==display then w.sel_id=v.id; w.sel_text=v.text; return end end
   error('reason option not found: '..name)
 end
 local function curReason() return (find('dropdown',3,7)).sel_text end
@@ -209,11 +210,15 @@ local function setS(s)  (find('text_input',2,4)):set_text(s) end
 local function setE(s)  (find('text_input',4,4)):set_text(s) end
 local function setShots(s) (find('text_input',4,5)):set_text(s) end
 local function getShots()  return (find('text_input',4,5)):get_text() end
+local function fillGolden(reason, shots)
+  pickReason(reason or 'winner')
+  setShots(tostring(shots or 1))
+end
 
 local helpBtn = buttonWithCb(show_help)
 local statusHtml; for _, w in ipairs(d.widgets) do if w.kind=='html' then statusHtml=w; break end end
 local function dedicatedHelp()
-  local n=0; for _,w in ipairs(d.widgets) do if w.kind=='html' and w~=statusHtml and not w.deleted and w.text and w.text:find('how to use',1,true) then n=n+1 end end; return n
+  local n=0; for _,w in ipairs(d.widgets) do if w.kind=='html' and w~=statusHtml and not w.deleted and w.text and w.text:find('golden-label flow',1,true) then n=n+1 end end; return n
 end
 
 --------------------------------------------------------------------------------
@@ -257,6 +262,7 @@ do
   mark_start()
   eq("Mark START works without a target profile", find('text_input', 2, 4):get_text(), "1.250")
   find('text_input', 4, 4):set_text("2.000")
+  fillGolden()
   save_rally()
   eq("Save Rally works without a target profile", find('text_input', 2, 5):get_text(), "2")
   os.remove(CSV)
@@ -264,22 +270,34 @@ do
 end
 
 --------------------------------------------------------------------------------
--- Reason: default unknown, resets each save, consecutive identical reasons work
+-- Required reason and shot count reset after each save; legacy/invalid choices cannot commit.
 --------------------------------------------------------------------------------
-eq("reason defaults to unknown", curReason(), "unknown")
+eq("reason defaults to required placeholder", curReason(), "choose ending reason...")
 setNext('1'); setS('1'); setE('2'); pickReason('winner'); setShots('12'); save_rally()
-eq("reason resets to unknown after save A", curReason(), "unknown")
+eq("reason resets to required placeholder after save A", curReason(), "choose ending reason...")
 eq("shots field clears after save A", getShots(), "")          -- non-sticky like reason
 eq("Next# auto-advances to 2", nextF(), "2")
-setS('3'); setE('4'); pickReason('winner'); save_rally()        -- consecutive winner, no shots
-eq("reason resets to unknown after save B", curReason(), "unknown")
-setS('5'); setE('6'); save_rally()                              -- no pick -> unknown, no shots
+setS('3'); setE('4'); fillGolden('winner', 1); save_rally()
+eq("reason resets to required placeholder after save B", curReason(), "choose ending reason...")
+setS('5'); setE('6'); save_rally()
+eq("missing required fields do not advance", nextF(), "3")
+fillGolden('service_fault', 1); save_rally()
 eq("Next# at 4 after three saves", nextF(), "4")
+
+-- A marked rally cannot be committed with a missing reason or a blank/non-positive/fractional count.
+setS('9'); setE('10'); setShots('1'); save_rally()
+eq("missing reason cannot be saved", nextF(), "4")
+pickReason('winner')
+for _, bad in ipairs({ '', '0', '-1', '1.5', 'words' }) do
+  setShots(bad); save_rally()
+  eq("invalid shots refused: " .. bad, nextF(), "4")
+end
+setS(''); setE(''); setShots('')
 
 --------------------------------------------------------------------------------
 -- Next #: collision refused; undo of a committed row re-syncs Next#
 --------------------------------------------------------------------------------
-setNext('2'); setS('7'); setE('8'); pickReason('let'); save_rally()   -- #2 exists -> refuse
+setNext('2'); setS('7'); setE('8'); fillGolden('unforced_error', 2); save_rally()
 eq("duplicate #2 refused (Next# unchanged)", nextF(), "2")
 setS(''); setE('')        -- clear in-progress so undo removes a row
 setNext('99')             -- stale value
@@ -292,7 +310,7 @@ eq("undo re-syncs Next# to real next (3, not 99)", nextF(), "3")
 local fh = io.open(CSV, "r"); local csv = fh and fh:read("*a") or ""; if fh then fh:close() end
 ok("CSV has shots_count header", csv:find("rally_number,start_time,end_time,ending_reason,sport,shots_count", 1, true) ~= nil)
 ok("CSV row #1 winner + shots=12", csv:find("\n1,1.000,2.000,winner,badminton,12\n", 1, true) ~= nil)
-ok("CSV row #2 winner, shots column blank", csv:find("\n2,3.000,4.000,winner,badminton,\n", 1, true) ~= nil)
+ok("CSV row #2 winner + required shots", csv:find("\n2,3.000,4.000,winner,badminton,1\n", 1, true) ~= nil)
 ok("CSV row #3 was undone (absent)", csv:find("\n3,", 1, true) == nil)
 os.remove(CSV)
 
@@ -343,6 +361,42 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- Legacy rows load verbatim, are visibly marked, and must be explicitly repaired.
+--------------------------------------------------------------------------------
+do
+  local f = io.open(CSV, "w")
+  f:write("rally_number,start_time,end_time,ending_reason,sport,shots_count\n")
+  f:write("1,1.000,2.000,forced_error,badminton,7\n")
+  f:write("2,3.000,4.000,,badminton,\n")
+  f:write("3,5.000,6.000,winner,badminton,3\n")
+  f:close()
+  activate()
+  local L = find('list', 1, 11)
+  ok("legacy forced_error source value is visible", L.values[1].text:find("forced error", 1, true) ~= nil)
+  ok("legacy forced_error is marked for review", L.values[1].text:find("NEEDS REVIEW", 1, true) ~= nil)
+  ok("blank legacy row is displayed as missing", L.values[2].text:find("missing", 1, true) ~= nil)
+  ok("blank legacy row is marked for review", L.values[2].text:find("NEEDS REVIEW", 1, true) ~= nil)
+  ok("valid row is not marked for review", L.values[3].text:find("NEEDS REVIEW", 1, true) == nil)
+
+  L.selection = { [1] = "row #1" }
+  edit_selected()
+  ok("legacy reason is shown in the edit dropdown", curReason():find("legacy %- review required") ~= nil)
+  save_rally()
+  ok("saving an unchanged legacy reason is refused",
+     (function() local x=io.open(CSV,"r"); local s=x:read("*a"); x:close(); return s end)()
+       :find("1,1.000,2.000,forced_error,badminton,7", 1, true) ~= nil)
+  pickReason('unforced_error'); save_rally()
+  local x = io.open(CSV, "r"); local repaired = x:read("*a"); x:close()
+  ok("explicit legacy repair writes the chosen current reason",
+     repaired:find("1,1.000,2.000,unforced_error,badminton,7", 1, true) ~= nil)
+  local status
+  for _, w in ipairs(DIALOG.widgets) do if w.kind == 'html' and not w.deleted then status = w end end
+  ok("file-level golden warning remains until all legacy rows are repaired",
+     status and status.text:find("GOLDEN FILE INCOMPLETE: 1 row", 1, true) ~= nil)
+  os.remove(CSV)
+end
+
+--------------------------------------------------------------------------------
 -- Data safety on resume: enabling the extension BEFORE the video loads used to write
 -- rallies to ~/rally_labels.csv (the home fallback) and never reload the video's own CSV
 -- on restart, so labels looked "lost". The moment a timestamp exists (video playing), the
@@ -372,6 +426,7 @@ do
   eq("Mark START adopts the video's 2 existing rallies", nVals(), 2)
   eq("lazy video adoption repaints the read-only sport", live('label', 2, 2).text, "table tennis")
   live('text_input', 4, 4):set_text("11")        -- End (s); Start was set to 10.000 by mark_start
+  fillGolden()
   save_rally()
   local hv = io.open(VIDEO_CSV, "r"); local vcsv = hv and hv:read("*a") or ""; if hv then hv:close() end
   ok("new rally #3 written to <video>.rallies.csv", vcsv:find("\n3,", 1, true) ~= nil)
@@ -392,7 +447,7 @@ do
   local function listw() local L; for _, x in ipairs(DIALOG.widgets) do if x.kind=='list' and not x.deleted then L=x end end; return L end
 
   -- save one rally so the Recent list has a row to (attempt to) edit
-  win('text_input',2,4):set_text("1.000"); win('text_input',4,4):set_text("2.000"); save_rally()
+  win('text_input',2,4):set_text("1.000"); win('text_input',4,4):set_text("2.000"); fillGolden(); save_rally()
   -- arm a fresh rally: START + END filled, unsaved
   win('text_input',2,4):set_text("100.000"); win('text_input',4,4):set_text("110.000")
 
@@ -423,7 +478,7 @@ do
   local function w23(c,r) local f; for _, x in ipairs(DIALOG.widgets) do if x.kind=='text_input' and x.col==c and x.row==r and not x.deleted then f=x end end; return f end
   local function listw() local L; for _, x in ipairs(DIALOG.widgets) do if x.kind=='list' and not x.deleted then L=x end end; return L end
 
-  w23(2,4):set_text("1.000"); w23(4,4):set_text("2.000"); save_rally()
+  w23(2,4):set_text("1.000"); w23(4,4):set_text("2.000"); fillGolden(); save_rally()
   eq("pristine Mark START label", markBtn(mark_start).text, "Mark START")
   eq("pristine Mark END label",   markBtn(mark_end).text,   "Mark END")
 
@@ -618,6 +673,7 @@ do
   eq("fresh real clip sport starts unset", wd('dropdown', 4, 5).sel_text, "(not set)")
   show_rallies()
   wd('text_input', 2, 4):set_text("1"); wd('text_input', 4, 4):set_text("2")
+  fillGolden()
   save_rally()
   ok("rally save is refused until video sport is declared", read_file(csv_path) == nil)
   show_clip(); pick_clip_sport("table tennis"); save_clip_info(); show_rallies(); save_rally()
@@ -648,6 +704,7 @@ do
   MEDIA_URI = "file://" .. stem .. ".mp4"; MEDIA_DURATION = 100; PB.state = "playing"
   activate(); show_rallies()
   wd('text_input', 2, 4):set_text("5"); wd('text_input', 4, 4):set_text("6")
+  fillGolden()
   save_rally()
   eq("mixed rally sports block new rally writes", read_file(csv_path), original_csv)
 
@@ -674,7 +731,7 @@ do
      (read_file(meta_path) or ""):find('"sport": "table_tennis"', 1, true) ~= nil)
   show_rallies(); save_rally()
   ok("rally writes resume after sport normalization",
-     (read_file(csv_path) or ""):find("\n3,5.000,6.000,unknown,table_tennis,\n", 1, true) ~= nil)
+     (read_file(csv_path) or ""):find("\n3,5.000,6.000,winner,table_tennis,1\n", 1, true) ~= nil)
 
   os.remove(csv_path); os.remove(meta_path)
   MEDIA_URI = nil; MEDIA_DURATION = nil; activate()
@@ -789,10 +846,10 @@ do
   ok("empty clip sidecar starts without guessed completeness",
      (read_file(meta_path) or ""):find('"label_completeness": null', 1, true) ~= nil)
   show_rallies()
-  wd('text_input', 2, 4):set_text("10"); wd('text_input', 4, 4):set_text("20"); save_rally()
+  wd('text_input', 2, 4):set_text("10"); wd('text_input', 4, 4):set_text("20"); fillGolden(); save_rally()
   ok("first rally refreshes sidecar count",
      (read_file(meta_path) or ""):find('"rally_count": 1', 1, true) ~= nil)
-  wd('text_input', 2, 4):set_text("30"); wd('text_input', 4, 4):set_text("40"); save_rally()
+  wd('text_input', 2, 4):set_text("30"); wd('text_input', 4, 4):set_text("40"); fillGolden(); save_rally()
   local fresh = read_file(meta_path) or ""
   ok("second rally refreshes sidecar count", fresh:find('"rally_count": 2', 1, true) ~= nil)
   ok("second rally refreshes labelled-to extent", fresh:find('"labelled_to_s": 40', 1, true) ~= nil)
@@ -802,7 +859,7 @@ do
   local newer = fresh:gsub("\n}\n$", ',\n  "future_contract": {"keep": true}\n}\n')
   write_file(meta_path, newer)
   activate(); show_rallies()
-  wd('text_input', 2, 4):set_text("50"); wd('text_input', 4, 4):set_text("60"); save_rally()
+  wd('text_input', 2, 4):set_text("50"); wd('text_input', 4, 4):set_text("60"); fillGolden(); save_rally()
   eq("automatic completeness refresh preserves a newer sidecar verbatim",
      read_file(meta_path), newer)
   os.remove(csv_path); os.remove(meta_path)

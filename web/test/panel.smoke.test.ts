@@ -24,6 +24,10 @@ function setField(el: Element | null, value: string) {
 function statusText(r: ShadowRoot): string {
   return (r.querySelector(".status") as HTMLElement).textContent || "";
 }
+function fillGolden(r: ShadowRoot, shots = "1", reason = "winner") {
+  setField(r.querySelector('input[placeholder="shots"]'), shots);
+  setField(r.querySelector("select[name=reason]"), reason);
+}
 
 let panel: PanelHandle | null = null;
 beforeEach(() => {
@@ -41,7 +45,7 @@ describe("panel (jsdom, DOM-driven)", () => {
   it("renders the full control set", () => {
     mount();
     const r = shadow();
-    expect(r.querySelector(".hdr .t")?.textContent).toBe("Rally Annotator v0.1.0");
+    expect(r.querySelector(".hdr .t")?.textContent).toBe("Rally Annotator v0.2.0");
     expect(r.querySelector("select[name=sport]")).toBeNull();
     expect(r.querySelector("[data-video-sport]")?.textContent).toBe("badminton");
     expect(r.querySelector("select[name=clip-sport]")).toBeTruthy();
@@ -68,7 +72,7 @@ describe("panel (jsdom, DOM-driven)", () => {
     expect(r.querySelectorAll('[data-list=rallies] .item')).toHaveLength(1);
     expect(r.querySelector('[data-list=rallies] .item')!.textContent).toContain("#1");
     expect(csv).toContain("1,1.000,2.500,winner,badminton,9");
-    expect((r.querySelector("select[name=reason]") as HTMLSelectElement).value).toBe("unknown");
+    expect((r.querySelector("select[name=reason]") as HTMLSelectElement).value).toBe("");
     panel!.destroy();
   });
 
@@ -100,10 +104,11 @@ describe("panel (jsdom, DOM-driven)", () => {
     // create a rally by hand
     setField(r.querySelector('input[placeholder="start s"]'), "1.0");
     setField(r.querySelector('input[placeholder="end s"]'), "2.0");
+    fillGolden(r);
     btn(r, "Save Rally").click();
     expect(a.rows).toHaveLength(1);
 
-    btn(r, "Download CSV").click();
+    btn(r, "Download complete").click();
     expect(csv).toContain("1,1.000,2.000");
 
     // select the row, edit it, then cancel via Undo
@@ -182,6 +187,7 @@ describe("rally annotation without a target profile", () => {
     const { a, r, csv } = mountUndeclared();
     setField(r.querySelector('input[placeholder="start s"]'), "1.0");
     setField(r.querySelector('input[placeholder="end s"]'), "2.0");
+    fillGolden(r);
     btn(r, "Save Rally").click();
     expect(a.rows).toHaveLength(1);
     expect(csv()).toContain("1,1.000,2.000");
@@ -198,6 +204,7 @@ describe("rally annotation without a target profile", () => {
     const r = shadow();
     setField(r.querySelector('input[placeholder="start s"]'), "1.0");
     setField(r.querySelector('input[placeholder="end s"]'), "2.0");
+    fillGolden(r);
     btn(r, "Save Rally").click();
     expect(statusText(r)).toContain("Choose and save the video sport");
     expect(a.rows).toHaveLength(0);
@@ -206,7 +213,7 @@ describe("rally annotation without a target profile", () => {
     btn(r, "Save clip info").click();
     btn(r, "Save Rally").click();
     expect(a.rows[0].sport).toBe("table_tennis");
-    expect(csv).toContain("1,1.000,2.000,unknown,table_tennis,");
+    expect(csv).toContain("1,1.000,2.000,winner,table_tennis,1");
     panel!.destroy();
   });
 
@@ -217,6 +224,32 @@ describe("rally annotation without a target profile", () => {
     });
     const r = shadow();
     expect(r.querySelectorAll('[data-list=rallies] .item')).toHaveLength(1);
+    panel!.destroy();
+  });
+
+  it("visibly marks every legacy repair row and blocks golden download", () => {
+    const a = new Annotator({
+      rows: [
+        { n: 1, s: 1, e: 2, reason: "forced_error", sport: "badminton", shots: "7", extra: null },
+        { n: 2, s: 3, e: 4, reason: "winner", sport: "badminton", shots: null, extra: null },
+      ],
+    });
+    let downloads = 0;
+    panel = mountPanel({
+      annotator: a, video: new DirectVideoHandler(), identity: { key: "url:t", title: "T" },
+      download: () => downloads++,
+    });
+    const r = shadow();
+    const items = r.querySelectorAll('[data-list=rallies] .item');
+    expect(items).toHaveLength(2);
+    expect([...items].every((item) => item.textContent?.includes("NEEDS REVIEW"))).toBe(true);
+    (items[0] as HTMLElement).click();
+    btn(r, "Edit").click();
+    expect((r.querySelector("select[name=reason]") as HTMLSelectElement).selectedOptions[0].textContent)
+      .toContain("legacy");
+    btn(r, "Download complete").click();
+    expect(downloads).toBe(0);
+    expect(statusText(r)).toContain("Golden CSV download blocked");
     panel!.destroy();
   });
 
@@ -414,10 +447,12 @@ describe("clip info section", () => {
     const r = shadow();
     setField(r.querySelector('input[placeholder="start s"]'), "1");
     setField(r.querySelector('input[placeholder="end s"]'), "5");
+    fillGolden(r);
     btn(r, "Save Rally").click();
     expect(JSON.parse(json.at(-1)!).label_completeness.rally_count).toBe(1);
     setField(r.querySelector('input[placeholder="start s"]'), "10");
     setField(r.querySelector('input[placeholder="end s"]'), "20");
+    fillGolden(r);
     btn(r, "Save Rally").click();
     expect(JSON.parse(json.at(-1)!).label_completeness).toMatchObject({
       rally_count: 2,
@@ -445,6 +480,7 @@ describe("label-completeness readout", () => {
   function addRally(r: ShadowRoot, s: string, e: string) {
     setField(r.querySelector('input[placeholder="start s"]'), s);
     setField(r.querySelector('input[placeholder="end s"]'), e);
+    fillGolden(r);
     btn(r, "Save Rally").click();
   }
 
