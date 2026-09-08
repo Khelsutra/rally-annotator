@@ -56,6 +56,8 @@ Why 5.1 specifically: it's the interpreter VLC 3.x embeds, so the test's syntax/
 - **Help toggle** — the dedicated help panel is added/removed on each click and the button label flips.
 - **Reason field** — starts on a non-savable placeholder, accepts exactly `service_fault`, `unforced_error`, or `winner`, and resets after every save.
 - **Shots field** — a whole `shots_count` of 1 or more is required, clears after every save, and is reloaded by **Edit selected**.
+- **Existing-rally jump** — **Jump selected** pauses at the selected rally's exact start timestamp;
+  **Edit selected** performs the same jump while loading the row fields, with a no-media fallback.
 - **Legacy repair** — historical reasons and missing counts load verbatim, are marked `NEEDS REVIEW`, and cannot be recommitted until both current fields are valid.
 - **Recent list** — loading a 13-rally CSV lists **all** of them (oldest first, newest last), with no "last N" cap hiding the earliest rallies.
 - **Resume / CSV adoption** — enabling with no media (home fallback) then "playing" a video and clicking **Mark START** adopts `<video>.rallies.csv`, loads the rallies already saved for it, writes new ones there, and never touches the home fallback.

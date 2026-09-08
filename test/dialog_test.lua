@@ -231,6 +231,7 @@ ok("single playback toggle (no separate Resume/Pause globals)",
 ok("Fwd 5s button wired",        buttonWithCb(seek_fwd) ~= nil)
 ok("Mark START button wired",    buttonWithCb(mark_start) ~= nil)
 ok("Save Rally button wired",    buttonWithCb(save_rally) ~= nil)
+ok("Jump selected button wired", buttonWithCb(jump_selected) ~= nil)
 ok("reason dropdown present",    find('dropdown',3,7) ~= nil)
 ok("Number of shots input present", find('text_input',4,5) ~= nil)
 
@@ -319,7 +320,14 @@ os.remove(CSV)
 --------------------------------------------------------------------------------
 local lst = find('list', 1, 11)
 lst.selection = { [1] = "row #1" }       -- select rally #1 in the Recent list
+PB.state = "playing"; PB.time_us = 30 * 1000000
+jump_selected()
+eq("Jump selected pauses playback", PB.state, "paused")
+eq("Jump selected seeks to exact rally start", PB.time_us, 1 * 1000000)
+PB.state = "playing"; PB.time_us = 30 * 1000000
 edit_selected()
+eq("Edit selected pauses playback", PB.state, "paused")
+eq("Edit selected seeks to exact rally start", PB.time_us, 1 * 1000000)
 eq("edit loads shots=12 into field", getShots(), "12")
 eq("edit loads start time", (find('text_input',2,4)):get_text(), "1.000")
 eq("edit loads reason winner", curReason(), "winner")
@@ -349,7 +357,10 @@ PB.state = "stopped"; play_pause(); eq("Play/Pause from stopped -> playing", PB.
 do
   local f = io.open(CSV, "w")
   f:write("rally_number,start_time,end_time,ending_reason,sport,shots_count\n")
-  for n = 1, 13 do f:write(string.format("%d,%d.000,%d.000,winner,badminton,\n", n, n, n + 1)) end
+  for n = 1, 13 do
+    local start = n == 1 and 1.125 or n
+    f:write(string.format("%d,%.3f,%d.000,winner,badminton,\n", n, start, n + 1))
+  end
   f:close()
   activate()                                  -- rebuild the dialog + list from the 13-row CSV
   local L; for _, w in ipairs(DIALOG.widgets) do if w.kind == 'list' and not w.deleted then L = w end end
@@ -357,6 +368,12 @@ do
   eq("recent list shows all 13 rallies (no cap)", #L.values, 13)
   eq("oldest rally #1 is the first row", L.values[1] and L.values[1].text:match("^#(%d+)"), "1")
   eq("newest rally #13 is the last row", L.values[#L.values] and L.values[#L.values].text:match("^#(%d+)"), "13")
+  L.selection = { [1] = "row #1" }
+  PB.state = "playing"; PB.time_us = 30 * 1000000
+  jump_selected()
+  eq("Jump preserves a fractional rally start", PB.time_us, 1125000)
+  eq("fractional-start jump leaves video paused", PB.state, "paused")
+  PB.state = "stopped"
   os.remove(CSV)
 end
 

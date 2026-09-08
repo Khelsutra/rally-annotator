@@ -92,8 +92,10 @@ is a single toggle (it resumes when paused, pauses when playing).
    serve. Choose `service_fault`, `unforced_error`, or `winner`, then click **Save Rally**. Both fields are
    required and clear after every save, so neither silently reuses the previous rally's value. Use the
    **Next rally #** field to resume/insert numbering anywhere.
-5. **Recent rallies** list: select a row, then **Edit selected** (loads it back into the fields to fix
-   start/end/reason → **Save changes**) or **Delete selected**. **Undo last** removes the most recent row —
+5. **Recent rallies** list: select a row, then **Jump selected** to pause the video at that rally's exact
+   start, or **Edit selected** to jump there and load start/end/shots/reason for correction → **Save changes**.
+   VLC's Lua list control does not expose a row-click callback, so the explicit Jump/Edit click is required.
+   Use **Delete selected** to remove a row. **Undo last** removes the most recent row —
    the button shows which one, e.g. `Undo last (#7)`, and the status panel shows that row's details — or clears an
    in-progress mark, or cancels an edit.
 6. **Help** button → usage + an [ending-reason decision guide](docs/ENDING_REASONS.md), rendered inside the dialog.

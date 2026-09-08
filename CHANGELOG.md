@@ -7,6 +7,10 @@
   every save, and mark legacy incomplete rows as `NEEDS REVIEW` without changing their source data.
 - Browser golden export is blocked while any row has a missing/non-positive count or a legacy
   reason. VLC keeps the in-place CSV repairable and shows the same file-level warning until clean.
+- Existing-rally repair is faster: **Jump selected** pauses the active video at the selected row's
+  exact start time, and **Edit selected** performs the same jump while loading all editable fields.
+  The explicit action is required because VLC's Lua list widget exposes selection but no row-click
+  callback.
 
 ## v2.3.1 — 2026-08-18
 - **Sport is a video attribute, not a rally control.** Both front-ends now choose sport only in

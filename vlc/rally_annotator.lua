@@ -336,7 +336,7 @@ STRINGS = {
     ["label.next"] = "Next rally #:",
     ["label.shots"] = "Number of shots (required):",
     ["label.reason"] = "Ending reason (required):",
-    ["label.recent"] = "Recent rallies (select one, then Edit/Delete):",
+    ["label.recent"] = "Recent rallies (select one, then Jump/Edit/Delete):",
     ["btn.help"] = "Help",
     ["btn.hideHelp"] = "Hide help",
     ["btn.back5"] = "Back 5s",
@@ -349,6 +349,7 @@ STRINGS = {
     ["btn.saveRally"] = "Save Rally",
     ["btn.saveRallyN"] = "Save Rally (#{n})",
     ["btn.saveChangesN"] = "Save changes (#{n})",
+    ["btn.jump"] = "Jump selected",
     ["btn.edit"] = "Edit selected",
     ["btn.delete"] = "Delete selected",
     ["btn.undo"] = "Undo last",
@@ -379,6 +380,9 @@ STRINGS = {
     ["seek.noMedia"] = "No media playing -- cannot seek.",
     ["seek.noTime"] = "No playback time available to seek from.",
     ["seek.done"] = "Seek {delta}s  ->  {clock}.",
+    ["jump.needSelect"] = "Pick a rally in the Recent list first, then Jump selected.",
+    ["jump.noMedia"] = "Open this rally's video before jumping to its start.",
+    ["jump.done"] = "Paused at rally #{n} start: {clock}.",
     ["markStart.noMedia"] = "No media playing -- cannot mark START.",
     ["markStart.armed"] = "You have an UNSAVED rally (START -> END). Click 'Save Rally' to keep it, or 'Undo last' to clear it, before marking a new START. (You can also edit the Start field by hand.)",
     ["markStart.set"] = "START set @ {clock}. Play to the rally's end, then Mark END.",
@@ -400,7 +404,8 @@ STRINGS = {
     ["edit.armedGuard"] = "Finish the current rally ('Save Rally') or clear it ('Undo last') before editing another -- your unsaved START -> END would be lost.",
     ["edit.needSelect"] = "Pick a rally in the Recent list first, then Edit selected.",
     ["edit.notFound"] = "Rally #{n} not found (try Refresh).",
-    ["edit.editing"] = "Editing rally #{n}. Adjust Start/End/reason, then Save changes. (Undo last cancels.)",
+    ["edit.editing"] = "Editing rally #{n}, paused at its start ({clock}). Adjust Start/End/shots/reason, then Save changes. (Undo last cancels.)",
+    ["edit.editingNoMedia"] = "Editing rally #{n}. Open its video to jump to {clock}; adjust Start/End/shots/reason, then Save changes. (Undo last cancels.)",
     ["del.needSelect"] = "Pick a rally in the Recent list first, then Delete selected.",
     ["del.deleted"] = "Deleted rally #{n}. {count} remaining.",
     ["undo.cancelled"] = "Edit cancelled.",
@@ -418,7 +423,7 @@ STRINGS = {
     ["activate.fallback"] = "No video detected yet. Open/play the video, then click Mark START -- the tool will switch to that video's own .rallies.csv automatically (and load any rallies already saved for it). Tip: open the video FIRST, then enable this extension.",
     ["activate.resumed"] = "Resumed this video: {count} existing rallies loaded (next is #{n}). Click Help for the guide.",
     ["activate.ready"] = "Ready. Set and save the video Sport in Clip info, then mark rallies. Click Help for usage + the ending-reason guide.",
-    ["help.html"] = "<b>Rally Annotator &mdash; golden-label flow</b><br>\n<b>Playback:</b> Back 5s / Play / Pause / Fwd 5s control VLC from this dialog.<br>\n1. Save the video <b>Sport</b> in Clip info.<br>\n2. Mark START and END at the rally boundaries.<br>\n3. Enter <b>Number of shots</b> as a whole number of 1 or more, counting racket/paddle contacts including the serve.<br>\n4. Choose one required result:<br>\n&bull; <b>service fault</b> &mdash; the faulty or illegal serve itself ends the point.<br>\n&bull; <b>unforced error</b> &mdash; the point-losing side made the last contact, so the other side gains the point.<br>\n&bull; <b>winner</b> &mdash; the point-winning side made the last contact and the defending side made no contact with the final shot.<br>\n5. Save Rally. Shots and reason clear after every save so neither can carry into the next rally.<br>\n6. Existing CSV rows still load unchanged. A row with missing/non-positive shots or an old reason is marked <b>NEEDS REVIEW</b>; edit it explicitly. The CSV is complete golden data only when no repair warning remains.<br>\n<br>\nA true no-point let stays in source history and is excluded downstream rather than relabelled here. Full contract: docs/ENDING_REASONS.md.",
+    ["help.html"] = "<b>Rally Annotator &mdash; golden-label flow</b><br>\n<b>Playback:</b> Back 5s / Play / Pause / Fwd 5s control VLC from this dialog.<br>\n1. Save the video <b>Sport</b> in Clip info.<br>\n2. Mark START and END at the rally boundaries.<br>\n3. Enter <b>Number of shots</b> as a whole number of 1 or more, counting racket/paddle contacts including the serve.<br>\n4. Choose one required result:<br>\n&bull; <b>service fault</b> &mdash; the faulty or illegal serve itself ends the point.<br>\n&bull; <b>unforced error</b> &mdash; the point-losing side made the last contact, so the other side gains the point.<br>\n&bull; <b>winner</b> &mdash; the point-winning side made the last contact and the defending side made no contact with the final shot.<br>\n5. Save Rally. Shots and reason clear after every save so neither can carry into the next rally.<br>\n6. Existing CSV rows still load unchanged. Select a row and click <b>Jump selected</b> to pause at its exact start, or <b>Edit selected</b> to jump there and load its fields. A row with missing/non-positive shots or an old reason is marked <b>NEEDS REVIEW</b>; edit it explicitly. The CSV is complete golden data only when no repair warning remains.<br>\n<br>\nA true no-point let stays in source history and is excluded downstream rather than relabelled here. Full contract: docs/ENDING_REASONS.md.",
   },
 }
 
@@ -1882,6 +1887,31 @@ function save_rally()
   set_status(msg)
 end
 
+-- VLC's Lua list widget exposes selection through get_selection(), but it has no
+-- row-selection callback. Keep seeking behind an explicit button and reuse the
+-- same operation when Edit selected is pressed. Pausing before the absolute seek
+-- prevents playback from running past the boundary while the operator moves from
+-- the repair sheet to the annotation fields.
+local function seek_to_rally_start(r)
+  if not r or get_time_us() == nil then return false end
+  local st = vlc.playlist and vlc.playlist.status and vlc.playlist.status()
+  if st == "playing" and vlc.playlist and vlc.playlist.pause then
+    local ok = pcall(vlc.playlist.pause)
+    if not ok then return false end
+  end
+  return set_time_us(math.floor(r.s * 1000000 + 0.5))
+end
+
+function jump_selected()
+  local n = selected_rally_number()
+  if not n then set_status(t("jump.needSelect")); return end
+  local idx = index_of_rally(n)
+  if not idx then set_status(t("edit.notFound", { n = n })); return end
+  local r = rows[idx]
+  if not seek_to_rally_start(r) then set_status(t("jump.noMedia")); return end
+  set_status(t("jump.done", { n = r.n, clock = fmt_clock(r.s) }))
+end
+
 function edit_selected()
   if is_armed() then
     set_status(t("edit.armedGuard"))
@@ -1898,7 +1928,11 @@ function edit_selected()
   if w_shots then w_shots:set_text(r.shots ~= nil and tostring(r.shots) or "") end
   rebuild_reason_selected(r.reason)
   refresh_buttons()
-  set_status(t("edit.editing", { n = r.n }))
+  if seek_to_rally_start(r) then
+    set_status(t("edit.editing", { n = r.n, clock = fmt_clock(r.s) }))
+  else
+    set_status(t("edit.editingNoMedia", { n = r.n, clock = fmt_clock(r.s) }))
+  end
 end
 
 function delete_selected()
@@ -2401,12 +2435,13 @@ local function build_rally_screen()
   d:add_label(t("label.recent"), 1, 10, 4, 1)
   w_list = d:add_list(1, 11, 4, 4)
 
-  d:add_button(t("btn.edit"),   edit_selected,   1, 15, 1, 1)
-  d:add_button(t("btn.delete"), delete_selected, 2, 15, 1, 1)
-  w_undo = d:add_button(t("btn.undo"), undo_last, 3, 15, 1, 1)
-  d:add_button(t("btn.refresh"), refresh_now,     4, 15, 1, 1)
+  d:add_button(t("btn.jump"),   jump_selected,   1, 15, 1, 1)
+  d:add_button(t("btn.edit"),   edit_selected,   2, 15, 1, 1)
+  d:add_button(t("btn.delete"), delete_selected, 3, 15, 1, 1)
+  w_undo = d:add_button(t("btn.undo"), undo_last, 4, 15, 1, 1)
+  d:add_button(t("btn.refresh"), refresh_now,     1, 16, 4, 1)
 
-  help_row = 16
+  help_row = 17
   refresh_next_field()
   if form.next ~= "" and w_next then w_next:set_text(form.next) end
   refresh_list()

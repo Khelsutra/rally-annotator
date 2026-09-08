@@ -21,9 +21,10 @@ title :: Rally Annotator v2.4.0
 20. dropdown   @(3,7) 1x1 :: [choose ending reason..., service fault, unforced error, winner]
 21. button     @(4,7) 1x1 :: Save Rally
 22. html       @(1,8) 4x2 :: <runtime html>
-23. label      @(1,10) 4x1 :: Recent rallies (select one, then Edit/Delete):
+23. label      @(1,10) 4x1 :: Recent rallies (select one, then Jump/Edit/Delete):
 24. list       @(1,11) 4x4 :: <list>
-25. button     @(1,15) 1x1 :: Edit selected
-26. button     @(2,15) 1x1 :: Delete selected
-27. button     @(3,15) 1x1 :: Undo last
-28. button     @(4,15) 1x1 :: Refresh
+25. button     @(1,15) 1x1 :: Jump selected
+26. button     @(2,15) 1x1 :: Edit selected
+27. button     @(3,15) 1x1 :: Delete selected
+28. button     @(4,15) 1x1 :: Undo last
+29. button     @(1,16) 4x1 :: Refresh
