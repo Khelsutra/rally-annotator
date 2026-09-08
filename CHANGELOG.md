@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.4.0 — 2026-09-08
+- Golden rally saves now require a whole `shots_count` of 1 or more and exactly one of
+  `service_fault`, `unforced_error`, or `winner`.
+- VLC and browser UIs show the shared last-contact definitions, clear both required fields after
+  every save, and mark legacy incomplete rows as `NEEDS REVIEW` without changing their source data.
+- Browser golden export is blocked while any row has a missing/non-positive count or a legacy
+  reason. VLC keeps the in-place CSV repairable and shows the same file-level warning until clean.
+- Existing-rally repair is faster: **Jump selected** pauses the active video at the selected row's
+  exact start time, and **Edit selected** performs the same jump while loading all editable fields.
+  The explicit action is required because VLC's Lua list widget exposes selection but no row-click
+  callback.
+
 ## v2.3.1 — 2026-08-18
 - **Sport is a video attribute, not a rally control.** Both front-ends now choose sport only in
   **Clip info**, display it read-only on the rally screen, and project the same canonical value into

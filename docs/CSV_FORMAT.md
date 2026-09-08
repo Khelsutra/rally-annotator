@@ -6,7 +6,7 @@ One row per rally. Header is written once when the file is created.
 rally_number,start_time,end_time,ending_reason,sport,shots_count
 1,8.800,11.500,winner,badminton,9
 2,24.389,46.589,unforced_error,badminton,21
-3,49.183,54.683,let,badminton,
+3,49.183,54.683,winner,badminton,1
 ```
 
 | Column | Type | Notes |
@@ -14,13 +14,16 @@ rally_number,start_time,end_time,ending_reason,sport,shots_count
 | `rally_number` | int | 1-based, monotonic; continues across re-opening the same CSV |
 | `start_time` | float | rally start, **decimal seconds** from the video start |
 | `end_time` | float | rally end, decimal seconds (always `> start_time`) |
-| `ending_reason` | enum | `unknown` (default) / `winner` / `forced_error` / `unforced_error` / `service_fault` / `let` / `other` — see the decision guide in [ENDING_REASONS.md](ENDING_REASONS.md) |
+| `ending_reason` | enum | **required** — exactly `service_fault`, `unforced_error`, or `winner` for new and updated golden rows; see [ENDING_REASONS.md](ENDING_REASONS.md) |
 | `sport` | enum | Denormalized projection of the video's single Clip-info sport: `badminton` / `tennis` / `table_tennis` / `pickleball` / `padel`. Every row for one video must agree. |
-| `shots_count` | int | **optional** — number of shots/strokes in the rally. **Blank** when not entered (as in row 3 above); added in v1.6. Older CSVs without this column still load. |
+| `shots_count` | int | **required** — number of racket/paddle contacts including the serve; whole number `>= 1`. Older CSVs without this column still load as repair inputs. |
 
 Notes:
 - **Decimal seconds**, not `mm:ss` — downstream loaders parse floats.
 - Rows are appended live; **Undo last** truncates the last row (one level).
+- Legacy rows with a missing/non-positive count or an old reason still load without data loss and
+  are marked for review. A browser golden CSV export is blocked until every row is repaired. The
+  VLC file remains an in-progress repair artifact while its warning is visible.
 - Consumers should read by **column name** (the header is stable but column *order* may evolve; extra
   columns may be added later). Most CSV `DictReader`-style loaders already tolerate extra columns.
 

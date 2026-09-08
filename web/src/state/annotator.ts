@@ -5,7 +5,13 @@
 // state machine stays independent of UI copy. Reason/sport values are canonical English
 // and are written verbatim to the CSV.
 
-import { RallyRow, serializeRows } from "./csv";
+import {
+  GOLDEN_ENDING_REASONS,
+  RallyRow,
+  goldenRepairRows,
+  isGoldenEndingReason,
+  serializeGoldenRows,
+} from "./csv";
 
 export const SPORTS = [
   "badminton",
@@ -32,16 +38,9 @@ export function unanimousRowSport(rows: RallyRow[]): Sport | null {
   return found;
 }
 
-export const REASON_DEFAULT = "unknown";
-export const REASONS = [
-  "winner",
-  "forced_error",
-  "unforced_error",
-  "service_fault",
-  "let",
-  "other",
-] as const;
-// Dropdown order: the savable default ("unknown") first so it shows selected.
+export const REASON_DEFAULT = "";
+export const REASONS = GOLDEN_ENDING_REASONS;
+// Dropdown order: a non-savable placeholder first, then the three golden outcomes.
 export const REASON_OPTIONS = [REASON_DEFAULT, ...REASONS] as const;
 
 export type Mode = "new" | "edit";
@@ -91,7 +90,7 @@ export class Annotator {
   endField = "";
   shotsField = "";
   nextField = "";
-  reason: string = REASON_DEFAULT; // non-sticky
+  reason: string = REASON_DEFAULT; // required and non-sticky
   sport: Sport | null;
 
   private persist: PersistFn;
@@ -131,12 +130,11 @@ export class Annotator {
     return this.nextRallyNumber();
   }
 
-  // Optional shots_count: null for blank/negative/non-numeric; else floor. NB: 0 is
-  // VALID (the Lua treats only nil/negative as "no count", and 0 is truthy there).
+  // Required shots_count: a positive integer. Do not round or repair typed values.
   getShots(): number | null {
     const v = fieldNum(this.shotsField);
-    if (v == null || v < 0) return null;
-    return Math.floor(v);
+    if (v == null || !Number.isInteger(v) || v < 1) return null;
+    return v;
   }
 
   // Fresh rally fully marked (START + END) but not yet saved -> unsaved work exists.
@@ -228,14 +226,16 @@ export class Annotator {
     } // tolerate reversed marks
     if (e <= s) return { ok: false, key: "status.zeroLength" };
 
-    const reason = this.reason || REASON_DEFAULT;
+    const reason = this.reason;
+    if (!isGoldenEndingReason(reason)) return { ok: false, key: "status.needReason" };
+    const shotsNum = this.getShots();
+    if (shotsNum == null) return { ok: false, key: "status.needShots" };
     const sport = this.sport;
     if (sport == null) return { ok: false, key: "status.needVideoSport" };
     if (this.rows.some((row) => row.sport !== sport)) {
       return { ok: false, key: "status.mixedVideoSport" };
     }
-    const shotsNum = this.getShots();
-    const shots = shotsNum != null ? String(shotsNum) : null;
+    const shots = String(shotsNum);
 
     if (this.mode === "edit" && this.editIndex != null && this.rows[this.editIndex]) {
       const r = this.rows[this.editIndex];
@@ -360,6 +360,10 @@ export class Annotator {
   }
 
   toCSV(): string {
-    return serializeRows(this.rows);
+    return serializeGoldenRows(this.rows);
+  }
+
+  goldenRepairRows(): number[] {
+    return goldenRepairRows(this.rows);
   }
 }

@@ -5,6 +5,7 @@
 // reason/sport VALUES stay canonical when written to CSV.
 
 import { Annotator, SPORTS, REASON_OPTIONS, canonicalSport, type Msg } from "../state/annotator";
+import { isGoldenEndingReason, isPositiveIntegerShots } from "../state/csv";
 import type { DirectVideoHandler } from "../video/directVideo";
 import type { VideoIdentity } from "../persist/store";
 import { VERSION } from "../version";
@@ -52,10 +53,16 @@ function tMsg(m: Msg): string {
   let p = m.params;
   if (p && (typeof p.reason === "string" || typeof p.sport === "string")) {
     p = { ...p };
-    if (typeof p.reason === "string") p.reason = t("reason." + p.reason);
+    if (typeof p.reason === "string") p.reason = reasonText(p.reason);
     if (typeof p.sport === "string") p.sport = t("sport." + p.sport);
   }
   return t(m.key, p);
+}
+
+function reasonText(reason: string): string {
+  if (reason === "") return t("reason.missing");
+  const translated = t("reason." + reason);
+  return translated === "reason." + reason ? reason : translated;
 }
 
 const STYLE = `
@@ -161,7 +168,7 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   const nextLabel = h("label");
   const nextIn = h("input", { name: "next" }) as HTMLInputElement;
   const shotsLabel = h("label");
-  const shotsIn = h("input", { name: "shots" }) as HTMLInputElement;
+  const shotsIn = h("input", { name: "shots", type: "number", min: "1", step: "1", required: true }) as HTMLInputElement;
   body.append(h("div", { class: "row" }, nextLabel, nextIn, shotsLabel, shotsIn));
 
   // ---- reason ----
@@ -287,7 +294,9 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     nextIn.placeholder = t("ph.next");
     shotsIn.placeholder = t("ph.shots");
     reasonLabel.textContent = t("label.reason");
-    for (const o of Array.from(reasonSel.options)) o.textContent = t("reason." + o.value);
+    for (const o of Array.from(reasonSel.options)) {
+      o.textContent = o.value === "" ? t("reason.choose") : reasonText(o.value);
+    }
     editBtn.textContent = t("btn.edit");
     delBtn.textContent = t("btn.delete");
     refreshBtn.textContent = t("btn.refresh");
@@ -339,6 +348,17 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     endIn.value = a.endField;
     nextIn.value = a.nextField;
     shotsIn.value = a.shotsField;
+    for (const option of Array.from(reasonSel.options)) {
+      if (option.dataset.legacy === "true") option.remove();
+    }
+    if (a.reason !== "" && !isGoldenEndingReason(a.reason)) {
+      const legacy = h("option", {
+        value: a.reason,
+        textContent: t("reason.legacyValue", { value: reasonText(a.reason) }),
+      }) as HTMLOptionElement;
+      legacy.dataset.legacy = "true";
+      reasonSel.prepend(legacy);
+    }
     reasonSel.value = a.reason;
     sportValue.textContent = a.sport ? t("sport." + a.sport) : t("fmt.unset");
     // state-dependent labels
@@ -371,9 +391,10 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     list.replaceChildren();
     for (const r of a.rows) {
       const shotsTxt = r.shots != null ? `  ${r.shots} ${t("ph.shots")}` : "";
+      const needsRepair = !isGoldenEndingReason(r.reason) || !isPositiveIntegerShots(r.shots);
       const item = h("div", {
-        class: "item" + (r.n === selectedN ? " sel" : ""),
-        textContent: `#${r.n}  ${fmtClock(r.s)} → ${fmtClock(r.e)}  [${t("reason." + r.reason)}, ${t("sport." + r.sport)}]${shotsTxt}`,
+        class: "item" + (r.n === selectedN ? " sel" : "") + (needsRepair ? " warn" : ""),
+        textContent: `#${r.n}  ${fmtClock(r.s)} → ${fmtClock(r.e)}  [${reasonText(r.reason)}, ${t("sport." + r.sport)}]${shotsTxt}${needsRepair ? `  ${t("status.needsReviewRow")}` : ""}`,
       });
       item.addEventListener("click", () => {
         selectedN = r.n;
@@ -420,10 +441,12 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
   saveBtn.addEventListener("click", () => {
     const res = a.saveRally();
     if (res.ok) {
-      download(a.toCSV()); // download the full CSV on each save (per design)
       refreshSavedClipSidecar();
+      const repair = a.goldenRepairRows();
+      if (repair.length === 0) download(a.toCSV()); // only complete golden CSVs leave the app
+      else setStatus({ key: "status.exportBlocked", params: { count: repair.length, rows: repair.join(", ") } });
     }
-    setStatus(res);
+    if (!res.ok || a.goldenRepairRows().length === 0) setStatus(res);
   });
 
   editBtn.addEventListener("click", () => setStatus(a.editSelected(selectedN)));
@@ -445,6 +468,11 @@ export function mountPanel(deps: PanelDeps): PanelHandle {
     setStatus({ key: video.hasVideo() ? "status.refreshedVideo" : "status.noVideoFound" });
   });
   dlBtn.addEventListener("click", () => {
+    const repair = a.goldenRepairRows();
+    if (repair.length > 0) {
+      setStatus({ key: "status.exportBlocked", params: { count: repair.length, rows: repair.join(", ") } });
+      return;
+    }
     download(a.toCSV());
     setStatus({ key: "status.downloaded", params: { count: a.rows.length } });
   });

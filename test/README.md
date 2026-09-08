@@ -54,8 +54,11 @@ Why 5.1 specifically: it's the interpreter VLC 3.x embeds, so the test's syntax/
   normalizes every historical CSV row to the one video sport.
 - **English-only UI** — exactly one English message catalog ships and no language selector exists.
 - **Help toggle** — the dedicated help panel is added/removed on each click and the button label flips.
-- **Reason field** — defaults to `unknown`, resets after every save, supports the same reason on consecutive rallies, and a no-pick save records `unknown`.
-- **Shots field** — the optional `shots_count` is written when entered, left blank when not, clears after each save, and is reloaded by **Edit selected** (and the edit rewrites it).
+- **Reason field** — starts on a non-savable placeholder, accepts exactly `service_fault`, `unforced_error`, or `winner`, and resets after every save.
+- **Shots field** — a whole `shots_count` of 1 or more is required, clears after every save, and is reloaded by **Edit selected**.
+- **Existing-rally jump** — **Jump selected** pauses at the selected rally's exact start timestamp;
+  **Edit selected** performs the same jump while loading the row fields, with a no-media fallback.
+- **Legacy repair** — historical reasons and missing counts load verbatim, are marked `NEEDS REVIEW`, and cannot be recommitted until both current fields are valid.
 - **Recent list** — loading a 13-rally CSV lists **all** of them (oldest first, newest last), with no "last N" cap hiding the earliest rallies.
 - **Resume / CSV adoption** — enabling with no media (home fallback) then "playing" a video and clicking **Mark START** adopts `<video>.rallies.csv`, loads the rallies already saved for it, writes new ones there, and never touches the home fallback.
 - **Unsaved-work guards** — with a fully-marked-but-unsaved rally (START + END), **Mark START** and **Edit selected** are refused (fields untouched) until you Save Rally or Undo last; in **edit mode** the Mark buttons relabel to "Re-mark START/END (#N)" and revert afterwards.
@@ -72,12 +75,12 @@ captures the **widget tree the extension hands to VLC** — the same thing VLC t
 against a committed golden:
 
 ```
-title :: Rally Annotator v2.3.1
+title :: Rally Annotator v2.4.0
  1. label      @(1,1) 1x1 :: ▸ Rallies
  2. label      @(2,2) 1x1 :: Sport:
  3. label      @(3,2) 2x1 :: badminton
  ...
-15. dropdown   @(3,7) 1x1 :: [unknown, winner, forced_error, unforced_error, service_fault, let, other]
+20. dropdown   @(3,7) 1x1 :: [choose ending reason..., service fault, unforced error, winner]
 ```
 
 Each line is a control's `kind @(column,row) WxH :: caption` (dropdowns list their options; the dynamic status/help

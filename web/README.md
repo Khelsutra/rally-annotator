@@ -12,10 +12,10 @@ that feeds the Khelsutra rally-segmentation pipeline.
 **Chrome-first, loaded unpacked.** Built as one cross-browser-ready codebase (WXT); Firefox + Safari
 + store publishing are the north star (low-rework follow-ups), not yet wired.
 
-## Status (v0.1.0)
+## Status (v0.2.0)
 
 Works now:
-- Full dialog parity: two-step Mark→Save, non-sticky reason (default `unknown`), one sport set in
+- Full dialog parity: two-step Mark→Save, required non-sticky shot count and three-result reason, one sport set in
   Clip info for the whole video, editable Start/End, `Next rally #` continuity + auto-advance, **Number of shots**, 3-way
   Undo, edit-mode **Re-mark (#N)** relabel, **unsaved-rally guard**, recent-rallies list (all,
   oldest-first), Back 5s / Play-Pause / Fwd 5s.
@@ -23,7 +23,8 @@ Works now:
 - Controls any **direct HTML5 `<video>`** in the top frame, including videos in (open/closed)
   shadow DOM and **youtube.com/watch** (its player is in the main page).
 - Rallies autosave to extension storage keyed per video → reloading the page resumes numbering.
-- The full CSV downloads on each Save (and via the **Download CSV** button).
+- A complete golden CSV downloads on each valid Save (and via the download button). Legacy rows load
+  unchanged and block export until each missing count or old reason is explicitly repaired.
 
 Not yet (deliberate follow-ups):
 - **YouTube/Vimeo embeds on third-party pages** (cross-origin `<iframe>`) — needs a per-provider
