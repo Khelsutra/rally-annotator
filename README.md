@@ -1,10 +1,9 @@
 # Rally Annotator
 
-> **Part of [Khelsutra](https://khelsutra.guru) — _“Every rally, indexed. The dead time, gone.”_**
-> Khelsutra turns a full badminton match into a clean index of rallies with the dead time stripped out —
-> a highlight reel you can watch and download. **Rally Annotator is its open labeling tool**: the
-> ground-truth rally CSVs produced here are what the Khelsutra pipeline trains and evaluates its
-> rally-segmentation models against. This repo is the public, open-source piece of that stack.
+**Rally Annotator is an open labeling tool by [KhelSutra](https://khelsutra.guru), the research and
+open-tooling brand behind KhelVision.** It produces human rally labels for evaluation and other
+authorized uses. The tool and its CSV contracts do not establish KhelVision inference quality or
+product availability.
 
 Hand-label rally **start/end + shot count + point-ending result** while you watch a match, for **net-separated racquet
 sports** — badminton, tennis, table tennis, pickleball, padel. Two front-ends, **same CSV**:
@@ -49,7 +48,7 @@ rally on a neighbouring court.
 | a **local video file** | the **VLC plugin** (install + use below) | `<video>.rallies.csv` next to the file |
 | **web video / YouTube** (`youtube.com/watch`) | the **browser extension** → [web/](web/) | complete golden CSV after valid saves; blocked while legacy rows need repair |
 
-Both write the **identical CSV schema**, so labels from either path feed the same Khelsutra pipeline. The
+Both write the **identical CSV schema**, so labels from either path can feed the same evaluation pipeline. The
 VLC flow is documented below; the browser extension has its own [README](web/README.md), a
 [design doc with locked decisions](web/DESIGN.md), and a [testing strategy](web/TESTING.md). Either way the
 workflow is the same: **Mark START → Mark END → enter shots → pick the reason → Save**, one CSV row per rally.
@@ -176,16 +175,12 @@ It covers all the logic but not VLC's GUI rendering or real playback (there's no
 are checked by loading in VLC with `vlc -vv --file-logging` (must scan with no `Error loading` line) plus a manual
 click-through. See [test/README.md](test/README.md).
 
-## About Khelsutra
-[Khelsutra](https://khelsutra.guru) turns a full **badminton** match into a clean **index of rallies** with
-the dead time stripped out — a highlight reel you can watch and download, plus a summary. It's an
-**invite-only alpha** (Bengaluru) aimed at **academies and players**, with privacy built in (your footage
-stays yours; minors are protected) and a roadmap toward shot detection, deeper match analysis, per-match
-history, and an AI **assistant coach** — expanding to more sports over time.
+## About KhelVision and KhelSutra
 
-**Rally Annotator is the open-source labeling tool of that stack.** The rally CSVs you produce here are the
-ground truth its rally-segmentation models learn from — so better labels directly mean better auto-generated
-reels. _“Every rally, indexed. The dead time, gone.”_
+[KhelVision](https://khelvision.in) is the sports-video product built by KhelSutra. Rally Annotator is
+the separate, open-source tool for producing human rally labels. Its CSVs can support evaluation when
+the footage and labels are authorized for that use. This repository does not publish KhelVision model
+results, product availability, or rights to use someone else's footage.
 
 ## Contributing
 Issues and PRs welcome — live test reports per sport/OS, browser-extension features, and UX fixes. Every
