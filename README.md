@@ -1,8 +1,5 @@
 # Rally Annotator
 
-[![VLC dialog suite](https://github.com/Khelsutra/rally-annotator/actions/workflows/ci.yml/badge.svg)](https://github.com/Khelsutra/rally-annotator/actions/workflows/ci.yml)
-[![web extension CI](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml/badge.svg)](https://github.com/Khelsutra/rally-annotator/actions/workflows/web-ci.yml)
-
 > **Part of [Khelsutra](https://khelsutra.guru) — _“Every rally, indexed. The dead time, gone.”_**
 > Khelsutra turns a full badminton match into a clean index of rallies with the dead time stripped out —
 > a highlight reel you can watch and download. **Rally Annotator is its open labeling tool**: the
